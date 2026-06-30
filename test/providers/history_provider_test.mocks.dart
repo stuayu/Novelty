@@ -378,6 +378,15 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
           as _i5.Future<List<_i3.EpisodeSearchResult>>);
 
   @override
+  _i5.Future<void> ensureNovelExists(String? ncode) =>
+      (super.noSuchMethod(
+            Invocation.method(#ensureNovelExists, [ncode]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
   _i5.Future<int> addToLibrary(String? ncode) =>
       (super.noSuchMethod(
             Invocation.method(#addToLibrary, [ncode]),
@@ -474,6 +483,14 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
             returnValue: _i5.Future<int>.value(0),
           )
           as _i5.Future<int>);
+
+  @override
+  _i5.Future<_i3.ReadingHistoryData?> getReadingHistoryByNcode(String? ncode) =>
+      (super.noSuchMethod(
+            Invocation.method(#getReadingHistoryByNcode, [ncode]),
+            returnValue: _i5.Future<_i3.ReadingHistoryData?>.value(),
+          )
+          as _i5.Future<_i3.ReadingHistoryData?>);
 
   @override
   _i5.Future<void> upsertEpisodes(
