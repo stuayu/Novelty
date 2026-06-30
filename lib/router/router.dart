@@ -7,6 +7,7 @@ import 'package:novelty/screens/download_manager_page.dart';
 import 'package:novelty/screens/explore_page.dart';
 import 'package:novelty/screens/history_page.dart';
 import 'package:novelty/screens/library_page.dart';
+import 'package:novelty/screens/login_page.dart';
 import 'package:novelty/screens/more_page.dart';
 import 'package:novelty/screens/novel_detail_page.dart';
 import 'package:novelty/screens/novel_page.dart';
@@ -62,33 +63,28 @@ final router = GoRouter(
               routes: [
                 GoRoute(
                   path: 'appearance',
-                  builder: (BuildContext context, GoRouterState state) {
-                    return const AppearanceSettingsPage();
-                  },
+                  builder: (context, state) =>
+                      const AppearanceSettingsPage(),
                 ),
                 GoRoute(
                   path: 'reader',
-                  builder: (BuildContext context, GoRouterState state) {
-                    return const ReaderSettingsPage();
-                  },
+                  builder: (context, state) => const ReaderSettingsPage(),
                 ),
                 GoRoute(
                   path: 'data-storage',
-                  builder: (BuildContext context, GoRouterState state) {
-                    return const DataStoragePage();
-                  },
+                  builder: (context, state) => const DataStoragePage(),
                 ),
                 GoRoute(
                   path: 'about',
-                  builder: (BuildContext context, GoRouterState state) {
-                    return const AboutPage();
-                  },
+                  builder: (context, state) => const AboutPage(),
                 ),
                 GoRoute(
                   path: 'downloads',
-                  builder: (BuildContext context, GoRouterState state) {
-                    return const DownloadManagerPage();
-                  },
+                  builder: (context, state) => const DownloadManagerPage(),
+                ),
+                GoRoute(
+                  path: 'login',
+                  builder: (context, state) => const LoginPage(),
                 ),
               ],
             ),
@@ -99,15 +95,16 @@ final router = GoRouter(
     GoRoute(
       path: '/novel/:ncode',
       parentNavigatorKey: _rootNavigatorKey,
-      builder: (BuildContext context, GoRouterState state) {
+      builder: (context, state) {
         final ncode = state.pathParameters['ncode']!.toNormalizedNcode();
         return NovelDetailPage(ncode: ncode);
       },
       routes: [
         GoRoute(
           path: ':episode',
-          builder: (BuildContext context, GoRouterState state) {
-            final ncode = state.pathParameters['ncode']!.toNormalizedNcode();
+          builder: (context, state) {
+            final ncode =
+                state.pathParameters['ncode']!.toNormalizedNcode();
             final episode =
                 int.tryParse(state.pathParameters['episode'] ?? '1') ?? 1;
             final revised = state.uri.queryParameters['revised'];
@@ -123,7 +120,7 @@ final router = GoRouter(
     GoRoute(
       path: '/author/:userId',
       parentNavigatorKey: _rootNavigatorKey,
-      builder: (BuildContext context, GoRouterState state) {
+      builder: (context, state) {
         final userId = int.tryParse(state.pathParameters['userId'] ?? '');
         if (userId == null) {
           return Scaffold(

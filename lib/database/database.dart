@@ -597,6 +597,17 @@ class AppDatabase extends _$AppDatabase {
         .toList();
   }
 
+  /// Novelsテーブルに小説が存在しない場合のみ最小限のレコードを挿入する。
+  ///
+  /// LibraryEntriesはNovelsへの外部キーを持つため、
+  /// addToLibraryの前にこのメソッドを呼ぶ必要がある。
+  Future<void> ensureNovelExists(String ncode) {
+    return into(novels).insert(
+      NovelsCompanion(ncode: drift.Value(ncode.toNormalizedNcode())),
+      mode: InsertMode.insertOrIgnore,
+    );
+  }
+
   /// ライブラリに小説を追加
   Future<int> addToLibrary(String ncode) {
     final normalized = ncode.toNormalizedNcode();
@@ -753,6 +764,13 @@ class AppDatabase extends _$AppDatabase {
   /// 履歴の全削除
   Future<int> clearHistory() {
     return delete(readingHistory).go();
+  }
+
+  /// 特定ncodeの読書履歴を1件取得する。
+  Future<ReadingHistoryData?> getReadingHistoryByNcode(String ncode) {
+    return (select(readingHistory)
+          ..where((t) => t.ncode.equals(ncode.toNormalizedNcode())))
+        .getSingleOrNull();
   }
 
   /// エピソード情報（目次）の保存

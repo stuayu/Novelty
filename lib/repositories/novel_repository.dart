@@ -11,6 +11,7 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_info_extension.dart';
 import 'package:novelty/providers/connectivity_provider.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/services/narou_sync_service.dart';
 import 'package:novelty/utils/ncode_utils.dart';
 import 'package:novelty/utils/settings_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -670,6 +671,12 @@ class LibraryStatus extends _$LibraryStatus {
         // Usually fetchNovelInfo handles this.
         await db.insertNovel(novelInfo.toDbCompanion());
         await db.addToLibrary(novelInfo.ncode!);
+        // ログイン済みの場合、なろうにもブックマーク登録する
+        unawaited(
+          ref
+              .read(narouSyncServiceProvider)
+              .addBookmarkToNarou(novelInfo.ncode!),
+        );
       } else {
         await db.removeFromLibrary(novelInfo.ncode!);
       }
