@@ -64,14 +64,16 @@ jobs:
       - name: Build iOS (${{ matrix.mode }}, unsigned)
         run: mise exec -- flutter build ios --${{ matrix.mode }} --no-codesign
 
-      - name: Compress iOS ${{ matrix.mode }} build
+      - name: Package iOS ${{ matrix.mode }} build as IPA (unsigned)
         run: |
           cd build/ios/iphoneos
-          zip -r Runner.app.zip Runner.app
+          mkdir Payload
+          cp -r Runner.app Payload/
+          zip -r Runner.ipa Payload
 
       - name: Upload iOS ${{ matrix.mode }} build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ios-${{ matrix.mode }}-app
-          path: build/ios/iphoneos/Runner.app.zip
+          name: ios-${{ matrix.mode }}-ipa
+          path: build/ios/iphoneos/Runner.ipa
           retention-days: 14
