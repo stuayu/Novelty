@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      tag_name: ${{ steps.calculate_version.outputs.tag_name }}
 
     steps:
       - name: Checkout repository
@@ -190,3 +192,27 @@ jobs:
             build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
             build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
             build/app/outputs/flutter-apk/app-x86_64-release.apk
+
+  ios-build-check:
+    runs-on: macos-latest
+    needs: release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release.outputs.tag_name }}
+
+      - name: Setup mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          cache: true
+
+      - name: Get Flutter packages
+        run: mise run get
+
+      - name: Run code generation
+        run: mise run codegen
+
+      - name: Build iOS (unsigned, verification only)
+        run: mise exec -- flutter build ios --release --no-codesign
