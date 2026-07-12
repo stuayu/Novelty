@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novelty/database/database.dart';
 import 'package:novelty/models/novel_info.dart';
+import 'package:novelty/models/novel_info_extension.dart';
 
 void main() {
   group('NovelInfo', () {
@@ -55,6 +57,43 @@ void main() {
       expect(companion.ncode.value, equals('n1234'));
       expect(companion.title.value, equals('Test Novel'));
       expect(companion.userId.value, equals(12345));
+    });
+
+    test('掲載日時をソート可能な整数としてDBへ保存する', () {
+      const novel = NovelInfo(
+        ncode: 'n1234',
+        generalFirstup: '2026-07-01 12:34:56',
+        generalLastup: '2026-07-12 23:45:01',
+      );
+
+      final companion = novel.toDbCompanion();
+
+      expect(companion.generalFirstup.value, 20260701123456);
+      expect(companion.generalLastup.value, 20260712234501);
+    });
+
+    test('DBの掲載日時をAPIと同じ文字列形式へ復元する', () {
+      const dbNovel = Novel(
+        ncode: 'n1234',
+        generalFirstup: 20260701123456,
+        generalLastup: 20260712234501,
+      );
+
+      final model = dbNovel.toModel();
+
+      expect(model.generalFirstup, '2026-07-01 12:34:56');
+      expect(model.generalLastup, '2026-07-12 23:45:01');
+    });
+
+    test('作品更新日時の文字列を数値へ変換する', () {
+      final novel = NovelInfo.fromJson({
+        'ncode': 'N1234AB',
+        'novelupdated_at': '2026-07-12 23:45:01',
+        'updated_at': '2026-07-12 23:46:02',
+      });
+
+      expect(novel.novelupdatedAt, 20260712234501);
+      expect(novel.updatedAt, 20260712234602);
     });
   });
 }

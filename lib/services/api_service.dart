@@ -105,6 +105,8 @@ class ApiService {
     // API allows fetching up to 20 novels at once, so we'll chunk the requests
     const chunkSize = 20;
     final result = <String, NovelInfo>{};
+    Object? lastError;
+    var successfulChunks = 0;
 
     for (var i = 0; i < ncodes.length; i += chunkSize) {
       final chunk = ncodes.sublist(
@@ -125,6 +127,7 @@ class ApiService {
 
       try {
         final data = await _fetchData(uri.toString());
+        successfulChunks++;
         if (data.isNotEmpty &&
             (data[0] as Map<String, dynamic>?)?['allcount'] != null &&
             ((data[0] as Map<String, dynamic>?)?['allcount'] as int? ?? 0) >
@@ -157,12 +160,110 @@ class ApiService {
             }
           }
         }
-      } on Exception {
+      } on Exception catch (e) {
+        lastError = e;
+        debugPrint(
+          '[ApiService] メタデータ一括取得に失敗しました: '
+          '${chunk.join(',')} ($e)',
+        );
         // Continue with the next chunk even if this one fails
       }
     }
 
+    if (successfulChunks == 0 && lastError != null) {
+      throw Exception('すべてのメタデータ取得に失敗しました: $lastError');
+    }
+
+    // 開示設定が「検索除外中」の作品は、Nコードを直接指定しても
+    // なろう小説APIから返されない。作品ページ自体は閲覧できるため、
+    // APIで欠落した作品だけHTMLから基本メタデータを補完する。
+    final requested = ncodes.map((ncode) => ncode.toNormalizedNcode()).toSet();
+    final missing = requested.difference(result.keys.toSet());
+    for (final ncode in missing) {
+      try {
+        result[ncode] = await fetchNovelInfoFromHtml(ncode);
+      } on Exception catch (e) {
+        debugPrint('[ApiService] HTMLからのメタデータ取得に失敗: $ncode ($e)');
+      }
+    }
+
     return result;
+  }
+
+  /// APIの検索除外作品について、公開作品ページから基本情報を取得する。
+  Future<NovelInfo> fetchNovelInfoFromHtml(String ncode) async {
+    final normalizedNcode = ncode.toNormalizedNcode();
+    final topUrl = 'https://ncode.syosetu.com/$normalizedNcode/';
+    final response = await _fetchWithCache(topUrl);
+    if (response.statusCode != 200 || response.data == null) {
+      throw Exception('作品ページを取得できませんでした: ${response.statusCode}');
+    }
+
+    final document = parser.parse(response.data!);
+    final title = document.querySelector('h1.p-novel__title')?.text.trim();
+    if (title == null || title.isEmpty) {
+      throw Exception('作品タイトルを取得できませんでした');
+    }
+
+    final authorElement = document.querySelector('.p-novel__author');
+    final writer = authorElement?.text.replaceFirst('作者：', '').trim();
+    final authorHref = authorElement?.querySelector('a')?.attributes['href'];
+    final userId = authorHref == null
+        ? null
+        : int.tryParse(
+            RegExp(r'/([0-9]+)/?').firstMatch(authorHref)?.group(1) ?? '',
+          );
+    final story = document.querySelector('.p-novel__summary')?.text.trim();
+
+    final firstPageEpisodes = _parseEpisodes(document);
+    var lastPageEpisodes = firstPageEpisodes;
+    var maxPage = 1;
+    for (final anchor in document.querySelectorAll('a[href]')) {
+      final href = anchor.attributes['href'];
+      if (href == null) continue;
+      final page = int.tryParse(
+        RegExp(r'[?&]p=([0-9]+)').firstMatch(href)?.group(1) ?? '',
+      );
+      if (page != null && page > maxPage) maxPage = page;
+    }
+    if (maxPage > 1) {
+      final lastResponse = await _fetchWithCache('$topUrl?p=$maxPage');
+      if (lastResponse.statusCode == 200 && lastResponse.data != null) {
+        lastPageEpisodes = _parseEpisodes(parser.parse(lastResponse.data!));
+      }
+    }
+
+    String? normalizeDate(String? value) {
+      if (value == null || value.isEmpty) return null;
+      return value.replaceFirstMapped(
+        RegExp(r'^(\d{4})/(\d{2})/(\d{2})'),
+        (match) => '${match.group(1)}-${match.group(2)}-${match.group(3)}',
+      );
+    }
+
+    final isSerial = firstPageEpisodes.isNotEmpty;
+    final firstEpisode = firstPageEpisodes.isEmpty
+        ? null
+        : firstPageEpisodes.reduce(
+            (a, b) => (a.index ?? 0) <= (b.index ?? 0) ? a : b,
+          );
+    final lastEpisode = lastPageEpisodes.isEmpty
+        ? null
+        : lastPageEpisodes.reduce(
+            (a, b) => (a.index ?? 0) >= (b.index ?? 0) ? a : b,
+          );
+
+    return NovelInfo(
+      ncode: normalizedNcode,
+      title: title,
+      writer: writer,
+      userId: userId,
+      story: story,
+      novelType: isSerial ? 1 : 2,
+      generalAllNo: isSerial ? lastEpisode?.index : 1,
+      generalFirstup: normalizeDate(firstEpisode?.update),
+      generalLastup: normalizeDate(lastEpisode?.update),
+    );
   }
 
   /// Fetches basic novel information without episodes

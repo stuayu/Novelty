@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
 import 'package:novelty/database/database.dart' as db;
 import 'package:novelty/models/episode.dart';
+import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/providers/connectivity_provider.dart';
 import 'package:novelty/repositories/novel_repository.dart';
 import 'package:novelty/services/api_service.dart';
@@ -148,7 +149,13 @@ void main() {
     });
 
     db.Novel buildNovel(String ncode, {int? cachedAt}) {
-      return db.Novel(ncode: ncode, cachedAt: cachedAt);
+      return db.Novel(
+        ncode: ncode,
+        title: 'テスト小説',
+        generalAllNo: 10,
+        generalLastup: 20260712234501,
+        cachedAt: cachedAt,
+      );
     }
 
     test('cachedAtが古い小説のみAPIから再取得する', () async {
@@ -192,6 +199,60 @@ void main() {
       await repository.refreshStaleLibraryMetadata();
 
       verifyNever(mockApiService.fetchMultipleNovelsInfo(any));
+    });
+
+    test('取得日時が新しくても掲載日が欠損していれば再取得する', () async {
+      container = createContainer();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      when(mockDatabase.getLibraryNovels()).thenAnswer(
+        (_) async => [
+          db.Novel(
+            ncode: 'n1111aa',
+            title: 'テスト小説',
+            generalAllNo: 10,
+            cachedAt: now,
+          ),
+        ],
+      );
+      when(
+        mockApiService.fetchMultipleNovelsInfo(['n1111aa']),
+      ).thenAnswer((_) async => {});
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      verify(
+        mockApiService.fetchMultipleNovelsInfo(['n1111aa']),
+      ).called(1);
+    });
+
+    test('再取得した最新掲載日をDBへ保存する', () async {
+      container = createContainer();
+      when(
+        mockDatabase.getLibraryNovels(),
+      ).thenAnswer((_) async => [buildNovel('n1111aa')]);
+      when(
+        mockApiService.fetchMultipleNovelsInfo(['n1111aa']),
+      ).thenAnswer(
+        (_) async => {
+          'n1111aa': const NovelInfo(
+            ncode: 'n1111aa',
+            title: '更新後タイトル',
+            generalLastup: '2026-07-12 23:45:01',
+          ),
+        },
+      );
+      when(mockDatabase.insertNovel(any)).thenAnswer((_) async => 1);
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      final captured = verify(mockDatabase.insertNovel(captureAny)).captured;
+      expect(captured, hasLength(1));
+      final companion = captured.single as db.NovelsCompanion;
+      expect(companion.title.value, '更新後タイトル');
+      expect(companion.generalLastup.value, 20260712234501);
+      expect(companion.generalAllNo.value, 10);
     });
 
     test('APIが例外を投げても静かに終了する', () async {

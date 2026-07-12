@@ -14,7 +14,15 @@ class StringToIntConverter implements JsonConverter<int?, Object?> {
       return json.toInt();
     }
     if (json is String) {
-      return int.tryParse(json);
+      final numeric = int.tryParse(json);
+      if (numeric != null) return numeric;
+
+      // `novelupdated_at` / `updated_at` は日時文字列で返るため、
+      // 比較・保存可能な14桁整数へ変換する。
+      final digits = json.replaceAll(RegExp(r'\D'), '');
+      if (digits.length >= 14) {
+        return int.tryParse(digits.substring(0, 14));
+      }
     }
     return null;
   }

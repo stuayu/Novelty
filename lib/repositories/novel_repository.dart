@@ -66,6 +66,8 @@ class NovelRepository {
 
   final SwrClient _swrClient;
 
+  bool _metadataRefreshInProgress = false;
+
   /// SWRクライアントを取得する
   SwrClient get swrClient => _swrClient;
 
@@ -196,35 +198,95 @@ class NovelRepository {
   Future<void> refreshStaleLibraryMetadata({
     Duration staleAfter = const Duration(hours: 6),
   }) async {
-    final libraryNovels = await _db.getLibraryNovels();
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final staleMs = staleAfter.inMilliseconds;
-
-    final staleNcodes = libraryNovels
-        .where((novel) {
-          final cachedAt = novel.cachedAt;
-          return cachedAt == null || now - cachedAt > staleMs;
-        })
-        .map((novel) => novel.ncode)
-        .toList();
-
-    if (staleNcodes.isEmpty) return;
+    if (_metadataRefreshInProgress) return;
+    _metadataRefreshInProgress = true;
 
     try {
+      final libraryNovels = await _db.getLibraryNovels();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final staleMs = staleAfter.inMilliseconds;
+
+      final staleNcodes = libraryNovels
+          .where((novel) {
+            final cachedAt = novel.cachedAt;
+            final metadataMissing =
+                novel.title == null ||
+                novel.generalAllNo == null ||
+                novel.generalLastup == null;
+            return metadataMissing ||
+                cachedAt == null ||
+                now - cachedAt > staleMs;
+          })
+          .map((novel) => novel.ncode)
+          .toList();
+
+      if (staleNcodes.isEmpty) return;
+
       final novelMap = await apiService.fetchMultipleNovelsInfo(staleNcodes);
       for (final info in novelMap.values) {
         if (info.ncode != null) {
-          await _db.insertNovel(info.toDbCompanion());
+          final existing = libraryNovels
+              .where((novel) => novel.ncode == info.ncode)
+              .firstOrNull;
+          final merged = existing == null
+              ? info
+              : _mergeMetadata(existing.toModel(), info);
+          await _db.insertNovel(merged.toDbCompanion());
         }
       }
       debugPrint(
         '[LibraryMetadataRefresh] ${novelMap.length}/${staleNcodes.length}'
         '件のメタデータを再取得しました',
       );
+      if (novelMap.length != staleNcodes.length) {
+        final missing = staleNcodes
+            .where((ncode) => !novelMap.containsKey(ncode))
+            .join(',');
+        debugPrint(
+          '[LibraryMetadataRefresh] APIから取得できなかった作品: $missing',
+        );
+      }
     } on Exception catch (e) {
       // 再取得の失敗はサイレントに無視する（次回の定期実行に委ねる）
       debugPrint('[LibraryMetadataRefresh] 再取得に失敗しました: $e');
+    } finally {
+      _metadataRefreshInProgress = false;
     }
+  }
+
+  NovelInfo _mergeMetadata(NovelInfo stored, NovelInfo fresh) {
+    return fresh.copyWith(
+      title: fresh.title ?? stored.title,
+      writer: fresh.writer ?? stored.writer,
+      userId: fresh.userId ?? stored.userId,
+      story: fresh.story ?? stored.story,
+      novelType: fresh.novelType ?? stored.novelType,
+      end: fresh.end ?? stored.end,
+      generalAllNo: fresh.generalAllNo ?? stored.generalAllNo,
+      genre: fresh.genre ?? stored.genre,
+      keyword: fresh.keyword ?? stored.keyword,
+      generalFirstup: fresh.generalFirstup ?? stored.generalFirstup,
+      generalLastup: fresh.generalLastup ?? stored.generalLastup,
+      globalPoint: fresh.globalPoint ?? stored.globalPoint,
+      dailyPoint: fresh.dailyPoint ?? stored.dailyPoint,
+      weeklyPoint: fresh.weeklyPoint ?? stored.weeklyPoint,
+      monthlyPoint: fresh.monthlyPoint ?? stored.monthlyPoint,
+      quarterPoint: fresh.quarterPoint ?? stored.quarterPoint,
+      yearlyPoint: fresh.yearlyPoint ?? stored.yearlyPoint,
+      favNovelCnt: fresh.favNovelCnt ?? stored.favNovelCnt,
+      impressionCnt: fresh.impressionCnt ?? stored.impressionCnt,
+      reviewCnt: fresh.reviewCnt ?? stored.reviewCnt,
+      allPoint: fresh.allPoint ?? stored.allPoint,
+      allHyokaCnt: fresh.allHyokaCnt ?? stored.allHyokaCnt,
+      novelupdatedAt: fresh.novelupdatedAt ?? stored.novelupdatedAt,
+      updatedAt: fresh.updatedAt ?? stored.updatedAt,
+      isr15: fresh.isr15 ?? stored.isr15,
+      isbl: fresh.isbl ?? stored.isbl,
+      isgl: fresh.isgl ?? stored.isgl,
+      iszankoku: fresh.iszankoku ?? stored.iszankoku,
+      istensei: fresh.istensei ?? stored.istensei,
+      istenni: fresh.istenni ?? stored.istenni,
+    );
   }
 
   /// 小説を閲覧履歴に追加する。
@@ -960,7 +1022,8 @@ Future<void> libraryMetadataRefresher(Ref ref) async {
   Future<void> refresh() =>
       repository.refreshStaleLibraryMetadata(staleAfter: interval);
 
-  unawaited(refresh());
+  // 初回更新を待つことで、画面表示直後からDBへ確実に反映する。
+  await refresh();
   final timer = Timer.periodic(interval, (_) => unawaited(refresh()));
   ref.onDispose(timer.cancel);
 }
