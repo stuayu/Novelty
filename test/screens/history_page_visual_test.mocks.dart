@@ -411,12 +411,12 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
           as _i5.Future<List<_i3.Novel>>);
 
   @override
-  _i5.Stream<List<_i3.Novel>> watchLibraryNovels() =>
+  _i5.Stream<List<_i3.LibraryNovelEntry>> watchLibraryNovels() =>
       (super.noSuchMethod(
             Invocation.method(#watchLibraryNovels, []),
-            returnValue: _i5.Stream<List<_i3.Novel>>.empty(),
+            returnValue: _i5.Stream<List<_i3.LibraryNovelEntry>>.empty(),
           )
-          as _i5.Stream<List<_i3.Novel>>);
+          as _i5.Stream<List<_i3.LibraryNovelEntry>>);
 
   @override
   _i5.Future<bool> isInLibrary(String? ncode) =>
@@ -433,6 +433,23 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
             returnValue: _i5.Stream<bool>.empty(),
           )
           as _i5.Stream<bool>);
+
+  @override
+  _i5.Future<void> markNarouBookmarkSynced(String? ncode) =>
+      (super.noSuchMethod(
+            Invocation.method(#markNarouBookmarkSynced, [ncode]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<bool> isNarouBookmarkSynced(String? ncode) =>
+      (super.noSuchMethod(
+            Invocation.method(#isNarouBookmarkSynced, [ncode]),
+            returnValue: _i5.Future<bool>.value(false),
+          )
+          as _i5.Future<bool>);
 
   @override
   _i5.Future<int> insertNovel(_i3.NovelsCompanion? novel) =>

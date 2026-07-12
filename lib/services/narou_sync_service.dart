@@ -11,6 +11,18 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'narou_sync_service.g.dart';
 
+/// なろうへのブックマーク登録処理の結果。
+enum NarouBookmarkSyncOutcome {
+  /// なろうにログインしていないため同期対象外。
+  notLoggedIn,
+
+  /// 同期に成功した。
+  success,
+
+  /// ログイン済みだが同期に失敗した。
+  failed,
+}
+
 @Riverpod(keepAlive: true)
 /// なろう同期サービスのプロバイダー。
 NarouSyncService narouSyncService(Ref ref) {
@@ -28,11 +40,15 @@ NarouSyncService narouSyncService(Ref ref) {
 /// - 小説情報取得 (`api.syosetu.com`)・検索では認証Cookieを使用しない。
 class NarouSyncService {
   /// コンストラクタ。
+  ///
+  /// [dio]を指定しない場合は新しい[Dio]インスタンスを使用する。
+  /// テストではフェイクの[HttpClientAdapter]を設定した[Dio]を注入できる。
   NarouSyncService({
     required this.authRepository,
     required this.db,
     required this.apiService,
-  });
+    Dio? dio,
+  }) : _dio = dio ?? Dio();
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
@@ -42,6 +58,9 @@ class NarouSyncService {
 
   /// 小説APIサービス（認証なし）。
   final ApiService apiService;
+
+  /// なろうへのHTTPリクエストに使用するDioインスタンス。
+  final Dio _dio;
 
   static const _bookmarkListBase =
       'https://syosetu.com/favnovelmain/list/';
@@ -73,6 +92,8 @@ class NarouSyncService {
       await db.ensureNovelExists(ncode);
       // ローカルライブラリに追加（すでに存在する場合は無視）
       await db.addToLibrary(ncode);
+      // なろう側で確認済みのブックマークのため同期済みとして記録する
+      await db.markNarouBookmarkSynced(ncode);
       syncedNcodes.add(ncode);
 
       // しおり位置をローカル履歴と比較して新しい方を採用する
@@ -141,8 +162,7 @@ class NarouSyncService {
         ? _bookmarkListBase
         : '$_bookmarkListBase?p=$page';
     try {
-      final dio = Dio();
-      final response = await dio.get<String>(
+      final response = await _dio.get<String>(
         url,
         options: Options(
           headers: {
@@ -212,20 +232,19 @@ class NarouSyncService {
   ///
   /// エピソードページにある `js-bookmark_url` hidden inputから
   /// addajax URLを取得し、ブックマーク登録を行う。
-  Future<bool> addBookmarkToNarou(String ncode) async {
+  Future<NarouBookmarkSyncOutcome> addBookmarkToNarou(String ncode) async {
     final cookieHeader = await authRepository.buildCookieHeader();
-    if (cookieHeader == null) return false;
+    if (cookieHeader == null) return NarouBookmarkSyncOutcome.notLoggedIn;
 
     try {
       // 小説トップページからブックマーク追加URLを取得する
       final novelUrl =
           'https://ncode.syosetu.com/${ncode.toNormalizedNcode()}/';
       final addajaxUrl = await _fetchBookmarkAddUrl(novelUrl, cookieHeader);
-      if (addajaxUrl == null) return false;
+      if (addajaxUrl == null) return NarouBookmarkSyncOutcome.failed;
 
       // Step 1: addajax を呼んでトークンを取得する
-      final dio = Dio();
-      final addResponse = await dio.get<String>(
+      final addResponse = await _dio.get<String>(
         addajaxUrl,
         options: Options(
           headers: {
@@ -239,9 +258,9 @@ class NarouSyncService {
 
       // Step 2: updateajax でブックマークを確定する（デフォルト設定）
       final tokenData = _extractAddajaxToken(addResponse.data ?? '');
-      if (tokenData == null) return false;
+      if (tokenData == null) return NarouBookmarkSyncOutcome.failed;
 
-      final updateResponse = await dio.get<dynamic>(
+      final updateResponse = await _dio.get<dynamic>(
         '$_updateajaxUrl?callback=result',
         queryParameters: {
           'useridfavncode': tokenData.useridfavncode,
@@ -260,9 +279,11 @@ class NarouSyncService {
         ),
       );
 
-      return updateResponse.statusCode == 200;
+      return updateResponse.statusCode == 200
+          ? NarouBookmarkSyncOutcome.success
+          : NarouBookmarkSyncOutcome.failed;
     } on Exception {
-      return false;
+      return NarouBookmarkSyncOutcome.failed;
     }
   }
 
@@ -272,8 +293,7 @@ class NarouSyncService {
     String cookieHeader,
   ) async {
     try {
-      final dio = Dio();
-      final response = await dio.get<String>(
+      final response = await _dio.get<String>(
         novelUrl,
         options: Options(
           headers: {
@@ -344,9 +364,9 @@ class NarouSyncService {
     final cookieHeader = await authRepository.buildCookieHeader();
     if (cookieHeader == null) return;
 
-    // ローカルでブックマーク済みか確認
-    final isInLibrary = await db.isInLibrary(ncode);
-    if (!isInLibrary) return;
+    // なろう側で実際にブックマーク登録が完了しているか確認
+    final isSynced = await db.isNarouBookmarkSynced(ncode);
+    if (!isSynced) return;
 
     await _setShioriOnNarou(
       ncode: ncode,
@@ -368,8 +388,7 @@ class NarouSyncService {
     final episodeUrl =
         'https://ncode.syosetu.com/${ncode.toNormalizedNcode()}/$episode/';
     try {
-      final dio = Dio();
-      final response = await dio.get<String>(
+      final response = await _dio.get<String>(
         episodeUrl,
         options: Options(
           headers: {
@@ -390,7 +409,7 @@ class NarouSyncService {
       final sioriInput = doc.querySelector('input[name="siori_url"]');
       final sioriUrl = sioriInput?.attributes['value'];
       if (sioriUrl != null) {
-        await dio.get<dynamic>(
+        await _dio.get<dynamic>(
           '$sioriUrl&callback=result',
           options: Options(
             headers: {
@@ -419,7 +438,7 @@ class NarouSyncService {
         final favnoInt = int.tryParse(favno ?? '0') ?? 0;
         if (noInt <= favnoInt) return;
 
-        await dio.post<dynamic>(
+        await _dio.post<dynamic>(
           url,
           data: {
             'no': no,

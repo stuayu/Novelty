@@ -7,6 +7,7 @@ import 'package:novelty/database/database.dart';
 import 'package:novelty/models/download_progress.dart';
 import 'package:novelty/models/download_result.dart';
 import 'package:novelty/models/episode.dart';
+import 'package:novelty/models/library_toggle_result.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_info_extension.dart';
 import 'package:novelty/providers/connectivity_provider.dart';
@@ -659,7 +660,7 @@ class LibraryStatus extends _$LibraryStatus {
   }
 
   /// ライブラリの状態をトグルするメソッド。
-  Future<void> toggle(NovelInfo novelInfo) async {
+  Future<LibraryToggleResult> toggle(NovelInfo novelInfo) async {
     final db = ref.read(appDatabaseProvider);
     final isInLibrary = state.value ?? false;
     final newStatus = !isInLibrary;
@@ -671,19 +672,33 @@ class LibraryStatus extends _$LibraryStatus {
         // Usually fetchNovelInfo handles this.
         await db.insertNovel(novelInfo.toDbCompanion());
         await db.addToLibrary(novelInfo.ncode!);
-        // ログイン済みの場合、なろうにもブックマーク登録する
-        unawaited(
-          ref
+
+        // ログイン済みの場合、なろうにもブックマーク登録する。
+        // なろう側の同期で予期しない例外が発生しても、ローカルへの
+        // 追加自体は既に成功しているため、ここで独立してcatchする。
+        var narouSyncFailed = false;
+        try {
+          final syncOutcome = await ref
               .read(narouSyncServiceProvider)
-              .addBookmarkToNarou(novelInfo.ncode!),
-        );
+              .addBookmarkToNarou(novelInfo.ncode!);
+          if (syncOutcome == NarouBookmarkSyncOutcome.success) {
+            await db.markNarouBookmarkSynced(novelInfo.ncode!);
+          }
+          narouSyncFailed = syncOutcome == NarouBookmarkSyncOutcome.failed;
+        } on Exception {
+          narouSyncFailed = true;
+        }
+
+        ref.invalidate(libraryNovelsProvider);
+        return LibraryToggleResult.added(narouSyncFailed: narouSyncFailed);
       } else {
         await db.removeFromLibrary(novelInfo.ncode!);
+        ref.invalidate(libraryNovelsProvider);
+        return const LibraryToggleResult.removed();
       }
-
-      ref.invalidate(libraryNovelsProvider);
     } on Exception catch (e, st) {
       state = AsyncValue.error(e, st);
+      return const LibraryToggleResult.error();
     }
   }
 }
