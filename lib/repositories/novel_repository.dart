@@ -115,6 +115,31 @@ class NovelRepository {
     // LibraryEntriesテーブルに追加
     await _db.addToLibrary(ncodeLower);
 
+    // 一覧・ランキング画面から追加した場合も、詳細画面と同様に
+    // ログイン済みであればなろう本家へブックマークを同期する。
+    try {
+      final syncResult = await ref
+          .read(narouSyncServiceProvider)
+          .addBookmarkToNarou(ncodeLower);
+      if (syncResult.outcome == NarouBookmarkSyncOutcome.success) {
+        await _db.markNarouBookmarkSynced(
+          ncodeLower,
+          useridFavncode: syncResult.useridFavncode,
+          favToken: syncResult.token,
+        );
+      } else if (syncResult.outcome == NarouBookmarkSyncOutcome.failed) {
+        debugPrint(
+          '[NarouSync] addNovelToLibrary($ncodeLower): '
+          'なろうへのブックマーク登録に失敗しました',
+        );
+      }
+    } on Exception catch (e) {
+      // ローカルへの追加は完了しているため、同期失敗で取り消さない。
+      debugPrint(
+        '[NarouSync] addNovelToLibrary($ncodeLower): 同期例外: $e',
+      );
+    }
+
     // Providersを無効化してUIを更新
     ref.invalidate(libraryNovelsProvider);
 

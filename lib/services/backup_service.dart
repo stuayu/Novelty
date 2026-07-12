@@ -15,7 +15,7 @@ class BackupService {
   final AppDatabase _database;
 
   /// 現在のスキーマバージョン
-  static const int currentSchemaVersion = 11;
+  static const int currentSchemaVersion = 17;
 
   /// データベース全体をエクスポートする
   ///

@@ -31,6 +31,13 @@ class Auth extends _$Auth {
     final hasSession = await repo.hasSessionCookies();
     if (!hasSession) return null;
 
+    final authService = ref.read(narouAuthServiceProvider);
+    final isValid = await authService.isSessionValid();
+    if (!isValid) {
+      await repo.clearAll();
+      return null;
+    }
+
     final narouid = await repo.getNarouid();
     final username = await repo.getUsername();
     if (narouid == null || username == null) return null;

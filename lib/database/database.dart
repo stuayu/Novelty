@@ -380,7 +380,7 @@ class AppDatabase extends _$AppDatabase {
               INSERT OR IGNORE INTO novels (
                 ncode, title, writer, story, novel_type, "end", general_all_no, novel_updated_at
               )
-              SELECT 
+              SELECT
                 ncode, title, writer, story, novel_type, "end", general_all_no, novel_updated_at
               FROM library_novels;
             ''');
@@ -441,14 +441,14 @@ class AppDatabase extends _$AppDatabase {
           );
         }
 
-        if (from < 16) {
+        if (from >= 12 && from < 16) {
           await customStatement(
             'ALTER TABLE library_entries '
             'ADD COLUMN narou_bookmark_synced_at INTEGER',
           );
         }
 
-        if (from < 17) {
+        if (from >= 12 && from < 17) {
           await customStatement(
             'ALTER TABLE library_entries '
             'ADD COLUMN narou_userid_favncode TEXT',
@@ -625,7 +625,7 @@ class AppDatabase extends _$AppDatabase {
 
     final results = await customSelect(
       '''
-      SELECT 
+      SELECT
         e.ncode,
         e.episode_id,
         e.subtitle,

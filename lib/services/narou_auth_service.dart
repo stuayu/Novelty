@@ -10,8 +10,9 @@ const _bookmarkListUrl = 'https://syosetu.com/favnovelmain/list/';
 
 /// なろうへのHTTPリクエストで使用するUser-Agent。
 const narouUserAgent =
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
-    'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/126.0.0.0 Safari/537.36';
 
 @Riverpod(keepAlive: true)
 /// なろう認証サービスのプロバイダー。
@@ -118,7 +119,14 @@ class NarouAuthService {
           responseType: ResponseType.plain,
         ),
       );
-      return response.statusCode == 200;
+      if (response.statusCode != 200 || response.data == null) return false;
+      final doc = parser.parse(response.data!);
+      final hasLoginForm =
+          doc.querySelector('form[action*="/login/login/"]') != null;
+      final hasBookmarkPage =
+          doc.querySelector('.p-up-bookmark-item') != null ||
+          response.data!.contains('ブックマーク');
+      return !hasLoginForm && hasBookmarkPage;
     } on Exception {
       return false;
     }
