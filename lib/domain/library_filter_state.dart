@@ -4,31 +4,76 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'library_filter_state.g.dart';
 
+/// ライブラリの連載状況フィルタ。
+enum LibrarySerialStatus {
+  /// すべての作品を表示する。
+  all,
+
+  /// 連載中の作品のみ表示する。
+  ongoing,
+
+  /// 完結済み・短編の作品のみ表示する。
+  completed,
+}
+
+/// ライブラリのソート順。
+enum LibrarySortOrder {
+  /// 追加日時が新しい順（デフォルト）。
+  addedAtDesc,
+
+  /// 追加日時が古い順。
+  addedAtAsc,
+
+  /// 更新日時が新しい順。
+  updatedAtDesc,
+
+  /// 更新日時が古い順。
+  updatedAtAsc,
+
+  /// タイトルの昇順（あいうえお順）。
+  titleAsc,
+
+  /// タイトルの降順。
+  titleDesc,
+}
+
 /// ライブラリのフィルタ状態を表すモデル。
 @immutable
 class LibraryFilterState {
   /// コンストラクタ。
   const LibraryFilterState({
-    this.showOnlyOngoing = false,
+    this.serialStatus = LibrarySerialStatus.all,
     this.selectedGenre,
+    this.sortOrder = LibrarySortOrder.addedAtDesc,
+    this.searchQuery = '',
   });
 
-  /// 連載中の作品のみを表示するかどうか。
-  final bool showOnlyOngoing;
+  /// 連載状況フィルタ。
+  final LibrarySerialStatus serialStatus;
 
   /// 選択されたジャンル。
   final int? selectedGenre;
 
+  /// ソート順。
+  final LibrarySortOrder sortOrder;
+
+  /// タイトル・作者名の検索キーワード。
+  final String searchQuery;
+
   /// フィールドを変更した新しいインスタンスを作成する
   LibraryFilterState copyWith({
-    bool? showOnlyOngoing,
+    LibrarySerialStatus? serialStatus,
     Value<int?>? selectedGenre,
+    LibrarySortOrder? sortOrder,
+    String? searchQuery,
   }) {
     return LibraryFilterState(
-      showOnlyOngoing: showOnlyOngoing ?? this.showOnlyOngoing,
+      serialStatus: serialStatus ?? this.serialStatus,
       selectedGenre: selectedGenre != null
           ? selectedGenre.value
           : this.selectedGenre,
+      sortOrder: sortOrder ?? this.sortOrder,
+      searchQuery: searchQuery ?? this.searchQuery,
     );
   }
 
@@ -37,16 +82,20 @@ class LibraryFilterState {
       identical(this, other) ||
       other is LibraryFilterState &&
           runtimeType == other.runtimeType &&
-          showOnlyOngoing == other.showOnlyOngoing &&
-          selectedGenre == other.selectedGenre;
+          serialStatus == other.serialStatus &&
+          selectedGenre == other.selectedGenre &&
+          sortOrder == other.sortOrder &&
+          searchQuery == other.searchQuery;
 
   @override
-  int get hashCode => Object.hash(showOnlyOngoing, selectedGenre);
+  int get hashCode =>
+      Object.hash(serialStatus, selectedGenre, sortOrder, searchQuery);
 
   @override
   String toString() =>
-      'LibraryFilterState(showOnlyOngoing: $showOnlyOngoing, '
-      'selectedGenre: $selectedGenre)';
+      'LibraryFilterState(serialStatus: $serialStatus, '
+      'selectedGenre: $selectedGenre, sortOrder: $sortOrder, '
+      'searchQuery: $searchQuery)';
 }
 
 /// ライブラリのフィルタ状態を管理するNotifier。
@@ -57,9 +106,9 @@ class LibraryFilterStateNotifier extends _$LibraryFilterStateNotifier {
     return const LibraryFilterState();
   }
 
-  /// 連載中のみ表示フィルタを設定する。
-  void setShowOnlyOngoing({required bool value}) {
-    state = state.copyWith(showOnlyOngoing: value);
+  /// 連載状況フィルタを設定する。
+  void setSerialStatus(LibrarySerialStatus value) {
+    state = state.copyWith(serialStatus: value);
   }
 
   /// ジャンルフィルタを設定する。
@@ -69,8 +118,22 @@ class LibraryFilterStateNotifier extends _$LibraryFilterStateNotifier {
     );
   }
 
-  /// フィルタ状態をリセットする。
+  /// ソート順を設定する。
+  void setSortOrder(LibrarySortOrder value) {
+    state = state.copyWith(sortOrder: value);
+  }
+
+  /// 検索キーワードを設定する。
+  void setSearchQuery(String value) {
+    state = state.copyWith(searchQuery: value);
+  }
+
+  /// フィルタ状態をリセットする（検索キーワードは対象外）。
   void reset() {
-    state = const LibraryFilterState();
+    state = state.copyWith(
+      serialStatus: LibrarySerialStatus.all,
+      selectedGenre: const Value(null),
+      sortOrder: LibrarySortOrder.addedAtDesc,
+    );
   }
 }

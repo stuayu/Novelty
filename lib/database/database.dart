@@ -206,6 +206,33 @@ class Novels extends Table {
   Set<Column> get primaryKey => {ncode};
 }
 
+/// ライブラリの小説と、ライブラリへの追加日時を組み合わせたデータ。
+///
+/// [Novels]テーブルには追加日時の情報が無いため、
+/// [AppDatabase.watchLibraryNovels]の結果として利用する。
+@immutable
+class LibraryNovelEntry {
+  /// コンストラクタ。
+  const LibraryNovelEntry({required this.novel, required this.addedAt});
+
+  /// 小説データ。
+  final Novel novel;
+
+  /// ライブラリに追加された日時（UNIXミリ秒）。
+  final int addedAt;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LibraryNovelEntry &&
+          runtimeType == other.runtimeType &&
+          novel == other.novel &&
+          addedAt == other.addedAt;
+
+  @override
+  int get hashCode => Object.hash(novel, addedAt);
+}
+
 /// ライブラリ登録情報を格納するテーブル（正規化済み）
 class LibraryEntries extends Table {
   /// 小説のncode (外部キー)
@@ -214,6 +241,10 @@ class LibraryEntries extends Table {
   /// ライブラリに追加された日時
   /// UNIXタイムスタンプ形式で保存される
   IntColumn get addedAt => integer()();
+
+  /// なろう本家へのブックマーク登録が成功した日時（UNIXミリ秒）。
+  /// nullの場合はなろう側への同期が未完了・未確認であることを示す。
+  IntColumn get narouBookmarkSyncedAt => integer().nullable()();
 
   @override
   Set<Column> get primaryKey => {ncode};
@@ -290,7 +321,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 16;
 
   @override
   MigrationStrategy get migration {
@@ -375,6 +406,13 @@ class AppDatabase extends _$AppDatabase {
         if (from >= 12 && from < 15) {
           await customStatement(
             'ALTER TABLE novels ADD COLUMN user_id INTEGER',
+          );
+        }
+
+        if (from < 16) {
+          await customStatement(
+            'ALTER TABLE library_entries '
+            'ADD COLUMN narou_bookmark_synced_at INTEGER',
           );
         }
       },
@@ -638,13 +676,23 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// ライブラリの小説リストを監視（JOIN）
-  Stream<List<Novel>> watchLibraryNovels() {
+  ///
+  /// 追加日時（[LibraryNovelEntry.addedAt]）でのソートをアプリ側で行えるよう、
+  /// [Novel]と併せて返す。
+  Stream<List<LibraryNovelEntry>> watchLibraryNovels() {
     final query = select(libraryEntries).join([
       innerJoin(novels, novels.ncode.equalsExp(libraryEntries.ncode)),
     ])..orderBy([OrderingTerm.desc(libraryEntries.addedAt)]);
 
     return query.watch().map(
-      (rows) => rows.map((row) => row.readTable(novels)).toList(),
+      (rows) => rows
+          .map(
+            (row) => LibraryNovelEntry(
+              novel: row.readTable(novels),
+              addedAt: row.readTable(libraryEntries).addedAt,
+            ),
+          )
+          .toList(),
     );
   }
 
@@ -663,6 +711,31 @@ class AppDatabase extends _$AppDatabase {
           ..where((t) => t.ncode.equals(ncode.toNormalizedNcode())))
         .watchSingleOrNull()
         .map((entry) => entry != null);
+  }
+
+  /// なろう本家へのブックマーク登録が完了したことを記録する。
+  Future<void> markNarouBookmarkSynced(String ncode) async {
+    await (update(
+      libraryEntries,
+    )..where((t) => t.ncode.equals(ncode.toNormalizedNcode()))).write(
+      LibraryEntriesCompanion(
+        narouBookmarkSyncedAt: drift.Value(
+          DateTime.now().millisecondsSinceEpoch,
+        ),
+      ),
+    );
+  }
+
+  /// なろう本家へのブックマーク登録が完了しているかを確認する。
+  Future<bool> isNarouBookmarkSynced(String ncode) async {
+    final result =
+        await (select(libraryEntries)..where(
+              (t) =>
+                  t.ncode.equals(ncode.toNormalizedNcode()) &
+                  t.narouBookmarkSyncedAt.isNotNull(),
+            ))
+            .getSingleOrNull();
+    return result != null;
   }
 
   /// 小説情報の保存

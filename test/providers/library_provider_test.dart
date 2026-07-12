@@ -9,6 +9,17 @@ import 'package:novelty/database/database.dart';
 @GenerateMocks([AppDatabase])
 import 'library_provider_test.mocks.dart';
 
+List<LibraryNovelEntry> _toEntries(List<Novel> novels) {
+  return novels
+      .map(
+        (novel) => LibraryNovelEntry(
+          novel: novel,
+          addedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      )
+      .toList();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -54,14 +65,15 @@ void main() {
       container.dispose();
     });
 
-    test('should return Future<List<Novel>>', () async {
+    test('should return Future<List<LibraryNovelEntry>>', () async {
+      final testEntries = _toEntries(testNovels);
       when(
         mockDatabase.watchLibraryNovels(),
-      ).thenAnswer((_) => Stream.fromIterable([testNovels]));
+      ).thenAnswer((_) => Stream.fromIterable([testEntries]));
 
       final result = await container.read(libraryNovelsProvider.future);
 
-      expect(result, equals(testNovels));
+      expect(result, equals(testEntries));
       verify(mockDatabase.watchLibraryNovels()).called(1);
     });
 
@@ -77,9 +89,10 @@ void main() {
     });
 
     test('should be auto-disposed and re-fetched when not in use', () async {
+      final testEntries = _toEntries(testNovels);
       when(
         mockDatabase.watchLibraryNovels(),
-      ).thenAnswer((_) => Stream.fromIterable([testNovels]));
+      ).thenAnswer((_) => Stream.fromIterable([testEntries]));
 
       await container.read(libraryNovelsProvider.future);
       container.dispose();
@@ -94,23 +107,24 @@ void main() {
 
       when(
         newMockDatabase.watchLibraryNovels(),
-      ).thenAnswer((_) => Stream.fromIterable([testNovels]));
+      ).thenAnswer((_) => Stream.fromIterable([testEntries]));
 
       final result = await newContainer.read(libraryNovelsProvider.future);
-      expect(result, testNovels);
+      expect(result, testEntries);
       verify(newMockDatabase.watchLibraryNovels()).called(1);
 
       newContainer.dispose();
     });
 
     test('should handle refresh correctly', () async {
+      final testEntries = _toEntries(testNovels);
       // Initial call
       when(
         mockDatabase.watchLibraryNovels(),
-      ).thenAnswer((_) => Stream.fromIterable([testNovels.sublist(0, 1)]));
+      ).thenAnswer((_) => Stream.fromIterable([testEntries.sublist(0, 1)]));
 
       final firstResult = await container.read(libraryNovelsProvider.future);
-      expect(firstResult, equals(testNovels.sublist(0, 1)));
+      expect(firstResult, equals(testEntries.sublist(0, 1)));
 
       // Invalidate the provider to force re-read
       container.invalidate(libraryNovelsProvider);
@@ -118,10 +132,10 @@ void main() {
       // Update mock to return new data for the NEXT call
       when(
         mockDatabase.watchLibraryNovels(),
-      ).thenAnswer((_) => Stream.fromIterable([testNovels]));
+      ).thenAnswer((_) => Stream.fromIterable([testEntries]));
 
       final secondResult = await container.read(libraryNovelsProvider.future);
-      expect(secondResult, equals(testNovels));
+      expect(secondResult, equals(testEntries));
 
       // Verify called twice
       verify(mockDatabase.watchLibraryNovels()).called(2);

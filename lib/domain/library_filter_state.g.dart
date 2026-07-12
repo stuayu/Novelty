@@ -45,7 +45,7 @@ final class LibraryFilterStateNotifierProvider
 }
 
 String _$libraryFilterStateNotifierHash() =>
-    r'a89acd8367c5b8facbea137133d1dcf3ea9b0ece';
+    r'adb2ea3f6b564cb5205722236e4e6e468f338d7f';
 
 /// ライブラリのフィルタ状態を管理するNotifier。
 

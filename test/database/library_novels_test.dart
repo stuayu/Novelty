@@ -82,6 +82,19 @@ void main() {
       expect(await stream.first, true);
     });
 
+    test('watchLibraryNovelsがaddedAtを含めて返すこと', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+
+      await database.addToLibrary(ncode);
+
+      final entries = await database.watchLibraryNovels().first;
+      expect(entries.length, 1);
+      expect(entries.first.novel.ncode, ncode);
+      expect(entries.first.addedAt, isA<int>());
+      expect(entries.first.addedAt, greaterThan(0));
+    });
+
     test('追加日時順でソートされること', () async {
       // 複数の小説を追加（時間をずらして）
       await insertDummyNovel('n1234ab');
@@ -102,6 +115,31 @@ void main() {
       expect(novels[0].ncode, 'n9012ef');
       expect(novels[1].ncode, 'n5678cd');
       expect(novels[2].ncode, 'n1234ab');
+    });
+
+    test('なろう同期状態の初期値はfalseであること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(ncode);
+
+      expect(await database.isNarouBookmarkSynced(ncode), false);
+    });
+
+    test('markNarouBookmarkSyncedでなろう同期状態がtrueになること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(ncode);
+
+      await database.markNarouBookmarkSynced(ncode);
+
+      expect(await database.isNarouBookmarkSynced(ncode), true);
+    });
+
+    test('ライブラリ未登録の小説はなろう同期状態がfalseであること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+
+      expect(await database.isNarouBookmarkSynced(ncode), false);
     });
 
     test('重複追加は無視されること', () async {

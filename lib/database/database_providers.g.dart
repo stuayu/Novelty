@@ -54,22 +54,24 @@ final class AppDatabaseProvider
 
 String _$appDatabaseHash() => r'98a09c6cfd43966155dfbdb0787fa18c85438e13';
 
-/// ライブラリに登録されている小説のリストを監視するプロバイダー。
+/// ライブラリに登録されている小説のリスト（追加日時付き）を監視するプロバイダー。
 
 @ProviderFor(libraryNovels)
 const libraryNovelsProvider = LibraryNovelsProvider._();
 
-/// ライブラリに登録されている小説のリストを監視するプロバイダー。
+/// ライブラリに登録されている小説のリスト（追加日時付き）を監視するプロバイダー。
 
 final class LibraryNovelsProvider
     extends
         $FunctionalProvider<
-          AsyncValue<List<dynamic>>,
-          List<dynamic>,
-          Stream<List<dynamic>>
+          AsyncValue<List<LibraryNovelEntry>>,
+          List<LibraryNovelEntry>,
+          Stream<List<LibraryNovelEntry>>
         >
-    with $FutureModifier<List<dynamic>>, $StreamProvider<List<dynamic>> {
-  /// ライブラリに登録されている小説のリストを監視するプロバイダー。
+    with
+        $FutureModifier<List<LibraryNovelEntry>>,
+        $StreamProvider<List<LibraryNovelEntry>> {
+  /// ライブラリに登録されている小説のリスト（追加日時付き）を監視するプロバイダー。
   const LibraryNovelsProvider._()
     : super(
         from: null,
@@ -86,17 +88,17 @@ final class LibraryNovelsProvider
 
   @$internal
   @override
-  $StreamProviderElement<List<dynamic>> $createElement(
+  $StreamProviderElement<List<LibraryNovelEntry>> $createElement(
     $ProviderPointer pointer,
   ) => $StreamProviderElement(pointer);
 
   @override
-  Stream<List<dynamic>> create(Ref ref) {
+  Stream<List<LibraryNovelEntry>> create(Ref ref) {
     return libraryNovels(ref);
   }
 }
 
-String _$libraryNovelsHash() => r'9240a1adc6761ec1bb34bcb6c44a554966f61d04';
+String _$libraryNovelsHash() => r'4952f444e5af721d95012127b1f1e8eb78458606';
 
 /// 閲覧履歴のリストを監視するプロバイダー。
 

@@ -1,19 +1,89 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/domain/library_filter_state.dart';
 import 'package:novelty/models/novel_info_extension.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/repositories/novel_repository.dart';
 import 'package:novelty/screens/search_page.dart';
+import 'package:novelty/widgets/library_filter_sheet.dart';
+import 'package:novelty/widgets/library_sort_sheet.dart';
 import 'package:novelty/widgets/novel_list_tile.dart';
-import 'package:novelty/widgets/ranking_filter_sheet.dart';
 import 'package:novelty/widgets/search_modal.dart';
 
+/// [novel]のタイトルまたは作者名に[query]が含まれるかどうかを判定する。
+///
+/// 大文字小文字は区別しない。値が欠損している場合はヒットしない扱いとする。
+bool _matchesSearchQuery(Novel novel, String query) {
+  if (query.isEmpty) {
+    return true;
+  }
+  final normalizedQuery = query.toLowerCase();
+  final title = novel.title?.toLowerCase();
+  final writer = novel.writer?.toLowerCase();
+  return (title?.contains(normalizedQuery) ?? false) ||
+      (writer?.contains(normalizedQuery) ?? false);
+}
+
+/// [entries]を[sortOrder]に従って並び替えた新しいリストを返す。
+///
+/// 更新日時・タイトルはnullableなため、値が欠損している要素は末尾に寄せる。
+List<LibraryNovelEntry> _sortEntries(
+  List<LibraryNovelEntry> entries,
+  LibrarySortOrder sortOrder,
+) {
+  final sorted = [...entries];
+
+  int compareNullableString(String? a, String? b) {
+    if (a == null && b == null) {
+      return 0;
+    }
+    if (a == null) {
+      return 1;
+    }
+    if (b == null) {
+      return -1;
+    }
+    return a.compareTo(b);
+  }
+
+  switch (sortOrder) {
+    case LibrarySortOrder.addedAtDesc:
+      sorted.sort((a, b) => b.addedAt.compareTo(a.addedAt));
+    case LibrarySortOrder.addedAtAsc:
+      sorted.sort((a, b) => a.addedAt.compareTo(b.addedAt));
+    case LibrarySortOrder.updatedAtDesc:
+      sorted.sort(
+        (a, b) => compareNullableString(
+          b.novel.novelUpdatedAt,
+          a.novel.novelUpdatedAt,
+        ),
+      );
+    case LibrarySortOrder.updatedAtAsc:
+      sorted.sort(
+        (a, b) => compareNullableString(
+          a.novel.novelUpdatedAt,
+          b.novel.novelUpdatedAt,
+        ),
+      );
+    case LibrarySortOrder.titleAsc:
+      sorted.sort(
+        (a, b) => compareNullableString(a.novel.title, b.novel.title),
+      );
+    case LibrarySortOrder.titleDesc:
+      sorted.sort(
+        (a, b) => compareNullableString(b.novel.title, a.novel.title),
+      );
+  }
+
+  return sorted;
+}
+
 /// "ライブラリ"ページのウィジェット。
-class LibraryPage extends ConsumerWidget {
+class LibraryPage extends HookConsumerWidget {
   /// コンストラクタ。
   const LibraryPage({super.key});
 
@@ -21,16 +91,28 @@ class LibraryPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final libraryNovelsAsync = ref.watch(libraryNovelsProvider);
     final filter = ref.watch(libraryFilterStateProvider);
+    final searchController = useTextEditingController(
+      text: filter.searchQuery,
+    );
 
-    // フィルタリング処理
-    final filteredNovelsAsync = libraryNovelsAsync.whenData((novels) {
-      return novels.cast<Novel>().where((novel) {
-        // 連載中のみフィルタ
-        if (filter.showOnlyOngoing) {
-          // end: 1 = 連載中, 0 = 完結/短編
-          if (novel.end != 1) {
-            return false;
-          }
+    // フィルタ・検索・ソート処理
+    final displayedEntriesAsync = libraryNovelsAsync.whenData((entries) {
+      final filtered = entries.where((entry) {
+        final novel = entry.novel;
+
+        // 連載状況フィルタ
+        switch (filter.serialStatus) {
+          case LibrarySerialStatus.all:
+            break;
+          case LibrarySerialStatus.ongoing:
+            // end: 1 = 連載中, 0 = 完結/短編
+            if (novel.end != 1) {
+              return false;
+            }
+          case LibrarySerialStatus.completed:
+            if (novel.end == 1) {
+              return false;
+            }
         }
 
         // ジャンルフィルタ
@@ -40,9 +122,33 @@ class LibraryPage extends ConsumerWidget {
           }
         }
 
+        // タイトル・作者名の検索
+        if (!_matchesSearchQuery(novel, filter.searchQuery)) {
+          return false;
+        }
+
         return true;
       }).toList();
+
+      return _sortEntries(filtered, filter.sortOrder);
     });
+
+    void showSortSheet() {
+      unawaited(
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          useSafeArea: true,
+          builder: (context) => LibrarySortSheet(
+            currentOrder: filter.sortOrder,
+            onOrderSelected: (order) {
+              ref.read(libraryFilterStateProvider.notifier).setSortOrder(order);
+              Navigator.pop(context);
+            },
+          ),
+        ),
+      );
+    }
 
     void showFilterSheet() {
       unawaited(
@@ -50,13 +156,13 @@ class LibraryPage extends ConsumerWidget {
           context: context,
           isScrollControlled: true,
           useSafeArea: true,
-          builder: (context) => RankingFilterSheet(
-            initialShowOnlyOngoing: filter.showOnlyOngoing,
+          builder: (context) => LibraryFilterSheet(
+            initialSerialStatus: filter.serialStatus,
             initialSelectedGenre: filter.selectedGenre,
-            onApply: ({required showOnlyOngoing, required selectedGenre}) {
+            onApply: ({required serialStatus, required selectedGenre}) {
               ref
                   .read(libraryFilterStateProvider.notifier)
-                  .setShowOnlyOngoing(value: showOnlyOngoing);
+                  .setSerialStatus(serialStatus);
               ref
                   .read(libraryFilterStateProvider.notifier)
                   .setSelectedGenre(selectedGenre);
@@ -97,71 +203,114 @@ class LibraryPage extends ConsumerWidget {
             },
           ),
           IconButton(
+            icon: const Icon(Icons.sort),
+            onPressed: showSortSheet,
+          ),
+          IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: showFilterSheet,
           ),
         ],
       ),
-      body: filteredNovelsAsync.when(
-        data: (novels) {
-          if (novels.isEmpty) {
-            // フィルタ適用中の場合はメッセージを変えるなどの配慮も可能だが、
-            // シンプルに「見つかりません」でも良い。
-            // ここでは元のメッセージを維持しつつ、フィルタ時は「条件に一致する小説がありません」とするのが親切。
-            if (libraryNovelsAsync.asData?.value.isNotEmpty ?? false) {
-              return const Center(child: Text('条件に一致する小説がありません'));
-            }
-            return const Center(child: Text('ライブラリに小説がありません'));
-          }
-          return ListView.builder(
-            itemCount: novels.length,
-            itemBuilder: (context, index) {
-              final novel = novels[index];
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: 'タイトル・作者名で検索',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: filter.searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          searchController.clear();
+                          ref
+                              .read(libraryFilterStateProvider.notifier)
+                              .setSearchQuery('');
+                        },
+                      )
+                    : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              ),
+              controller: searchController,
+              onChanged: (value) => ref
+                  .read(libraryFilterStateProvider.notifier)
+                  .setSearchQuery(value),
+            ),
+          ),
+          Expanded(
+            child: displayedEntriesAsync.when(
+              data: (entries) {
+                if (entries.isEmpty) {
+                  if (libraryNovelsAsync.asData?.value.isNotEmpty ?? false) {
+                    return const Center(child: Text('条件に一致する小説がありません'));
+                  }
+                  return const Center(child: Text('ライブラリに小説がありません'));
+                }
+                return ListView.builder(
+                  itemCount: entries.length,
+                  itemBuilder: (context, index) {
+                    final novel = entries[index].novel;
 
-              // NovelListTileを使用するため、NovelInfoに変換
-              final novelData = novel.toModel();
+                    // NovelListTileを使用するため、NovelInfoに変換
+                    final novelData = novel.toModel();
 
-              return NovelListTile(
-                item: novelData,
-                onLongPress: () {
-                  unawaited(
-                    showDialog<void>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('削除の確認'),
-                        content: Text('"${novel.title}"をライブラリから削除しますか？'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('キャンセル'),
+                    return NovelListTile(
+                      item: novelData,
+                      onLongPress: () {
+                        unawaited(
+                          showDialog<void>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('削除の確認'),
+                              content: Text(
+                                '"${novel.title}"をライブラリから削除しますか？',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text('キャンセル'),
+                                ),
+                                TextButton(
+                                  onPressed: () async {
+                                    await ref
+                                        .read(novelRepositoryProvider)
+                                        .removeFromLibrary(novel.ncode);
+                                    if (context.mounted) {
+                                      Navigator.pop(context);
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('ライブラリから削除しました'),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  child: const Text('削除'),
+                                ),
+                              ],
+                            ),
                           ),
-                          TextButton(
-                            onPressed: () async {
-                              await ref
-                                  .read(novelRepositoryProvider)
-                                  .removeFromLibrary(novel.ncode);
-                              if (context.mounted) {
-                                Navigator.pop(context);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('ライブラリから削除しました'),
-                                  ),
-                                );
-                              }
-                            },
-                            child: const Text('削除'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Error: $err')),
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, stack) => Center(child: Text('Error: $err')),
+            ),
+          ),
+        ],
       ),
     );
   }

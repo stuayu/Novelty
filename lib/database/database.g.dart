@@ -1802,8 +1802,23 @@ class $LibraryEntriesTable extends LibraryEntries
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const drift.VerificationMeta _narouBookmarkSyncedAtMeta =
+      const drift.VerificationMeta('narouBookmarkSyncedAt');
   @override
-  List<drift.GeneratedColumn> get $columns => [ncode, addedAt];
+  late final drift.GeneratedColumn<int> narouBookmarkSyncedAt =
+      drift.GeneratedColumn<int>(
+        'narou_bookmark_synced_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      );
+  @override
+  List<drift.GeneratedColumn> get $columns => [
+    ncode,
+    addedAt,
+    narouBookmarkSyncedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1832,6 +1847,15 @@ class $LibraryEntriesTable extends LibraryEntries
     } else if (isInserting) {
       context.missing(_addedAtMeta);
     }
+    if (data.containsKey('narou_bookmark_synced_at')) {
+      context.handle(
+        _narouBookmarkSyncedAtMeta,
+        narouBookmarkSyncedAt.isAcceptableOrUnknown(
+          data['narou_bookmark_synced_at']!,
+          _narouBookmarkSyncedAtMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1849,6 +1873,10 @@ class $LibraryEntriesTable extends LibraryEntries
         DriftSqlType.int,
         data['${effectivePrefix}added_at'],
       )!,
+      narouBookmarkSyncedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}narou_bookmark_synced_at'],
+      ),
     );
   }
 
@@ -1866,12 +1894,25 @@ class LibraryEntry extends drift.DataClass
   /// ライブラリに追加された日時
   /// UNIXタイムスタンプ形式で保存される
   final int addedAt;
-  const LibraryEntry({required this.ncode, required this.addedAt});
+
+  /// なろう本家へのブックマーク登録が成功した日時（UNIXミリ秒）。
+  /// nullの場合はなろう側への同期が未完了・未確認であることを示す。
+  final int? narouBookmarkSyncedAt;
+  const LibraryEntry({
+    required this.ncode,
+    required this.addedAt,
+    this.narouBookmarkSyncedAt,
+  });
   @override
   Map<String, drift.Expression> toColumns(bool nullToAbsent) {
     final map = <String, drift.Expression>{};
     map['ncode'] = drift.Variable<String>(ncode);
     map['added_at'] = drift.Variable<int>(addedAt);
+    if (!nullToAbsent || narouBookmarkSyncedAt != null) {
+      map['narou_bookmark_synced_at'] = drift.Variable<int>(
+        narouBookmarkSyncedAt,
+      );
+    }
     return map;
   }
 
@@ -1879,6 +1920,9 @@ class LibraryEntry extends drift.DataClass
     return LibraryEntriesCompanion(
       ncode: drift.Value(ncode),
       addedAt: drift.Value(addedAt),
+      narouBookmarkSyncedAt: narouBookmarkSyncedAt == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(narouBookmarkSyncedAt),
     );
   }
 
@@ -1890,6 +1934,9 @@ class LibraryEntry extends drift.DataClass
     return LibraryEntry(
       ncode: serializer.fromJson<String>(json['ncode']),
       addedAt: serializer.fromJson<int>(json['addedAt']),
+      narouBookmarkSyncedAt: serializer.fromJson<int?>(
+        json['narouBookmarkSyncedAt'],
+      ),
     );
   }
   @override
@@ -1898,17 +1945,28 @@ class LibraryEntry extends drift.DataClass
     return <String, dynamic>{
       'ncode': serializer.toJson<String>(ncode),
       'addedAt': serializer.toJson<int>(addedAt),
+      'narouBookmarkSyncedAt': serializer.toJson<int?>(narouBookmarkSyncedAt),
     };
   }
 
-  LibraryEntry copyWith({String? ncode, int? addedAt}) => LibraryEntry(
+  LibraryEntry copyWith({
+    String? ncode,
+    int? addedAt,
+    drift.Value<int?> narouBookmarkSyncedAt = const drift.Value.absent(),
+  }) => LibraryEntry(
     ncode: ncode ?? this.ncode,
     addedAt: addedAt ?? this.addedAt,
+    narouBookmarkSyncedAt: narouBookmarkSyncedAt.present
+        ? narouBookmarkSyncedAt.value
+        : this.narouBookmarkSyncedAt,
   );
   LibraryEntry copyWithCompanion(LibraryEntriesCompanion data) {
     return LibraryEntry(
       ncode: data.ncode.present ? data.ncode.value : this.ncode,
       addedAt: data.addedAt.present ? data.addedAt.value : this.addedAt,
+      narouBookmarkSyncedAt: data.narouBookmarkSyncedAt.present
+          ? data.narouBookmarkSyncedAt.value
+          : this.narouBookmarkSyncedAt,
     );
   }
 
@@ -1916,44 +1974,52 @@ class LibraryEntry extends drift.DataClass
   String toString() {
     return (StringBuffer('LibraryEntry(')
           ..write('ncode: $ncode, ')
-          ..write('addedAt: $addedAt')
+          ..write('addedAt: $addedAt, ')
+          ..write('narouBookmarkSyncedAt: $narouBookmarkSyncedAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(ncode, addedAt);
+  int get hashCode => Object.hash(ncode, addedAt, narouBookmarkSyncedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is LibraryEntry &&
           other.ncode == this.ncode &&
-          other.addedAt == this.addedAt);
+          other.addedAt == this.addedAt &&
+          other.narouBookmarkSyncedAt == this.narouBookmarkSyncedAt);
 }
 
 class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
   final drift.Value<String> ncode;
   final drift.Value<int> addedAt;
+  final drift.Value<int?> narouBookmarkSyncedAt;
   final drift.Value<int> rowid;
   const LibraryEntriesCompanion({
     this.ncode = const drift.Value.absent(),
     this.addedAt = const drift.Value.absent(),
+    this.narouBookmarkSyncedAt = const drift.Value.absent(),
     this.rowid = const drift.Value.absent(),
   });
   LibraryEntriesCompanion.insert({
     required String ncode,
     required int addedAt,
+    this.narouBookmarkSyncedAt = const drift.Value.absent(),
     this.rowid = const drift.Value.absent(),
   }) : ncode = drift.Value(ncode),
        addedAt = drift.Value(addedAt);
   static drift.Insertable<LibraryEntry> custom({
     drift.Expression<String>? ncode,
     drift.Expression<int>? addedAt,
+    drift.Expression<int>? narouBookmarkSyncedAt,
     drift.Expression<int>? rowid,
   }) {
     return drift.RawValuesInsertable({
       if (ncode != null) 'ncode': ncode,
       if (addedAt != null) 'added_at': addedAt,
+      if (narouBookmarkSyncedAt != null)
+        'narou_bookmark_synced_at': narouBookmarkSyncedAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1961,11 +2027,14 @@ class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
   LibraryEntriesCompanion copyWith({
     drift.Value<String>? ncode,
     drift.Value<int>? addedAt,
+    drift.Value<int?>? narouBookmarkSyncedAt,
     drift.Value<int>? rowid,
   }) {
     return LibraryEntriesCompanion(
       ncode: ncode ?? this.ncode,
       addedAt: addedAt ?? this.addedAt,
+      narouBookmarkSyncedAt:
+          narouBookmarkSyncedAt ?? this.narouBookmarkSyncedAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1979,6 +2048,11 @@ class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
     if (addedAt.present) {
       map['added_at'] = drift.Variable<int>(addedAt.value);
     }
+    if (narouBookmarkSyncedAt.present) {
+      map['narou_bookmark_synced_at'] = drift.Variable<int>(
+        narouBookmarkSyncedAt.value,
+      );
+    }
     if (rowid.present) {
       map['rowid'] = drift.Variable<int>(rowid.value);
     }
@@ -1990,6 +2064,7 @@ class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
     return (StringBuffer('LibraryEntriesCompanion(')
           ..write('ncode: $ncode, ')
           ..write('addedAt: $addedAt, ')
+          ..write('narouBookmarkSyncedAt: $narouBookmarkSyncedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3948,12 +4023,14 @@ typedef $$LibraryEntriesTableCreateCompanionBuilder =
     LibraryEntriesCompanion Function({
       required String ncode,
       required int addedAt,
+      drift.Value<int?> narouBookmarkSyncedAt,
       drift.Value<int> rowid,
     });
 typedef $$LibraryEntriesTableUpdateCompanionBuilder =
     LibraryEntriesCompanion Function({
       drift.Value<String> ncode,
       drift.Value<int> addedAt,
+      drift.Value<int?> narouBookmarkSyncedAt,
       drift.Value<int> rowid,
     });
 
@@ -4003,6 +4080,11 @@ class $$LibraryEntriesTableFilterComposer
     builder: (column) => drift.ColumnFilters(column),
   );
 
+  drift.ColumnFilters<int> get narouBookmarkSyncedAt => $composableBuilder(
+    column: $table.narouBookmarkSyncedAt,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
   $$NovelsTableFilterComposer get ncode {
     final $$NovelsTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -4041,6 +4123,11 @@ class $$LibraryEntriesTableOrderingComposer
     builder: (column) => drift.ColumnOrderings(column),
   );
 
+  drift.ColumnOrderings<int> get narouBookmarkSyncedAt => $composableBuilder(
+    column: $table.narouBookmarkSyncedAt,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
   $$NovelsTableOrderingComposer get ncode {
     final $$NovelsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -4076,6 +4163,11 @@ class $$LibraryEntriesTableAnnotationComposer
   });
   drift.GeneratedColumn<int> get addedAt =>
       $composableBuilder(column: $table.addedAt, builder: (column) => column);
+
+  drift.GeneratedColumn<int> get narouBookmarkSyncedAt => $composableBuilder(
+    column: $table.narouBookmarkSyncedAt,
+    builder: (column) => column,
+  );
 
   $$NovelsTableAnnotationComposer get ncode {
     final $$NovelsTableAnnotationComposer composer = $composerBuilder(
@@ -4133,20 +4225,26 @@ class $$LibraryEntriesTableTableManager
               ({
                 drift.Value<String> ncode = const drift.Value.absent(),
                 drift.Value<int> addedAt = const drift.Value.absent(),
+                drift.Value<int?> narouBookmarkSyncedAt =
+                    const drift.Value.absent(),
                 drift.Value<int> rowid = const drift.Value.absent(),
               }) => LibraryEntriesCompanion(
                 ncode: ncode,
                 addedAt: addedAt,
+                narouBookmarkSyncedAt: narouBookmarkSyncedAt,
                 rowid: rowid,
               ),
           createCompanionCallback:
               ({
                 required String ncode,
                 required int addedAt,
+                drift.Value<int?> narouBookmarkSyncedAt =
+                    const drift.Value.absent(),
                 drift.Value<int> rowid = const drift.Value.absent(),
               }) => LibraryEntriesCompanion.insert(
                 ncode: ncode,
                 addedAt: addedAt,
+                narouBookmarkSyncedAt: narouBookmarkSyncedAt,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
