@@ -41,7 +41,7 @@ final class AuthProvider extends $AsyncNotifierProvider<Auth, NarouUser?> {
   Auth create() => Auth();
 }
 
-String _$authHash() => r'c6dc69a6d705983f417e093d96d9c2a6bea85bb5';
+String _$authHash() => r'8c16c280c7dda269e419d37d365e00a015b50ea6';
 
 /// なろうの認証状態を管理するプロバイダー。
 ///

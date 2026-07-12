@@ -4,6 +4,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'settings_provider.g.dart';
 
+/// ライブラリ小説メタデータの定期再取得間隔のデフォルト値（分）。
+const defaultLibraryMetadataRefreshIntervalMinutes = 180;
+
 @immutable
 /// アプリケーションの設定を管理するクラス。
 class AppSettings {
@@ -17,6 +20,8 @@ class AppSettings {
     required this.isIncognito,
     required this.isPageFlip,
     required this.isRubyEnabled,
+    this.libraryMetadataRefreshIntervalMinutes =
+        defaultLibraryMetadataRefreshIntervalMinutes,
   });
 
   /// テーマモード (system, light, dark)。
@@ -47,6 +52,10 @@ class AppSettings {
   /// これにより、行間をより小さく設定することができます。
   final bool isRubyEnabled;
 
+  /// ライブラリ小説のメタデータ（最新話掲載日など）を定期的に
+  /// バックグラウンド再取得する間隔（分）。
+  final int libraryMetadataRefreshIntervalMinutes;
+
   /// 設定をコピーするメソッド。
   AppSettings copyWith({
     ThemeMode? themeMode,
@@ -57,6 +66,7 @@ class AppSettings {
     bool? isIncognito,
     bool? isPageFlip,
     bool? isRubyEnabled,
+    int? libraryMetadataRefreshIntervalMinutes,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -67,6 +77,9 @@ class AppSettings {
       isIncognito: isIncognito ?? this.isIncognito,
       isPageFlip: isPageFlip ?? this.isPageFlip,
       isRubyEnabled: isRubyEnabled ?? this.isRubyEnabled,
+      libraryMetadataRefreshIntervalMinutes:
+          libraryMetadataRefreshIntervalMinutes ??
+          this.libraryMetadataRefreshIntervalMinutes,
     );
   }
 }
@@ -82,6 +95,8 @@ class Settings extends _$Settings {
   static const _isIncognitoKey = 'is_incognito';
   static const _isPageFlipKey = 'is_page_flip';
   static const _isRubyEnabledKey = 'is_ruby_enabled';
+  static const _libraryMetadataRefreshIntervalMinutesKey =
+      'library_metadata_refresh_interval_minutes';
 
   /// ルビ表示時の最小行間。
   ///
@@ -113,6 +128,9 @@ class Settings extends _$Settings {
     final isIncognito = await repo.getBool(_isIncognitoKey) ?? false;
     final isPageFlip = await repo.getBool(_isPageFlipKey) ?? false;
     final isRubyEnabled = await repo.getBool(_isRubyEnabledKey) ?? true;
+    final libraryMetadataRefreshIntervalMinutes =
+        await repo.getInt(_libraryMetadataRefreshIntervalMinutesKey) ??
+        defaultLibraryMetadataRefreshIntervalMinutes;
 
     return AppSettings(
       themeMode: ThemeMode.values[themeModeIndex],
@@ -123,6 +141,8 @@ class Settings extends _$Settings {
       isIncognito: isIncognito,
       isPageFlip: isPageFlip,
       isRubyEnabled: isRubyEnabled,
+      libraryMetadataRefreshIntervalMinutes:
+          libraryMetadataRefreshIntervalMinutes,
     );
   }
 
@@ -337,6 +357,38 @@ class Settings extends _$Settings {
     } catch (e, stackTrace) {
       debugPrint(
         'Error saving ruby enabled setting: $e\nStack trace: $stackTrace',
+      );
+      state = AsyncError(e, stackTrace);
+      rethrow;
+    }
+  }
+
+  /// ライブラリ小説メタデータの定期再取得間隔（分）を設定するメソッド。
+  Future<void> setLibraryMetadataRefreshIntervalMinutes(int minutes) async {
+    if (!state.hasValue) {
+      throw StateError('Settings are not loaded');
+    }
+
+    try {
+      final repo = await _repo;
+      final success = await repo.setInt(
+        _libraryMetadataRefreshIntervalMinutesKey,
+        minutes,
+      );
+      if (!success) {
+        throw Exception(
+          'Failed to save library metadata refresh interval setting',
+        );
+      }
+      state = AsyncData(
+        state.value!.copyWith(
+          libraryMetadataRefreshIntervalMinutes: minutes,
+        ),
+      );
+    } catch (e, stackTrace) {
+      debugPrint(
+        'Error saving library metadata refresh interval setting: '
+        '$e\nStack trace: $stackTrace',
       );
       state = AsyncError(e, stackTrace);
       rethrow;

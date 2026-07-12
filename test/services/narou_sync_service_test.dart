@@ -221,6 +221,37 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
         );
       });
 
+      test('なろう側で既にブックマーク済みの場合はsuccessを返す', () async {
+        // ブックマーク済みページではjs-bookmark_urlの代わりに
+        // js-bookmark_updateconf_urlが存在する。
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          if (options.uri.toString() ==
+              'https://ncode.syosetu.com/n0156ia/') {
+            return ResponseBody.fromString(
+              '<input class="js-bookmark_updateconf_url" '
+              'value="https://syosetu.com/favnovelmain/updateconfajax/'
+              'useridfavncode/1119968_3231307/">',
+              200,
+            );
+          }
+          return ResponseBody.fromString('', 404);
+        });
+        when(mockAuthRepository.buildCookieHeader())
+            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        final result = await service.addBookmarkToNarou('n0156ia');
+
+        expect(result.outcome, NarouBookmarkSyncOutcome.success);
+        // addajaxは呼ばれない
+        expect(fakeAdapter.requests, hasLength(1));
+      });
+
       test('js-bookmark_urlが存在しない場合はfailedを返す', () async {
         final fakeAdapter = _FakeHttpClientAdapter(
           (_) => ResponseBody.fromString('<html></html>', 200),
@@ -394,17 +425,38 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
         when(mockAuthRepository.buildCookieHeader())
             .thenAnswer((_) async => null);
 
-        final result = await syncService.removeBookmarkFromNarou('token123');
+        final result = await syncService.removeBookmarkFromNarou('n0156ia');
         expect(result, NarouBookmarkSyncOutcome.notLoggedIn);
       });
 
-      test('deleteajaxへ正しいURL・パラメータでリクエストが送られる', () async {
-        final fakeAdapter = _FakeHttpClientAdapter(
-          (_) => ResponseBody.fromString(
-            'jQuery123456({"result":true,"res_mes":""});',
-            200,
-          ),
-        );
+      test('updateconf→deleteajaxの順で削除用トークンを使って解除する', () async {
+        // ブックマーク済みの作品ページ（js-bookmark_urlは存在しない）
+        const bookmarkedPageHtml = '''
+<input type="hidden" class="js-bookmark_updateconf_url"
+  value="https://syosetu.com/favnovelmain/updateconfajax/useridfavncode/1119968_3231307/">
+<input type="hidden" class="js-del_bookmark_url"
+  value="https://syosetu.com/favnovelmain/deleteajax/useridfavncode/1119968_3231307/">
+''';
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          final url = options.uri.toString();
+          if (url == 'https://ncode.syosetu.com/n0156ia/') {
+            return ResponseBody.fromString(bookmarkedPageHtml, 200);
+          }
+          if (url.contains('updateconfajax')) {
+            return ResponseBody.fromString(
+              'result({"result":true,'
+              '"favnovelmain_delconf_token":"delconf-token"});',
+              200,
+            );
+          }
+          if (url.contains('deleteajax')) {
+            return ResponseBody.fromString(
+              'result({"result":true,"res_mes":""});',
+              200,
+            );
+          }
+          return ResponseBody.fromString('', 404);
+        });
         when(mockAuthRepository.buildCookieHeader())
             .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
@@ -414,23 +466,82 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           dio: Dio()..httpClientAdapter = fakeAdapter,
         );
 
-        final result = await service.removeBookmarkFromNarou(
-          '3d05fae7f1247fa4a905e99f1ff1773d',
-        );
+        final result = await service.removeBookmarkFromNarou('n0156ia');
 
         expect(result, NarouBookmarkSyncOutcome.success);
+        expect(fakeAdapter.requests, hasLength(3));
+        final deleteRequest = fakeAdapter.requests.last;
+        expect(
+          deleteRequest.uri.toString(),
+          startsWith(
+            'https://syosetu.com/favnovelmain/deleteajax/'
+            'useridfavncode/1119968_3231307/',
+          ),
+        );
+        // 削除にはupdateconfで取得した専用トークンを使う
+        expect(deleteRequest.uri.queryParameters['token'], 'delconf-token');
+        expect(deleteRequest.uri.queryParameters['callback'], isNotNull);
+        expect(deleteRequest.uri.queryParameters['_'], isNotNull);
+      });
+
+      test('なろう側が未ブックマークの場合は解除不要としてsuccessを返す', () async {
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          if (options.uri.toString() ==
+              'https://ncode.syosetu.com/n0156ia/') {
+            return ResponseBody.fromString(
+              '<input class="js-bookmark_url" '
+              'value="https://syosetu.com/favnovelmain/addajax/'
+              '?ncode=n0156ia">',
+              200,
+            );
+          }
+          return ResponseBody.fromString('', 404);
+        });
+        when(mockAuthRepository.buildCookieHeader())
+            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        final result = await service.removeBookmarkFromNarou('n0156ia');
+
+        expect(result, NarouBookmarkSyncOutcome.success);
+        // 作品ページの取得のみでdeleteajaxは呼ばれない
         expect(fakeAdapter.requests, hasLength(1));
-        final request = fakeAdapter.requests.single;
-        expect(
-          request.uri.toString(),
-          startsWith('https://syosetu.com/favnovelmain/deleteajax/'),
+      });
+
+      test('updateconfが削除用トークンを返さない場合はfailedを返す', () async {
+        const bookmarkedPageHtml = '''
+<input type="hidden" class="js-bookmark_updateconf_url"
+  value="https://syosetu.com/favnovelmain/updateconfajax/useridfavncode/1119968_3231307/">
+<input type="hidden" class="js-del_bookmark_url"
+  value="https://syosetu.com/favnovelmain/deleteajax/useridfavncode/1119968_3231307/">
+''';
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          final url = options.uri.toString();
+          if (url == 'https://ncode.syosetu.com/n0156ia/') {
+            return ResponseBody.fromString(bookmarkedPageHtml, 200);
+          }
+          return ResponseBody.fromString(
+            'result({"result":false,"res_mes":"エラー"});',
+            200,
+          );
+        });
+        when(mockAuthRepository.buildCookieHeader())
+            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
         );
-        expect(
-          request.uri.queryParameters['token'],
-          '3d05fae7f1247fa4a905e99f1ff1773d',
-        );
-        expect(request.uri.queryParameters['callback'], isNotNull);
-        expect(request.uri.queryParameters['_'], isNotNull);
+
+        final result = await service.removeBookmarkFromNarou('n0156ia');
+
+        expect(result, NarouBookmarkSyncOutcome.failed);
       });
 
       test('deleteajaxが例外を投げるとfailedを返す', () async {
@@ -446,7 +557,7 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           dio: Dio()..httpClientAdapter = fakeAdapter,
         );
 
-        final result = await service.removeBookmarkFromNarou('token123');
+        final result = await service.removeBookmarkFromNarou('n0156ia');
 
         expect(result, NarouBookmarkSyncOutcome.failed);
       });
@@ -492,7 +603,7 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           if (options.uri.toString() ==
               'https://ncode.syosetu.com/n0156ia/1/') {
             return ResponseBody.fromString(
-              '<input name="auto_siori" data-primary="1119968_3212720">'
+              '<input name="auto_siori" data-primary="1119968_3212720"> '
               '<input name="token" value="fresh-token">',
               200,
             );

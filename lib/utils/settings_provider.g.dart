@@ -36,7 +36,7 @@ final class SettingsProvider
   Settings create() => Settings();
 }
 
-String _$settingsHash() => r'f6492a4fe61ce03e536c53e95cf101be0c572db7';
+String _$settingsHash() => r'9d758804a0865122b6c3b29835ebad0e17d3d772';
 
 /// アプリケーションの設定を提供するプロバイダー。
 

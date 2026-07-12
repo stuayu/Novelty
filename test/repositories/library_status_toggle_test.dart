@@ -170,22 +170,21 @@ void main() {
       return notifier;
     }
 
-    test('トークン情報が無い場合はなろう解除を呼ばずにremovedを返す', () async {
+    test('保存トークンが無くてもncodeを使ってなろう解除を呼ぶ', () async {
       when(mockDatabase.watchIsInLibrary(testNcode)).thenAnswer(
         (_) => Stream.value(true),
       );
       when(mockDatabase.removeFromLibrary(testNcode)).thenAnswer(
         (_) async => 1,
       );
-      when(
-        mockDatabase.getNarouFavToken(testNcode),
-      ).thenAnswer((_) async => null);
+      when(mockNarouSyncService.removeBookmarkFromNarou(testNcode))
+          .thenAnswer((_) async => NarouBookmarkSyncOutcome.success);
 
       final notifier = await waitForRegisteredState();
       final result = await notifier.toggle(testNovel);
 
       expect(result, const LibraryToggleResult.removed());
-      verifyNever(mockNarouSyncService.removeBookmarkFromNarou(any));
+      verify(mockNarouSyncService.removeBookmarkFromNarou(testNcode)).called(1);
     });
 
     test('なろう解除成功時はnarouSyncFailed:falseでremovedを返す', () async {
@@ -195,21 +194,15 @@ void main() {
       when(mockDatabase.removeFromLibrary(testNcode)).thenAnswer(
         (_) async => 1,
       );
-      when(mockDatabase.getNarouFavToken(testNcode)).thenAnswer(
-        (_) async => const NarouFavToken(
-          useridFavncode: '1119968_3231307',
-          token: 'abcxyz',
-        ),
-      );
       when(
-        mockNarouSyncService.removeBookmarkFromNarou('abcxyz'),
+        mockNarouSyncService.removeBookmarkFromNarou(testNcode),
       ).thenAnswer((_) async => NarouBookmarkSyncOutcome.success);
 
       final notifier = await waitForRegisteredState();
       final result = await notifier.toggle(testNovel);
 
       expect(result, const LibraryToggleResult.removed());
-      verify(mockNarouSyncService.removeBookmarkFromNarou('abcxyz')).called(1);
+      verify(mockNarouSyncService.removeBookmarkFromNarou(testNcode)).called(1);
     });
 
     test('なろう解除失敗時はnarouSyncFailed:trueでremovedを返す', () async {
@@ -219,14 +212,8 @@ void main() {
       when(mockDatabase.removeFromLibrary(testNcode)).thenAnswer(
         (_) async => 1,
       );
-      when(mockDatabase.getNarouFavToken(testNcode)).thenAnswer(
-        (_) async => const NarouFavToken(
-          useridFavncode: '1119968_3231307',
-          token: 'abcxyz',
-        ),
-      );
       when(
-        mockNarouSyncService.removeBookmarkFromNarou('abcxyz'),
+        mockNarouSyncService.removeBookmarkFromNarou(testNcode),
       ).thenAnswer((_) async => NarouBookmarkSyncOutcome.failed);
 
       final notifier = await waitForRegisteredState();
@@ -236,6 +223,7 @@ void main() {
         result,
         const LibraryToggleResult.removed(narouSyncFailed: true),
       );
+      verifyNever(mockDatabase.removeFromLibrary(testNcode));
     });
   });
 }

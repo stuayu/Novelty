@@ -121,6 +121,95 @@ void main() {
       verify(mockDatabase.getEpisodesRange(normalizedNcode, 1, 100)).called(1);
     });
   });
+
+  group('NovelRepository refreshStaleLibraryMetadata', () {
+    late MockAppDatabase mockDatabase;
+    late MockApiService mockApiService;
+    late ProviderContainer container;
+
+    setUp(() {
+      mockDatabase = MockAppDatabase();
+      mockApiService = MockApiService();
+    });
+
+    ProviderContainer createContainer() {
+      return ProviderContainer(
+        overrides: [
+          db.appDatabaseProvider.overrideWithValue(mockDatabase),
+          apiServiceProvider.overrideWithValue(mockApiService),
+          settingsProvider.overrideWith(FakeSettings.new),
+          isOfflineProvider.overrideWithValue(false),
+        ],
+      );
+    }
+
+    tearDown(() {
+      container.dispose();
+    });
+
+    db.Novel buildNovel(String ncode, {int? cachedAt}) {
+      return db.Novel(ncode: ncode, cachedAt: cachedAt);
+    }
+
+    test('cachedAtが古い小説のみAPIから再取得する', () async {
+      container = createContainer();
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      when(mockDatabase.getLibraryNovels()).thenAnswer(
+        (_) async => [
+          // 十分新しいためスキップされる
+          buildNovel('n1111aa', cachedAt: now),
+          // 古いため再取得対象
+          buildNovel(
+            'n2222bb',
+            cachedAt: now - const Duration(hours: 10).inMilliseconds,
+          ),
+          // cachedAtがnullなので再取得対象
+          buildNovel('n3333cc'),
+        ],
+      );
+      when(
+        mockApiService.fetchMultipleNovelsInfo(['n2222bb', 'n3333cc']),
+      ).thenAnswer((_) async => {});
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      verify(
+        mockApiService.fetchMultipleNovelsInfo(['n2222bb', 'n3333cc']),
+      ).called(1);
+    });
+
+    test('再取得対象が無い場合はAPIを呼び出さない', () async {
+      container = createContainer();
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      when(
+        mockDatabase.getLibraryNovels(),
+      ).thenAnswer((_) async => [buildNovel('n1111aa', cachedAt: now)]);
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      verifyNever(mockApiService.fetchMultipleNovelsInfo(any));
+    });
+
+    test('APIが例外を投げても静かに終了する', () async {
+      container = createContainer();
+
+      when(
+        mockDatabase.getLibraryNovels(),
+      ).thenAnswer((_) async => [buildNovel('n1111aa')]);
+      when(
+        mockApiService.fetchMultipleNovelsInfo(['n1111aa']),
+      ).thenThrow(Exception('network error'));
+
+      final repository = container.read(novelRepositoryProvider);
+
+      // 例外がスローされずに完了すればよい
+      await repository.refreshStaleLibraryMetadata();
+    });
+  });
 }
 
 class FakeSettings extends Settings {

@@ -24,10 +24,10 @@ enum LibrarySortOrder {
   /// 追加日時が古い順。
   addedAtAsc,
 
-  /// 更新日時が新しい順。
+  /// 最新エピソード掲載日（general_lastup）が新しい順。
   updatedAtDesc,
 
-  /// 更新日時が古い順。
+  /// 最新エピソード掲載日（general_lastup）が古い順。
   updatedAtAsc,
 
   /// タイトルの昇順（あいうえお順）。
@@ -35,6 +35,12 @@ enum LibrarySortOrder {
 
   /// タイトルの降順。
   titleDesc,
+
+  /// アプリの閲覧履歴で最近読んだ順。
+  lastReadDesc,
+
+  /// アプリの閲覧履歴で読んだのが古い順。
+  lastReadAsc,
 }
 
 /// ライブラリのフィルタ状態を表すモデル。

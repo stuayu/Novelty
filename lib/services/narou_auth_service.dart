@@ -119,13 +119,14 @@ class NarouAuthService {
           responseType: ResponseType.plain,
         ),
       );
-      if (response.statusCode != 200 || response.data == null) return false;
-      final doc = parser.parse(response.data!);
+      final data = response.data;
+      if (response.statusCode != 200 || data == null) return false;
+      final doc = parser.parse(data);
       final hasLoginForm =
           doc.querySelector('form[action*="/login/login/"]') != null;
       final hasBookmarkPage =
           doc.querySelector('.p-up-bookmark-item') != null ||
-          response.data!.contains('ブックマーク');
+          data.contains('ブックマーク');
       return !hasLoginForm && hasBookmarkPage;
     } on Exception {
       return false;

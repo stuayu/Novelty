@@ -213,7 +213,11 @@ class Novels extends Table {
 @immutable
 class LibraryNovelEntry {
   /// コンストラクタ。
-  const LibraryNovelEntry({required this.novel, required this.addedAt});
+  const LibraryNovelEntry({
+    required this.novel,
+    required this.addedAt,
+    this.lastViewedAt,
+  });
 
   /// 小説データ。
   final Novel novel;
@@ -221,16 +225,22 @@ class LibraryNovelEntry {
   /// ライブラリに追加された日時（UNIXミリ秒）。
   final int addedAt;
 
+  /// アプリの閲覧履歴での最終閲覧日時（UNIXミリ秒）。
+  ///
+  /// 一度も読んでいない場合は`null`。
+  final int? lastViewedAt;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is LibraryNovelEntry &&
           runtimeType == other.runtimeType &&
           novel == other.novel &&
-          addedAt == other.addedAt;
+          addedAt == other.addedAt &&
+          lastViewedAt == other.lastViewedAt;
 
   @override
-  int get hashCode => Object.hash(novel, addedAt);
+  int get hashCode => Object.hash(novel, addedAt, lastViewedAt);
 }
 
 /// しおり更新(`ichiupdateajax`)に必要な、なろう本家のトークン情報。
@@ -719,11 +729,17 @@ class AppDatabase extends _$AppDatabase {
 
   /// ライブラリの小説リストを監視（JOIN）
   ///
-  /// 追加日時（[LibraryNovelEntry.addedAt]）でのソートをアプリ側で行えるよう、
-  /// [Novel]と併せて返す。
+  /// 追加日時（[LibraryNovelEntry.addedAt]）・アプリ内の最終閲覧日時
+  /// （[LibraryNovelEntry.lastViewedAt]）でのソートをアプリ側で行えるよう、
+  /// [Novel]と併せて返す。閲覧履歴が無い小説は[LibraryNovelEntry.lastViewedAt]が
+  /// `null`になる。
   Stream<List<LibraryNovelEntry>> watchLibraryNovels() {
     final query = select(libraryEntries).join([
       innerJoin(novels, novels.ncode.equalsExp(libraryEntries.ncode)),
+      leftOuterJoin(
+        readingHistory,
+        readingHistory.ncode.equalsExp(libraryEntries.ncode),
+      ),
     ])..orderBy([OrderingTerm.desc(libraryEntries.addedAt)]);
 
     return query.watch().map(
@@ -732,6 +748,7 @@ class AppDatabase extends _$AppDatabase {
             (row) => LibraryNovelEntry(
               novel: row.readTable(novels),
               addedAt: row.readTable(libraryEntries).addedAt,
+              lastViewedAt: row.readTableOrNull(readingHistory)?.viewedAt,
             ),
           )
           .toList(),

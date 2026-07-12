@@ -30,7 +30,8 @@ bool _matchesSearchQuery(Novel novel, String query) {
 
 /// [entries]を[sortOrder]に従って並び替えた新しいリストを返す。
 ///
-/// 更新日時・タイトルはnullableなため、値が欠損している要素は末尾に寄せる。
+/// 更新日時・最終閲覧日時・タイトルはnullableなため、
+/// 値が欠損している要素は末尾に寄せる。
 List<LibraryNovelEntry> _sortEntries(
   List<LibraryNovelEntry> entries,
   LibrarySortOrder sortOrder,
@@ -50,23 +51,37 @@ List<LibraryNovelEntry> _sortEntries(
     return a.compareTo(b);
   }
 
+  int compareNullableInt(int? a, int? b) {
+    if (a == null && b == null) {
+      return 0;
+    }
+    if (a == null) {
+      return 1;
+    }
+    if (b == null) {
+      return -1;
+    }
+    return a.compareTo(b);
+  }
+
   switch (sortOrder) {
     case LibrarySortOrder.addedAtDesc:
       sorted.sort((a, b) => b.addedAt.compareTo(a.addedAt));
     case LibrarySortOrder.addedAtAsc:
       sorted.sort((a, b) => a.addedAt.compareTo(b.addedAt));
     case LibrarySortOrder.updatedAtDesc:
+      // 最新エピソード掲載日(general_lastup)基準で新しい順に並べる。
       sorted.sort(
-        (a, b) => compareNullableString(
-          b.novel.novelUpdatedAt,
-          a.novel.novelUpdatedAt,
+        (a, b) => compareNullableInt(
+          b.novel.generalLastup,
+          a.novel.generalLastup,
         ),
       );
     case LibrarySortOrder.updatedAtAsc:
       sorted.sort(
-        (a, b) => compareNullableString(
-          a.novel.novelUpdatedAt,
-          b.novel.novelUpdatedAt,
+        (a, b) => compareNullableInt(
+          a.novel.generalLastup,
+          b.novel.generalLastup,
         ),
       );
     case LibrarySortOrder.titleAsc:
@@ -76,6 +91,15 @@ List<LibraryNovelEntry> _sortEntries(
     case LibrarySortOrder.titleDesc:
       sorted.sort(
         (a, b) => compareNullableString(b.novel.title, a.novel.title),
+      );
+    case LibrarySortOrder.lastReadDesc:
+      // アプリの閲覧履歴で最近読んだ順に並べる。未読は末尾。
+      sorted.sort(
+        (a, b) => compareNullableInt(b.lastViewedAt, a.lastViewedAt),
+      );
+    case LibrarySortOrder.lastReadAsc:
+      sorted.sort(
+        (a, b) => compareNullableInt(a.lastViewedAt, b.lastViewedAt),
       );
   }
 
@@ -89,6 +113,9 @@ class LibraryPage extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // ライブラリ画面を開いている間、最新話掲載日などのメタデータを
+    // バックグラウンドで定期的に再取得する。
+    ref.watch(libraryMetadataRefresherProvider);
     final libraryNovelsAsync = ref.watch(libraryNovelsProvider);
     final filter = ref.watch(libraryFilterStateProvider);
     final searchController = useTextEditingController(

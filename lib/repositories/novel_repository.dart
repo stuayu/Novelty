@@ -152,28 +152,79 @@ class NovelRepository {
   /// （失敗してもローカル削除自体には影響させない）。
   Future<void> removeFromLibrary(String ncode) async {
     final ncodeLower = ncode.toNormalizedNcode();
-    final favToken = await _db.getNarouFavToken(ncodeLower);
-    await _db.removeFromLibrary(ncodeLower);
 
-    if (favToken != null) {
-      try {
-        final outcome = await ref
-            .read(narouSyncServiceProvider)
-            .removeBookmarkFromNarou(favToken.token);
+    try {
+      final outcome = await ref
+          .read(narouSyncServiceProvider)
+          .removeBookmarkFromNarou(ncodeLower);
+      if (outcome == NarouBookmarkSyncOutcome.failed) {
+        debugPrint(
+          '[NarouSync] removeFromLibrary($ncodeLower): '
+          'なろう側の解除に失敗したためローカル削除を中止します',
+        );
+        return;
+      }
+      if (outcome != NarouBookmarkSyncOutcome.notLoggedIn) {
         debugPrint(
           '[NarouSync] removeFromLibrary($ncodeLower): '
           'removeBookmarkFromNarou結果=$outcome',
         );
-      } on Exception catch (e) {
-        debugPrint(
-          '[NarouSync] removeFromLibrary($ncodeLower): '
-          'removeBookmarkFromNarouで予期しない例外: $e',
-        );
       }
+    } on Exception catch (e) {
+      debugPrint(
+        '[NarouSync] removeFromLibrary($ncodeLower): '
+        'removeBookmarkFromNarouで予期しない例外: $e',
+      );
+      return;
     }
+
+    await _db.removeFromLibrary(ncodeLower);
 
     // Providersを無効化してUIを更新
     ref.invalidate(libraryNovelsProvider);
+  }
+
+  /// ライブラリ小説のうち、メタデータの鮮度が古い小説をAPIから再取得する。
+  ///
+  /// `general_lastup`（最新話掲載日）などのメタデータは、ライブラリに
+  /// 追加した時点のスナップショットのままでは更新を検知できない。
+  /// [staleAfter]より前に取得した小説（`cached_at`基準）のみを対象に
+  /// 再取得することで、無駄なAPIリクエストを避けつつ最新化する。
+  ///
+  /// `watchLibraryNovels`はDBの変更を監視しているため、更新結果は
+  /// 自動的にライブラリ画面へ反映される（明示的なinvalidateは不要）。
+  Future<void> refreshStaleLibraryMetadata({
+    Duration staleAfter = const Duration(hours: 6),
+  }) async {
+    final libraryNovels = await _db.getLibraryNovels();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final staleMs = staleAfter.inMilliseconds;
+
+    final staleNcodes = libraryNovels
+        .where((novel) {
+          final cachedAt = novel.cachedAt;
+          return cachedAt == null || now - cachedAt > staleMs;
+        })
+        .map((novel) => novel.ncode)
+        .toList();
+
+    if (staleNcodes.isEmpty) return;
+
+    try {
+      final novelMap = await apiService.fetchMultipleNovelsInfo(staleNcodes);
+      for (final info in novelMap.values) {
+        if (info.ncode != null) {
+          await _db.insertNovel(info.toDbCompanion());
+        }
+      }
+      debugPrint(
+        '[LibraryMetadataRefresh] ${novelMap.length}/${staleNcodes.length}'
+        '件のメタデータを再取得しました',
+      );
+    } on Exception catch (e) {
+      // 再取得の失敗はサイレントに無視する（次回の定期実行に委ねる）
+      debugPrint('[LibraryMetadataRefresh] 再取得に失敗しました: $e');
+    }
   }
 
   /// 小説を閲覧履歴に追加する。
@@ -751,30 +802,32 @@ class LibraryStatus extends _$LibraryStatus {
         ref.invalidate(libraryNovelsProvider);
         return LibraryToggleResult.added(narouSyncFailed: narouSyncFailed);
       } else {
-        // ローカル削除でトークンが失われる前に、なろう解除に必要な
-        // トークン情報を先に取得しておく。
-        final favToken = await db.getNarouFavToken(novelInfo.ncode!);
-        await db.removeFromLibrary(novelInfo.ncode!);
-
         var narouSyncFailed = false;
-        if (favToken != null) {
-          try {
-            final outcome = await ref
-                .read(narouSyncServiceProvider)
-                .removeBookmarkFromNarou(favToken.token);
+        try {
+          final outcome = await ref
+              .read(narouSyncServiceProvider)
+              .removeBookmarkFromNarou(novelInfo.ncode!);
+          if (outcome != NarouBookmarkSyncOutcome.notLoggedIn) {
             debugPrint(
               '[NarouSync] toggle(${novelInfo.ncode}): '
               'removeBookmarkFromNarou結果=$outcome',
             );
-            narouSyncFailed = outcome == NarouBookmarkSyncOutcome.failed;
-          } on Exception catch (e) {
-            debugPrint(
-              '[NarouSync] toggle(${novelInfo.ncode}): '
-              'removeBookmarkFromNarouで予期しない例外: $e',
-            );
-            narouSyncFailed = true;
           }
+          narouSyncFailed = outcome == NarouBookmarkSyncOutcome.failed;
+        } on Exception catch (e) {
+          debugPrint(
+            '[NarouSync] toggle(${novelInfo.ncode}): '
+            'removeBookmarkFromNarouで予期しない例外: $e',
+          );
+          narouSyncFailed = true;
         }
+
+        // なろう側の解除に失敗した場合はローカル登録を残し、再試行可能にする。
+        if (narouSyncFailed) {
+          return const LibraryToggleResult.removed(narouSyncFailed: true);
+        }
+
+        await db.removeFromLibrary(novelInfo.ncode!);
 
         ref.invalidate(libraryNovelsProvider);
         return LibraryToggleResult.removed(narouSyncFailed: narouSyncFailed);
@@ -883,4 +936,31 @@ Stream<List<Episode>> episodeList(
 Stream<int?> lastReadEpisode(Ref ref, String ncode) {
   final repository = ref.watch(novelRepositoryProvider);
   return repository.watchLastReadEpisode(ncode);
+}
+
+@Riverpod(keepAlive: true)
+/// アプリ起動中、ライブラリ小説の最新話掲載日などのメタデータを
+/// バックグラウンドで定期的に再取得するプロバイダー。
+///
+/// ライブラリ画面が開かれたタイミングで初回実行し、以降は設定画面で
+/// 指定された間隔（[AppSettings.libraryMetadataRefreshIntervalMinutes]、
+/// デフォルト[defaultLibraryMetadataRefreshIntervalMinutes]分）で再実行し
+/// 続ける。これにより、`general_lastup`基準のソート・フィルタが実際の
+/// 最新話掲載状況を反映できるようにする。
+///
+/// 間隔設定が変更されると本プロバイダーが再構築され、新しい間隔で
+/// タイマーが再設定される。
+Future<void> libraryMetadataRefresher(Ref ref) async {
+  final repository = ref.watch(novelRepositoryProvider);
+  final settings = await ref.watch(settingsProvider.future);
+  final interval = Duration(
+    minutes: settings.libraryMetadataRefreshIntervalMinutes,
+  );
+
+  Future<void> refresh() =>
+      repository.refreshStaleLibraryMetadata(staleAfter: interval);
+
+  unawaited(refresh());
+  final timer = Timer.periodic(interval, (_) => unawaited(refresh()));
+  ref.onDispose(timer.cancel);
 }

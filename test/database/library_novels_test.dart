@@ -176,6 +176,36 @@ void main() {
       expect(await database.getNarouFavToken(ncode), isNull);
     });
 
+    test('閲覧履歴が無い場合はlastViewedAtがnullであること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(ncode);
+
+      final entries = await database.watchLibraryNovels().first;
+      expect(entries.length, 1);
+      expect(entries.first.lastViewedAt, isNull);
+    });
+
+    test('閲覧履歴があればwatchLibraryNovelsがlastViewedAtを含めて返すこと', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(ncode);
+
+      // addToHistoryはviewedAtを常に現在時刻で記録する
+      final beforeAdd = DateTime.now().millisecondsSinceEpoch;
+      await database.addToHistory(
+        const ReadingHistoryCompanion(
+          ncode: Value(ncode),
+          lastEpisodeId: Value(3),
+        ),
+      );
+
+      final entries = await database.watchLibraryNovels().first;
+      expect(entries.length, 1);
+      expect(entries.first.lastViewedAt, isNotNull);
+      expect(entries.first.lastViewedAt, greaterThanOrEqualTo(beforeAdd));
+    });
+
     test('重複追加は無視されること', () async {
       const ncode = 'n1234ab';
       await insertDummyNovel(ncode);

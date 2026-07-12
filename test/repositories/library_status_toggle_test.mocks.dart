@@ -1175,10 +1175,10 @@ class MockNarouSyncService extends _i1.Mock implements _i8.NarouSyncService {
 
   @override
   _i5.Future<_i8.NarouBookmarkSyncOutcome> removeBookmarkFromNarou(
-    String? token,
+    String? ncode,
   ) =>
       (super.noSuchMethod(
-            Invocation.method(#removeBookmarkFromNarou, [token]),
+            Invocation.method(#removeBookmarkFromNarou, [ncode]),
             returnValue: _i5.Future<_i8.NarouBookmarkSyncOutcome>.value(
               _i8.NarouBookmarkSyncOutcome.notLoggedIn,
             ),
@@ -1186,7 +1186,7 @@ class MockNarouSyncService extends _i1.Mock implements _i8.NarouSyncService {
           as _i5.Future<_i8.NarouBookmarkSyncOutcome>);
 
   @override
-  _i5.Future<void> setShioriIfLoggedIn({
+  _i5.Future<bool> setShioriIfLoggedIn({
     required String? ncode,
     required int? episode,
   }) =>
@@ -1195,8 +1195,7 @@ class MockNarouSyncService extends _i1.Mock implements _i8.NarouSyncService {
               #ncode: ncode,
               #episode: episode,
             }),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
+            returnValue: _i5.Future<bool>.value(false),
           )
-          as _i5.Future<void>);
+          as _i5.Future<bool>);
 }

@@ -97,5 +97,48 @@ void main() {
       expect(find.text('キャンセル'), findsOneWidget);
       expect(find.text('復元する'), findsOneWidget);
     });
+
+    testWidgets('ライブラリ自動更新間隔の設定がデフォルト値(3時間ごと)で表示される', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: DataStoragePage(backupService: mockBackupService),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('ライブラリの自動更新間隔'), findsOneWidget);
+      expect(find.text('3時間ごと'), findsOneWidget);
+    });
+
+    testWidgets('ライブラリ自動更新間隔を変更できる', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: DataStoragePage(backupService: mockBackupService),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('3時間ごと'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('1時間ごと').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('1時間ごと'), findsOneWidget);
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getInt('library_metadata_refresh_interval_minutes'),
+        equals(60),
+      );
+    });
   });
 }

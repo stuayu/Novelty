@@ -19,10 +19,12 @@ class LibrarySortSheet extends StatelessWidget {
   static const _labels = <LibrarySortOrder, String>{
     LibrarySortOrder.addedAtDesc: '追加日時が新しい順',
     LibrarySortOrder.addedAtAsc: '追加日時が古い順',
-    LibrarySortOrder.updatedAtDesc: '更新日時が新しい順',
-    LibrarySortOrder.updatedAtAsc: '更新日時が古い順',
+    LibrarySortOrder.updatedAtDesc: '最新話の掲載が新しい順',
+    LibrarySortOrder.updatedAtAsc: '最新話の掲載が古い順',
     LibrarySortOrder.titleAsc: 'タイトル（あいうえお順）',
     LibrarySortOrder.titleDesc: 'タイトル（逆順）',
+    LibrarySortOrder.lastReadDesc: '最近読んだ順',
+    LibrarySortOrder.lastReadAsc: '最後に読んだのが古い順',
   };
 
   @override
@@ -33,12 +35,16 @@ class LibrarySortSheet extends StatelessWidget {
         keys: [LibrarySortOrder.addedAtDesc, LibrarySortOrder.addedAtAsc],
       ),
       const _SortGroup(
-        title: '更新日時',
+        title: '最新話の掲載日',
         keys: [LibrarySortOrder.updatedAtDesc, LibrarySortOrder.updatedAtAsc],
       ),
       const _SortGroup(
         title: 'タイトル',
         keys: [LibrarySortOrder.titleAsc, LibrarySortOrder.titleDesc],
+      ),
+      const _SortGroup(
+        title: '閲覧履歴',
+        keys: [LibrarySortOrder.lastReadDesc, LibrarySortOrder.lastReadAsc],
       ),
     ];
 

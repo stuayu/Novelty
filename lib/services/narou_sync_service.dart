@@ -92,8 +92,6 @@ class NarouSyncService {
       'https://syosetu.com/favnovelmain/list/';
   static const _updateajaxUrl =
       'https://syosetu.com/favnovelmain/updateajax/';
-  static const _deleteajaxUrl =
-      'https://syosetu.com/favnovelmain/deleteajax/';
 
   // -----------------------------------------------------------------------
   // ブックマーク同期（なろう → ローカル）
@@ -258,8 +256,10 @@ class NarouSyncService {
 
   /// なろうに小説をブックマーク登録する。
   ///
-  /// エピソードページにある `js-bookmark_url` hidden inputから
+  /// 作品ページにある `js-bookmark_url` hidden inputから
   /// addajax URLを取得し、ブックマーク登録を行う。
+  /// なろう側で既にブックマーク済みの場合（`js-bookmark_url`の代わりに
+  /// `js-bookmark_updateconf_url`が存在する場合）は成功として扱う。
   Future<NarouBookmarkSyncResult> addBookmarkToNarou(String ncode) async {
     final cookieHeader = await authRepository.buildCookieHeader();
     if (cookieHeader == null) {
@@ -272,8 +272,18 @@ class NarouSyncService {
       // 小説トップページからブックマーク追加URLを取得する
       final novelUrl =
           'https://ncode.syosetu.com/${ncode.toNormalizedNcode()}/';
-      final addajaxUrl = await _fetchBookmarkAddUrl(novelUrl, cookieHeader);
+      final pageState = await _fetchBookmarkPageState(novelUrl, cookieHeader);
+      final addajaxUrl = pageState?.addUrl;
       if (addajaxUrl == null) {
+        if (pageState?.updateconfUrl != null) {
+          debugPrint(
+            '[NarouSync] addBookmarkToNarou($ncode): '
+            'なろう側で既にブックマーク済みのため登録をスキップします',
+          );
+          return const NarouBookmarkSyncResult(
+            outcome: NarouBookmarkSyncOutcome.success,
+          );
+        }
         debugPrint(
           '[NarouSync] addBookmarkToNarou($ncode): '
           'js-bookmark_urlが見つかりませんでした ($novelUrl)',
@@ -376,49 +386,102 @@ class NarouSyncService {
 
   /// なろうのブックマークを解除する。
   ///
-  /// [token]には[addBookmarkToNarou]の結果として得られた
-  /// `favnovelmain_addend_token`を渡す。
+  /// なろう本家のJS（novel_bookmarkmenu.js）と同じ手順で解除する：
+  /// 1. 作品ページから `js-bookmark_updateconf_url`（設定変更用URL）と
+  ///    `js-del_bookmark_url`（削除用URL）を取得する。
+  /// 2. 設定変更用URLを呼び、削除用トークン
+  ///    (`favnovelmain_delconf_token`) を取得する。
+  /// 3. 削除用URLへトークンを付与してリクエストする。
+  ///
+  /// 登録時の`favnovelmain_addend_token`は削除には使用できない。
   Future<NarouBookmarkSyncOutcome> removeBookmarkFromNarou(
-    String token,
+    String ncode,
   ) async {
     final cookieHeader = await authRepository.buildCookieHeader();
     if (cookieHeader == null) return NarouBookmarkSyncOutcome.notLoggedIn;
 
     try {
-      final response = await _dio.get<String>(
-        _deleteajaxUrl,
-        queryParameters: {
-          'token': token,
-          'callback': 'result',
-          '_': DateTime.now().millisecondsSinceEpoch.toString(),
-        },
-        options: Options(
-          headers: {
-            'User-Agent': narouUserAgent,
-            'Cookie': cookieHeader,
-            'Referer': 'https://ncode.syosetu.com/',
-          },
-          responseType: ResponseType.plain,
-          validateStatus: (status) =>
-              status != null && status >= 200 && status < 300,
-        ),
+      final normalizedNcode = ncode.toNormalizedNcode();
+      final novelUrl = 'https://ncode.syosetu.com/$normalizedNcode/';
+      final pageState = await _fetchBookmarkPageState(novelUrl, cookieHeader);
+      if (pageState == null) {
+        debugPrint(
+          '[NarouSync] removeBookmarkFromNarou($normalizedNcode): '
+          '作品ページを取得できませんでした',
+        );
+        return NarouBookmarkSyncOutcome.failed;
+      }
+
+      final updateconfUrl = pageState.updateconfUrl;
+      if (updateconfUrl == null) {
+        if (pageState.addUrl != null) {
+          // js-bookmark_urlのみ存在する場合、なろう側は未ブックマーク状態。
+          debugPrint(
+            '[NarouSync] removeBookmarkFromNarou($normalizedNcode): '
+            'なろう側は未ブックマークのため解除不要',
+          );
+          return NarouBookmarkSyncOutcome.success;
+        }
+        debugPrint(
+          '[NarouSync] removeBookmarkFromNarou($normalizedNcode): '
+          'js-bookmark_updateconf_urlが見つかりませんでした',
+        );
+        return NarouBookmarkSyncOutcome.failed;
+      }
+
+      // 削除用トークンを取得する（本家JSの「ブックマーク設定変更」相当）。
+      final confData = await _getJsonp(
+        updateconfUrl,
+        cookieHeader,
+        referer: novelUrl,
       );
+      final delconfToken = confData?['favnovelmain_delconf_token'];
+      if (confData?['result'] != true ||
+          delconfToken is! String ||
+          delconfToken.isEmpty) {
+        debugPrint(
+          '[NarouSync] removeBookmarkFromNarou($normalizedNcode): '
+          '削除用トークンを取得できませんでした '
+          'res_mes=${confData?['res_mes']}',
+        );
+        return NarouBookmarkSyncOutcome.failed;
+      }
+
+      final delUrl = pageState.delUrl;
+      if (delUrl == null) {
+        debugPrint(
+          '[NarouSync] removeBookmarkFromNarou($normalizedNcode): '
+          'js-del_bookmark_urlが見つかりませんでした',
+        );
+        return NarouBookmarkSyncOutcome.failed;
+      }
+
+      final data = await _getJsonp(
+        delUrl,
+        cookieHeader,
+        referer: novelUrl,
+        extraQuery: {'token': delconfToken},
+      );
+      if (data?['result'] == true) {
+        return NarouBookmarkSyncOutcome.success;
+      }
       debugPrint(
-        '[NarouSync] removeBookmarkFromNarou: '
-        'status=${response.statusCode}',
+        '[NarouSync] removeBookmarkFromNarou($normalizedNcode): '
+        'result=${data?['result']} res_mes=${data?['res_mes']}',
       );
-      final data = _decodeJsonp(response.data ?? '');
-      return data?['result'] == true
-          ? NarouBookmarkSyncOutcome.success
-          : NarouBookmarkSyncOutcome.failed;
+      return NarouBookmarkSyncOutcome.failed;
     } on Exception catch (e) {
       debugPrint('[NarouSync] removeBookmarkFromNarou: 例外発生: $e');
       return NarouBookmarkSyncOutcome.failed;
     }
   }
 
-  /// 小説ページから `js-bookmark_url` の値（addajax URL）を取得する。
-  Future<String?> _fetchBookmarkAddUrl(
+  /// 作品ページからブックマーク関連hidden inputの状態を取得する。
+  ///
+  /// - 未ブックマーク時: `js-bookmark_url`（addajax URL）が存在する。
+  /// - ブックマーク済み時: `js-bookmark_updateconf_url`（設定変更用URL）と
+  ///   `js-del_bookmark_url`（削除用URL）が存在する。
+  Future<_BookmarkPageState?> _fetchBookmarkPageState(
     String novelUrl,
     String cookieHeader,
   ) async {
@@ -436,12 +499,50 @@ class NarouSyncService {
       final data = response.data;
       if (data == null) return null;
       final doc = parser.parse(data);
-      // 最初の js-bookmark_url hidden input を取得
-      final input = doc.querySelector('input.js-bookmark_url');
-      return input?.attributes['value'];
+
+      String? valueOf(String selector) {
+        final value = doc.querySelector(selector)?.attributes['value'];
+        if (value == null || value.isEmpty) return null;
+        // 相対URLの場合に備えてなろうのドメインで解決する
+        return Uri.parse('https://syosetu.com/').resolve(value).toString();
+      }
+
+      return _BookmarkPageState(
+        addUrl: valueOf('.js-bookmark_url'),
+        updateconfUrl: valueOf('.js-bookmark_updateconf_url'),
+        delUrl: valueOf('.js-del_bookmark_url'),
+      );
     } on Exception {
       return null;
     }
+  }
+
+  /// なろうのJSONPエンドポイントへ認証付きGETを行い、デコード結果を返す。
+  Future<Map<String, dynamic>?> _getJsonp(
+    String url,
+    String cookieHeader, {
+    required String referer,
+    Map<String, String> extraQuery = const {},
+  }) async {
+    final response = await _dio.get<String>(
+      url,
+      queryParameters: {
+        ...extraQuery,
+        'callback': 'result',
+        '_': DateTime.now().millisecondsSinceEpoch.toString(),
+      },
+      options: Options(
+        headers: {
+          'User-Agent': narouUserAgent,
+          'Cookie': cookieHeader,
+          'Referer': referer,
+        },
+        responseType: ResponseType.plain,
+        validateStatus: (status) =>
+            status != null && status >= 200 && status < 300,
+      ),
+    );
+    return _decodeJsonp(response.data ?? '');
   }
 
   /// addajax レスポンスからトークン情報を抽出する。
@@ -633,4 +734,22 @@ class _AddajaxTokenData {
 
   final String useridfavncode;
   final String token;
+}
+
+/// 作品ページのブックマーク関連hidden inputの状態。
+class _BookmarkPageState {
+  const _BookmarkPageState({
+    this.addUrl,
+    this.updateconfUrl,
+    this.delUrl,
+  });
+
+  /// ブックマーク追加用URL（未ブックマーク時のみ存在）。
+  final String? addUrl;
+
+  /// ブックマーク設定変更用URL（ブックマーク済み時のみ存在）。
+  final String? updateconfUrl;
+
+  /// ブックマーク削除用URL（ブックマーク済み時のみ存在）。
+  final String? delUrl;
 }

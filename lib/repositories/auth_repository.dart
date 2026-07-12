@@ -49,11 +49,12 @@ class AuthRepository {
     required String ses,
     required String userl,
   }) async {
-    await Future.wait([
-      _storage.write(key: _cookieKs2Key, value: ks2),
-      _storage.write(key: _cookieSesKey, value: ses),
-      _storage.write(key: _cookieUserlKey, value: userl),
-    ]);
+    // flutter_secure_storageのWindows実装は全キーを単一ファイルへ
+    // 読み込み→更新→保存で書き込むため、並列に書き込むと後勝ちで
+    // 他のキーが消える。必ず直列に書き込むこと。
+    await _storage.write(key: _cookieKs2Key, value: ks2);
+    await _storage.write(key: _cookieSesKey, value: ses);
+    await _storage.write(key: _cookieUserlKey, value: userl);
   }
 
   /// 保存済みのセッションCookieをすべて取得する。
@@ -75,13 +76,12 @@ class AuthRepository {
 
   /// 認証情報をすべて削除する（ログアウト時に使用）。
   Future<void> clearAll() async {
-    await Future.wait([
-      _storage.delete(key: _narouidKey),
-      _storage.delete(key: _cookieKs2Key),
-      _storage.delete(key: _cookieSesKey),
-      _storage.delete(key: _cookieUserlKey),
-      _storage.delete(key: _usernameKey),
-    ]);
+    // 保存時と同じ理由（Windows実装の単一ファイル競合）で直列に削除する。
+    await _storage.delete(key: _narouidKey);
+    await _storage.delete(key: _cookieKs2Key);
+    await _storage.delete(key: _cookieSesKey);
+    await _storage.delete(key: _cookieUserlKey);
+    await _storage.delete(key: _usernameKey);
   }
 
   /// Cookieヘッダー文字列を組み立てる。

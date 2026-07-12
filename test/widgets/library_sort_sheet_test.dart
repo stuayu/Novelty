@@ -21,7 +21,7 @@ void main() {
     );
   }
 
-  testWidgets('6つのソート項目がすべて表示される', (tester) async {
+  testWidgets('8つのソート項目がすべて表示される', (tester) async {
     await pumpSheet(
       tester,
       currentOrder: LibrarySortOrder.addedAtDesc,
@@ -30,10 +30,15 @@ void main() {
 
     expect(find.text('追加日時が新しい順'), findsOneWidget);
     expect(find.text('追加日時が古い順'), findsOneWidget);
-    expect(find.text('更新日時が新しい順'), findsOneWidget);
-    expect(find.text('更新日時が古い順'), findsOneWidget);
+    expect(find.text('最新話の掲載が新しい順'), findsOneWidget);
+    expect(find.text('最新話の掲載が古い順'), findsOneWidget);
     expect(find.text('タイトル（あいうえお順）'), findsOneWidget);
     expect(find.text('タイトル（逆順）'), findsOneWidget);
+
+    // 閲覧履歴グループはリスト下部にあるためスクロールしてから確認する
+    await tester.scrollUntilVisible(find.text('最近読んだ順'), 200);
+    expect(find.text('最近読んだ順'), findsOneWidget);
+    expect(find.text('最後に読んだのが古い順'), findsOneWidget);
   });
 
   testWidgets('項目をタップするとonOrderSelectedが呼ばれる', (tester) async {
