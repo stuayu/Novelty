@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' as drift;
+import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart' as parser;
 import 'package:novelty/database/database.dart';
 import 'package:novelty/models/novel_info.dart';
@@ -21,6 +22,29 @@ enum NarouBookmarkSyncOutcome {
 
   /// ログイン済みだが同期に失敗した。
   failed,
+}
+
+/// [NarouSyncService.addBookmarkToNarou]の結果。
+///
+/// [outcome]が[NarouBookmarkSyncOutcome.success]の場合、
+/// [useridFavncode]・[token]にしおり更新(`ichiupdateajax`)で
+/// 再利用するトークン情報が入る（addajaxレスポンスの解析に失敗した場合はnull）。
+class NarouBookmarkSyncResult {
+  /// コンストラクタ。
+  const NarouBookmarkSyncResult({
+    required this.outcome,
+    this.useridFavncode,
+    this.token,
+  });
+
+  /// 処理結果。
+  final NarouBookmarkSyncOutcome outcome;
+
+  /// なろう本家のブックマークID（"{userid}_{favncode}"形式）。
+  final String? useridFavncode;
+
+  /// なろう本家のブックマーク操作用トークン。
+  final String? token;
 }
 
 @Riverpod(keepAlive: true)
@@ -66,6 +90,8 @@ class NarouSyncService {
       'https://syosetu.com/favnovelmain/list/';
   static const _updateajaxUrl =
       'https://syosetu.com/favnovelmain/updateajax/';
+  static const _deleteajaxUrl =
+      'https://syosetu.com/favnovelmain/deleteajax/';
 
   // -----------------------------------------------------------------------
   // ブックマーク同期（なろう → ローカル）
@@ -232,43 +258,37 @@ class NarouSyncService {
   ///
   /// エピソードページにある `js-bookmark_url` hidden inputから
   /// addajax URLを取得し、ブックマーク登録を行う。
-  Future<NarouBookmarkSyncOutcome> addBookmarkToNarou(String ncode) async {
+  Future<NarouBookmarkSyncResult> addBookmarkToNarou(String ncode) async {
     final cookieHeader = await authRepository.buildCookieHeader();
-    if (cookieHeader == null) return NarouBookmarkSyncOutcome.notLoggedIn;
+    if (cookieHeader == null) {
+      return const NarouBookmarkSyncResult(
+        outcome: NarouBookmarkSyncOutcome.notLoggedIn,
+      );
+    }
 
     try {
       // 小説トップページからブックマーク追加URLを取得する
       final novelUrl =
           'https://ncode.syosetu.com/${ncode.toNormalizedNcode()}/';
       final addajaxUrl = await _fetchBookmarkAddUrl(novelUrl, cookieHeader);
-      if (addajaxUrl == null) return NarouBookmarkSyncOutcome.failed;
+      if (addajaxUrl == null) {
+        debugPrint(
+          '[NarouSync] addBookmarkToNarou($ncode): '
+          'js-bookmark_urlが見つかりませんでした ($novelUrl)',
+        );
+        return const NarouBookmarkSyncResult(
+          outcome: NarouBookmarkSyncOutcome.failed,
+        );
+      }
 
-      // Step 1: addajax を呼んでトークンを取得する
+      // Step 1: addajax を呼ぶとこの時点でなろう側にブックマークが登録される。
+      // なろう本家のJSはJSONP形式（callback・キャッシュバスター付き）で
+      // このURLを<script>タグ経由で呼び出しているため、同じ形式に合わせる。
       final addResponse = await _dio.get<String>(
         addajaxUrl,
-        options: Options(
-          headers: {
-            'User-Agent': narouUserAgent,
-            'Cookie': cookieHeader,
-            'Referer': novelUrl,
-          },
-          responseType: ResponseType.plain,
-        ),
-      );
-
-      // Step 2: updateajax でブックマークを確定する（デフォルト設定）
-      final tokenData = _extractAddajaxToken(addResponse.data ?? '');
-      if (tokenData == null) return NarouBookmarkSyncOutcome.failed;
-
-      final updateResponse = await _dio.get<dynamic>(
-        '$_updateajaxUrl?callback=result',
         queryParameters: {
-          'useridfavncode': tokenData.useridfavncode,
-          'token': tokenData.token,
-          'isnotice': '1', // 更新通知ON
-          'jyokyo': '2',  // 公開
-          'categoryid': '1',
           'callback': 'result',
+          '_': DateTime.now().millisecondsSinceEpoch.toString(),
         },
         options: Options(
           headers: {
@@ -276,13 +296,110 @@ class NarouSyncService {
             'Cookie': cookieHeader,
             'Referer': novelUrl,
           },
+          responseType: ResponseType.plain,
+          // なろう側の登録処理はこのリクエストが到達した時点で実行されるため、
+          // レスポンスが4xxでもサーバーエラー(5xx)でなければ処理を続行する。
+          validateStatus: (status) => status != null && status < 500,
         ),
       );
+      debugPrint(
+        '[NarouSync] addBookmarkToNarou($ncode): '
+        'addajax status=${addResponse.statusCode} data=${addResponse.data}',
+      );
 
-      return updateResponse.statusCode == 200
-          ? NarouBookmarkSyncOutcome.success
-          : NarouBookmarkSyncOutcome.failed;
-    } on Exception {
+      // Step 2: updateajax で公開設定を確定する（ベストエフォート）。
+      // Step 1でなろう側の登録自体は完了しているため、
+      // ここで失敗してもsuccessとして扱う。
+      final tokenData = _extractAddajaxToken(addResponse.data ?? '');
+      if (tokenData == null) {
+        debugPrint(
+          '[NarouSync] addBookmarkToNarou($ncode): '
+          'addajaxレスポンスからトークンを抽出できなかったため'
+          '設定確定はスキップします',
+        );
+        return const NarouBookmarkSyncResult(
+          outcome: NarouBookmarkSyncOutcome.success,
+        );
+      }
+
+      try {
+        final updateResponse = await _dio.get<dynamic>(
+          '$_updateajaxUrl?callback=result',
+          queryParameters: {
+            'useridfavncode': tokenData.useridfavncode,
+            'token': tokenData.token,
+            'isnotice': '1', // 更新通知ON
+            'jyokyo': '2',  // 公開
+            'categoryid': '1',
+            'callback': 'result',
+          },
+          options: Options(
+            headers: {
+              'User-Agent': narouUserAgent,
+              'Cookie': cookieHeader,
+              'Referer': novelUrl,
+            },
+          ),
+        );
+        debugPrint(
+          '[NarouSync] addBookmarkToNarou($ncode): '
+          'updateajax status=${updateResponse.statusCode}',
+        );
+      } on Exception catch (e) {
+        debugPrint(
+          '[NarouSync] addBookmarkToNarou($ncode): '
+          '設定確定(updateajax)で例外が発生しましたが、'
+          'ブックマーク自体は登録済みとみなします: $e',
+        );
+      }
+      return NarouBookmarkSyncResult(
+        outcome: NarouBookmarkSyncOutcome.success,
+        useridFavncode: tokenData.useridfavncode,
+        token: tokenData.token,
+      );
+    } on Exception catch (e) {
+      debugPrint('[NarouSync] addBookmarkToNarou($ncode): 例外発生: $e');
+      return const NarouBookmarkSyncResult(
+        outcome: NarouBookmarkSyncOutcome.failed,
+      );
+    }
+  }
+
+  /// なろうのブックマークを解除する。
+  ///
+  /// [token]には[addBookmarkToNarou]の結果として得られた
+  /// `favnovelmain_addend_token`を渡す。
+  Future<NarouBookmarkSyncOutcome> removeBookmarkFromNarou(
+    String token,
+  ) async {
+    final cookieHeader = await authRepository.buildCookieHeader();
+    if (cookieHeader == null) return NarouBookmarkSyncOutcome.notLoggedIn;
+
+    try {
+      final response = await _dio.get<String>(
+        _deleteajaxUrl,
+        queryParameters: {
+          'token': token,
+          'callback': 'result',
+          '_': DateTime.now().millisecondsSinceEpoch.toString(),
+        },
+        options: Options(
+          headers: {
+            'User-Agent': narouUserAgent,
+            'Cookie': cookieHeader,
+            'Referer': 'https://ncode.syosetu.com/',
+          },
+          responseType: ResponseType.plain,
+          validateStatus: (status) => status != null && status < 500,
+        ),
+      );
+      debugPrint(
+        '[NarouSync] removeBookmarkFromNarou: '
+        'status=${response.statusCode} data=${response.data}',
+      );
+      return NarouBookmarkSyncOutcome.success;
+    } on Exception catch (e) {
+      debugPrint('[NarouSync] removeBookmarkFromNarou: 例外発生: $e');
       return NarouBookmarkSyncOutcome.failed;
     }
   }
@@ -352,111 +469,64 @@ class NarouSyncService {
   // しおり同期（アプリ既読 → なろう）
   // -----------------------------------------------------------------------
 
+  static const _ichiupdateajaxBase =
+      'https://syosetu.com/favnovelmain/ichiupdateajax/';
+
   /// ログイン済みかつ対象小説がブックマーク済みの場合に、
   /// なろうのしおり位置を更新する。
   ///
   /// - `_updateHistory` が呼ばれるたびにバックグラウンドで実行する。
   /// - ログアウト中や失敗した場合は静かに無視する。
+  /// - [NarouSyncService.addBookmarkToNarou]で保存された`useridFavncode`・
+  ///   `token`を使い、`ichiupdateajax`エンドポイントへ直接リクエストする
+  ///   （エピソードページの再取得・スクレイピングは不要）。
   Future<void> setShioriIfLoggedIn({
     required String ncode,
     required int episode,
   }) async {
     final cookieHeader = await authRepository.buildCookieHeader();
-    if (cookieHeader == null) return;
+    if (cookieHeader == null) {
+      debugPrint('[NarouSync] setShioriIfLoggedIn($ncode): 未ログインのためスキップ');
+      return;
+    }
 
-    // なろう側で実際にブックマーク登録が完了しているか確認
-    final isSynced = await db.isNarouBookmarkSynced(ncode);
-    if (!isSynced) return;
+    final favToken = await db.getNarouFavToken(ncode);
+    if (favToken == null) {
+      debugPrint(
+        '[NarouSync] setShioriIfLoggedIn($ncode): '
+        'なろう側のトークン情報が無いためスキップ',
+      );
+      return;
+    }
 
-    await _setShioriOnNarou(
-      ncode: ncode,
-      episode: episode,
-      cookieHeader: cookieHeader,
-    );
-  }
-
-  /// なろうのしおりを指定エピソードに設定する。
-  ///
-  /// エピソードページを認証Cookie付きでフェッチし、
-  /// ページ内の `siori_url` または `auto_siori` データからしおりURLを取得して
-  /// リクエストを送信する。
-  Future<void> _setShioriOnNarou({
-    required String ncode,
-    required int episode,
-    required String cookieHeader,
-  }) async {
-    final episodeUrl =
-        'https://ncode.syosetu.com/${ncode.toNormalizedNcode()}/$episode/';
     try {
+      final url =
+          '$_ichiupdateajaxBase'
+          'useridfavncode/${favToken.useridFavncode}/no/$episode/';
       final response = await _dio.get<String>(
-        episodeUrl,
+        url,
+        queryParameters: {
+          'token': favToken.token,
+          'callback': 'result',
+          '_': DateTime.now().millisecondsSinceEpoch.toString(),
+        },
         options: Options(
           headers: {
             'User-Agent': narouUserAgent,
             'Cookie': cookieHeader,
-            'Referer': 'https://ncode.syosetu.com/${ncode.toNormalizedNcode()}/',
+            'Referer': 'https://ncode.syosetu.com/',
           },
           responseType: ResponseType.plain,
+          validateStatus: (status) => status != null && status < 500,
         ),
       );
-      if (response.data == null) return;
-
-      final html = response.data;
-      if (html == null) return;
-      final doc = parser.parse(html);
-
-      // しおりURLを取得（手動しおり: GETリクエスト）
-      final sioriInput = doc.querySelector('input[name="siori_url"]');
-      final sioriUrl = sioriInput?.attributes['value'];
-      if (sioriUrl != null) {
-        await _dio.get<dynamic>(
-          '$sioriUrl&callback=result',
-          options: Options(
-            headers: {
-              'User-Agent': narouUserAgent,
-              'Cookie': cookieHeader,
-              'Referer': episodeUrl,
-            },
-          ),
-        );
-        return;
-      }
-
-      // 自動しおり: POSTリクエスト（現在位置 > Narouしおり位置の場合のみ）
-      final autoSioriInput = doc.querySelector('input[name="auto_siori"]');
-      if (autoSioriInput != null) {
-        final url = autoSioriInput.attributes['data-url'];
-        final no = autoSioriInput.attributes['data-no'];
-        final primary = autoSioriInput.attributes['data-primary'];
-        final token = autoSioriInput.attributes['data-token'];
-        final favno = autoSioriInput.attributes['data-favno'];
-
-        if (url == null || no == null || token == null) return;
-
-        // auto_sioriはno > favnoの場合のみ更新する
-        final noInt = int.tryParse(no) ?? 0;
-        final favnoInt = int.tryParse(favno ?? '0') ?? 0;
-        if (noInt <= favnoInt) return;
-
-        await _dio.post<dynamic>(
-          url,
-          data: {
-            'no': no,
-            'primary': primary ?? '0',
-            'token': token,
-          },
-          options: Options(
-            headers: {
-              'User-Agent': narouUserAgent,
-              'Cookie': cookieHeader,
-              'Referer': episodeUrl,
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-          ),
-        );
-      }
-    } on Exception {
+      debugPrint(
+        '[NarouSync] setShiori($ncode, ep$episode): '
+        'ichiupdateajax status=${response.statusCode} data=${response.data}',
+      );
+    } on Exception catch (e) {
       // しおり設定の失敗はサイレントに無視する（本文読み込みに影響させない）
+      debugPrint('[NarouSync] setShiori($ncode, ep$episode): 例外発生: $e');
     }
   }
 }

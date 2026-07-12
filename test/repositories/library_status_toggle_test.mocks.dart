@@ -8,13 +8,13 @@ import 'dart:async' as _i5;
 import 'package:drift/drift.dart' as _i2;
 import 'package:drift/src/runtime/executor/stream_queries.dart' as _i4;
 import 'package:mockito/mockito.dart' as _i1;
-import 'package:mockito/src/dummies.dart' as _i8;
+import 'package:mockito/src/dummies.dart' as _i9;
 import 'package:novelty/database/database.dart' as _i3;
-import 'package:novelty/models/episode.dart' as _i9;
-import 'package:novelty/models/novel_download_summary.dart' as _i10;
+import 'package:novelty/models/episode.dart' as _i10;
+import 'package:novelty/models/novel_download_summary.dart' as _i11;
 import 'package:novelty/repositories/auth_repository.dart' as _i6;
 import 'package:novelty/services/api_service.dart' as _i7;
-import 'package:novelty/services/narou_sync_service.dart' as _i11;
+import 'package:novelty/services/narou_sync_service.dart' as _i8;
 
 // ignore_for_file: type=lint
 // ignore_for_file: avoid_redundant_argument_values
@@ -182,6 +182,12 @@ class _FakeApiService_25 extends _i1.SmartFake implements _i7.ApiService {
     : super(parent, parentInvocation);
 }
 
+class _FakeNarouBookmarkSyncResult_26 extends _i1.SmartFake
+    implements _i8.NarouBookmarkSyncResult {
+  _FakeNarouBookmarkSyncResult_26(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
 /// A class which mocks [AppDatabase].
 ///
 /// See the documentation for Mockito's code generation for more information.
@@ -322,7 +328,7 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
   _i2.SqlTypes get typeMapping =>
       (super.noSuchMethod(
             Invocation.getter(#typeMapping),
-            returnValue: _i8.dummyValue<_i2.SqlTypes>(
+            returnValue: _i9.dummyValue<_i2.SqlTypes>(
               this,
               Invocation.getter(#typeMapping),
             ),
@@ -454,13 +460,29 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
           as _i5.Stream<bool>);
 
   @override
-  _i5.Future<void> markNarouBookmarkSynced(String? ncode) =>
+  _i5.Future<void> markNarouBookmarkSynced(
+    String? ncode, {
+    String? useridFavncode,
+    String? favToken,
+  }) =>
       (super.noSuchMethod(
-            Invocation.method(#markNarouBookmarkSynced, [ncode]),
+            Invocation.method(
+              #markNarouBookmarkSynced,
+              [ncode],
+              {#useridFavncode: useridFavncode, #favToken: favToken},
+            ),
             returnValue: _i5.Future<void>.value(),
             returnValueForMissingStub: _i5.Future<void>.value(),
           )
           as _i5.Future<void>);
+
+  @override
+  _i5.Future<_i3.NarouFavToken?> getNarouFavToken(String? ncode) =>
+      (super.noSuchMethod(
+            Invocation.method(#getNarouFavToken, [ncode]),
+            returnValue: _i5.Future<_i3.NarouFavToken?>.value(),
+          )
+          as _i5.Future<_i3.NarouFavToken?>);
 
   @override
   _i5.Future<bool> isNarouBookmarkSynced(String? ncode) =>
@@ -559,36 +581,36 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
           as _i5.Future<_i3.EpisodeRow?>);
 
   @override
-  _i5.Future<List<_i9.Episode>> getEpisodes(String? ncode) =>
+  _i5.Future<List<_i10.Episode>> getEpisodes(String? ncode) =>
       (super.noSuchMethod(
             Invocation.method(#getEpisodes, [ncode]),
-            returnValue: _i5.Future<List<_i9.Episode>>.value(<_i9.Episode>[]),
+            returnValue: _i5.Future<List<_i10.Episode>>.value(<_i10.Episode>[]),
           )
-          as _i5.Future<List<_i9.Episode>>);
+          as _i5.Future<List<_i10.Episode>>);
 
   @override
-  _i5.Future<List<_i9.Episode>> getEpisodesRange(
+  _i5.Future<List<_i10.Episode>> getEpisodesRange(
     String? ncode,
     int? start,
     int? end,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#getEpisodesRange, [ncode, start, end]),
-            returnValue: _i5.Future<List<_i9.Episode>>.value(<_i9.Episode>[]),
+            returnValue: _i5.Future<List<_i10.Episode>>.value(<_i10.Episode>[]),
           )
-          as _i5.Future<List<_i9.Episode>>);
+          as _i5.Future<List<_i10.Episode>>);
 
   @override
-  _i5.Stream<List<_i9.Episode>> watchEpisodesRange(
+  _i5.Stream<List<_i10.Episode>> watchEpisodesRange(
     String? ncode,
     int? start,
     int? end,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#watchEpisodesRange, [ncode, start, end]),
-            returnValue: _i5.Stream<List<_i9.Episode>>.empty(),
+            returnValue: _i5.Stream<List<_i10.Episode>>.empty(),
           )
-          as _i5.Stream<List<_i9.Episode>>);
+          as _i5.Stream<List<_i10.Episode>>);
 
   @override
   _i5.Stream<_i3.EpisodeRow?> watchEpisodeEntity(
@@ -602,20 +624,20 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
           as _i5.Stream<_i3.EpisodeRow?>);
 
   @override
-  _i5.Stream<List<_i10.NovelDownloadSummary>> watchDownloadingNovels() =>
+  _i5.Stream<List<_i11.NovelDownloadSummary>> watchDownloadingNovels() =>
       (super.noSuchMethod(
             Invocation.method(#watchDownloadingNovels, []),
-            returnValue: _i5.Stream<List<_i10.NovelDownloadSummary>>.empty(),
+            returnValue: _i5.Stream<List<_i11.NovelDownloadSummary>>.empty(),
           )
-          as _i5.Stream<List<_i10.NovelDownloadSummary>>);
+          as _i5.Stream<List<_i11.NovelDownloadSummary>>);
 
   @override
-  _i5.Stream<List<_i10.NovelDownloadSummary>> watchCompletedDownloads() =>
+  _i5.Stream<List<_i11.NovelDownloadSummary>> watchCompletedDownloads() =>
       (super.noSuchMethod(
             Invocation.method(#watchCompletedDownloads, []),
-            returnValue: _i5.Stream<List<_i10.NovelDownloadSummary>>.empty(),
+            returnValue: _i5.Stream<List<_i11.NovelDownloadSummary>>.empty(),
           )
-          as _i5.Stream<List<_i10.NovelDownloadSummary>>);
+          as _i5.Stream<List<_i11.NovelDownloadSummary>>);
 
   @override
   _i2.Migrator createMigrator() =>
@@ -660,8 +682,8 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
               #connect: connect,
             }),
             returnValue:
-                _i8.ifNotNull(
-                  _i8.dummyValueOrNull<Ret>(
+                _i9.ifNotNull(
+                  _i9.dummyValueOrNull<Ret>(
                     this,
                     Invocation.method(#computeWithDatabase, [], {
                       #computation: computation,
@@ -694,7 +716,7 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
   T alias<T, D>(_i2.ResultSetImplementation<T, D>? table, String? alias) =>
       (super.noSuchMethod(
             Invocation.method(#alias, [table, alias]),
-            returnValue: _i8.dummyValue<T>(
+            returnValue: _i9.dummyValue<T>(
               this,
               Invocation.method(#alias, [table, alias]),
             ),
@@ -731,8 +753,8 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
       (super.noSuchMethod(
             Invocation.method(#doWhenOpened, [fn]),
             returnValue:
-                _i8.ifNotNull(
-                  _i8.dummyValueOrNull<T>(
+                _i9.ifNotNull(
+                  _i9.dummyValueOrNull<T>(
                     this,
                     Invocation.method(#doWhenOpened, [fn]),
                   ),
@@ -947,8 +969,8 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
               {#requireNew: requireNew},
             ),
             returnValue:
-                _i8.ifNotNull(
-                  _i8.dummyValueOrNull<T>(
+                _i9.ifNotNull(
+                  _i9.dummyValueOrNull<T>(
                     this,
                     Invocation.method(
                       #transaction,
@@ -974,8 +996,8 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
       (super.noSuchMethod(
             Invocation.method(#exclusively, [action]),
             returnValue:
-                _i8.ifNotNull(
-                  _i8.dummyValueOrNull<T>(
+                _i9.ifNotNull(
+                  _i9.dummyValueOrNull<T>(
                     this,
                     Invocation.method(#exclusively, [action]),
                   ),
@@ -1009,8 +1031,8 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
               {#interceptor: interceptor},
             ),
             returnValue:
-                _i8.ifNotNull(
-                  _i8.dummyValueOrNull<T>(
+                _i9.ifNotNull(
+                  _i9.dummyValueOrNull<T>(
                     this,
                     Invocation.method(
                       #runWithInterceptor,
@@ -1084,7 +1106,7 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
   String $expandVar(int? start, int? amount) =>
       (super.noSuchMethod(
             Invocation.method(#$expandVar, [start, amount]),
-            returnValue: _i8.dummyValue<String>(
+            returnValue: _i9.dummyValue<String>(
               this,
               Invocation.method(#$expandVar, [start, amount]),
             ),
@@ -1095,7 +1117,7 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
 /// A class which mocks [NarouSyncService].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockNarouSyncService extends _i1.Mock implements _i11.NarouSyncService {
+class MockNarouSyncService extends _i1.Mock implements _i8.NarouSyncService {
   MockNarouSyncService() {
     _i1.throwOnMissingStub(this);
   }
@@ -1139,14 +1161,29 @@ class MockNarouSyncService extends _i1.Mock implements _i11.NarouSyncService {
           as _i5.Future<List<String>>);
 
   @override
-  _i5.Future<_i11.NarouBookmarkSyncOutcome> addBookmarkToNarou(String? ncode) =>
+  _i5.Future<_i8.NarouBookmarkSyncResult> addBookmarkToNarou(String? ncode) =>
       (super.noSuchMethod(
             Invocation.method(#addBookmarkToNarou, [ncode]),
-            returnValue: _i5.Future<_i11.NarouBookmarkSyncOutcome>.value(
-              _i11.NarouBookmarkSyncOutcome.notLoggedIn,
+            returnValue: _i5.Future<_i8.NarouBookmarkSyncResult>.value(
+              _FakeNarouBookmarkSyncResult_26(
+                this,
+                Invocation.method(#addBookmarkToNarou, [ncode]),
+              ),
             ),
           )
-          as _i5.Future<_i11.NarouBookmarkSyncOutcome>);
+          as _i5.Future<_i8.NarouBookmarkSyncResult>);
+
+  @override
+  _i5.Future<_i8.NarouBookmarkSyncOutcome> removeBookmarkFromNarou(
+    String? token,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#removeBookmarkFromNarou, [token]),
+            returnValue: _i5.Future<_i8.NarouBookmarkSyncOutcome>.value(
+              _i8.NarouBookmarkSyncOutcome.notLoggedIn,
+            ),
+          )
+          as _i5.Future<_i8.NarouBookmarkSyncOutcome>);
 
   @override
   _i5.Future<void> setShioriIfLoggedIn({

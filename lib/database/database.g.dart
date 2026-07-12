@@ -1813,11 +1813,35 @@ class $LibraryEntriesTable extends LibraryEntries
         type: DriftSqlType.int,
         requiredDuringInsert: false,
       );
+  static const drift.VerificationMeta _narouUseridFavncodeMeta =
+      const drift.VerificationMeta('narouUseridFavncode');
+  @override
+  late final drift.GeneratedColumn<String> narouUseridFavncode =
+      drift.GeneratedColumn<String>(
+        'narou_userid_favncode',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const drift.VerificationMeta _narouFavTokenMeta =
+      const drift.VerificationMeta('narouFavToken');
+  @override
+  late final drift.GeneratedColumn<String> narouFavToken =
+      drift.GeneratedColumn<String>(
+        'narou_fav_token',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   @override
   List<drift.GeneratedColumn> get $columns => [
     ncode,
     addedAt,
     narouBookmarkSyncedAt,
+    narouUseridFavncode,
+    narouFavToken,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1856,6 +1880,24 @@ class $LibraryEntriesTable extends LibraryEntries
         ),
       );
     }
+    if (data.containsKey('narou_userid_favncode')) {
+      context.handle(
+        _narouUseridFavncodeMeta,
+        narouUseridFavncode.isAcceptableOrUnknown(
+          data['narou_userid_favncode']!,
+          _narouUseridFavncodeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('narou_fav_token')) {
+      context.handle(
+        _narouFavTokenMeta,
+        narouFavToken.isAcceptableOrUnknown(
+          data['narou_fav_token']!,
+          _narouFavTokenMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1876,6 +1918,14 @@ class $LibraryEntriesTable extends LibraryEntries
       narouBookmarkSyncedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}narou_bookmark_synced_at'],
+      ),
+      narouUseridFavncode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}narou_userid_favncode'],
+      ),
+      narouFavToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}narou_fav_token'],
       ),
     );
   }
@@ -1898,10 +1948,20 @@ class LibraryEntry extends drift.DataClass
   /// なろう本家へのブックマーク登録が成功した日時（UNIXミリ秒）。
   /// nullの場合はなろう側への同期が未完了・未確認であることを示す。
   final int? narouBookmarkSyncedAt;
+
+  /// なろう本家のブックマークID（"{userid}_{favncode}"形式）。
+  /// しおり更新(ichiupdateajax)のURL構築に使用する。
+  final String? narouUseridFavncode;
+
+  /// なろう本家のブックマーク操作用トークン（addajax登録時に発行される）。
+  /// しおり更新(ichiupdateajax)のtokenパラメータとして再利用する。
+  final String? narouFavToken;
   const LibraryEntry({
     required this.ncode,
     required this.addedAt,
     this.narouBookmarkSyncedAt,
+    this.narouUseridFavncode,
+    this.narouFavToken,
   });
   @override
   Map<String, drift.Expression> toColumns(bool nullToAbsent) {
@@ -1913,6 +1973,14 @@ class LibraryEntry extends drift.DataClass
         narouBookmarkSyncedAt,
       );
     }
+    if (!nullToAbsent || narouUseridFavncode != null) {
+      map['narou_userid_favncode'] = drift.Variable<String>(
+        narouUseridFavncode,
+      );
+    }
+    if (!nullToAbsent || narouFavToken != null) {
+      map['narou_fav_token'] = drift.Variable<String>(narouFavToken);
+    }
     return map;
   }
 
@@ -1923,6 +1991,12 @@ class LibraryEntry extends drift.DataClass
       narouBookmarkSyncedAt: narouBookmarkSyncedAt == null && nullToAbsent
           ? const drift.Value.absent()
           : drift.Value(narouBookmarkSyncedAt),
+      narouUseridFavncode: narouUseridFavncode == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(narouUseridFavncode),
+      narouFavToken: narouFavToken == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(narouFavToken),
     );
   }
 
@@ -1937,6 +2011,10 @@ class LibraryEntry extends drift.DataClass
       narouBookmarkSyncedAt: serializer.fromJson<int?>(
         json['narouBookmarkSyncedAt'],
       ),
+      narouUseridFavncode: serializer.fromJson<String?>(
+        json['narouUseridFavncode'],
+      ),
+      narouFavToken: serializer.fromJson<String?>(json['narouFavToken']),
     );
   }
   @override
@@ -1946,6 +2024,8 @@ class LibraryEntry extends drift.DataClass
       'ncode': serializer.toJson<String>(ncode),
       'addedAt': serializer.toJson<int>(addedAt),
       'narouBookmarkSyncedAt': serializer.toJson<int?>(narouBookmarkSyncedAt),
+      'narouUseridFavncode': serializer.toJson<String?>(narouUseridFavncode),
+      'narouFavToken': serializer.toJson<String?>(narouFavToken),
     };
   }
 
@@ -1953,12 +2033,20 @@ class LibraryEntry extends drift.DataClass
     String? ncode,
     int? addedAt,
     drift.Value<int?> narouBookmarkSyncedAt = const drift.Value.absent(),
+    drift.Value<String?> narouUseridFavncode = const drift.Value.absent(),
+    drift.Value<String?> narouFavToken = const drift.Value.absent(),
   }) => LibraryEntry(
     ncode: ncode ?? this.ncode,
     addedAt: addedAt ?? this.addedAt,
     narouBookmarkSyncedAt: narouBookmarkSyncedAt.present
         ? narouBookmarkSyncedAt.value
         : this.narouBookmarkSyncedAt,
+    narouUseridFavncode: narouUseridFavncode.present
+        ? narouUseridFavncode.value
+        : this.narouUseridFavncode,
+    narouFavToken: narouFavToken.present
+        ? narouFavToken.value
+        : this.narouFavToken,
   );
   LibraryEntry copyWithCompanion(LibraryEntriesCompanion data) {
     return LibraryEntry(
@@ -1967,6 +2055,12 @@ class LibraryEntry extends drift.DataClass
       narouBookmarkSyncedAt: data.narouBookmarkSyncedAt.present
           ? data.narouBookmarkSyncedAt.value
           : this.narouBookmarkSyncedAt,
+      narouUseridFavncode: data.narouUseridFavncode.present
+          ? data.narouUseridFavncode.value
+          : this.narouUseridFavncode,
+      narouFavToken: data.narouFavToken.present
+          ? data.narouFavToken.value
+          : this.narouFavToken,
     );
   }
 
@@ -1975,37 +2069,53 @@ class LibraryEntry extends drift.DataClass
     return (StringBuffer('LibraryEntry(')
           ..write('ncode: $ncode, ')
           ..write('addedAt: $addedAt, ')
-          ..write('narouBookmarkSyncedAt: $narouBookmarkSyncedAt')
+          ..write('narouBookmarkSyncedAt: $narouBookmarkSyncedAt, ')
+          ..write('narouUseridFavncode: $narouUseridFavncode, ')
+          ..write('narouFavToken: $narouFavToken')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(ncode, addedAt, narouBookmarkSyncedAt);
+  int get hashCode => Object.hash(
+    ncode,
+    addedAt,
+    narouBookmarkSyncedAt,
+    narouUseridFavncode,
+    narouFavToken,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is LibraryEntry &&
           other.ncode == this.ncode &&
           other.addedAt == this.addedAt &&
-          other.narouBookmarkSyncedAt == this.narouBookmarkSyncedAt);
+          other.narouBookmarkSyncedAt == this.narouBookmarkSyncedAt &&
+          other.narouUseridFavncode == this.narouUseridFavncode &&
+          other.narouFavToken == this.narouFavToken);
 }
 
 class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
   final drift.Value<String> ncode;
   final drift.Value<int> addedAt;
   final drift.Value<int?> narouBookmarkSyncedAt;
+  final drift.Value<String?> narouUseridFavncode;
+  final drift.Value<String?> narouFavToken;
   final drift.Value<int> rowid;
   const LibraryEntriesCompanion({
     this.ncode = const drift.Value.absent(),
     this.addedAt = const drift.Value.absent(),
     this.narouBookmarkSyncedAt = const drift.Value.absent(),
+    this.narouUseridFavncode = const drift.Value.absent(),
+    this.narouFavToken = const drift.Value.absent(),
     this.rowid = const drift.Value.absent(),
   });
   LibraryEntriesCompanion.insert({
     required String ncode,
     required int addedAt,
     this.narouBookmarkSyncedAt = const drift.Value.absent(),
+    this.narouUseridFavncode = const drift.Value.absent(),
+    this.narouFavToken = const drift.Value.absent(),
     this.rowid = const drift.Value.absent(),
   }) : ncode = drift.Value(ncode),
        addedAt = drift.Value(addedAt);
@@ -2013,6 +2123,8 @@ class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
     drift.Expression<String>? ncode,
     drift.Expression<int>? addedAt,
     drift.Expression<int>? narouBookmarkSyncedAt,
+    drift.Expression<String>? narouUseridFavncode,
+    drift.Expression<String>? narouFavToken,
     drift.Expression<int>? rowid,
   }) {
     return drift.RawValuesInsertable({
@@ -2020,6 +2132,9 @@ class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
       if (addedAt != null) 'added_at': addedAt,
       if (narouBookmarkSyncedAt != null)
         'narou_bookmark_synced_at': narouBookmarkSyncedAt,
+      if (narouUseridFavncode != null)
+        'narou_userid_favncode': narouUseridFavncode,
+      if (narouFavToken != null) 'narou_fav_token': narouFavToken,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2028,6 +2143,8 @@ class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
     drift.Value<String>? ncode,
     drift.Value<int>? addedAt,
     drift.Value<int?>? narouBookmarkSyncedAt,
+    drift.Value<String?>? narouUseridFavncode,
+    drift.Value<String?>? narouFavToken,
     drift.Value<int>? rowid,
   }) {
     return LibraryEntriesCompanion(
@@ -2035,6 +2152,8 @@ class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
       addedAt: addedAt ?? this.addedAt,
       narouBookmarkSyncedAt:
           narouBookmarkSyncedAt ?? this.narouBookmarkSyncedAt,
+      narouUseridFavncode: narouUseridFavncode ?? this.narouUseridFavncode,
+      narouFavToken: narouFavToken ?? this.narouFavToken,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2053,6 +2172,14 @@ class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
         narouBookmarkSyncedAt.value,
       );
     }
+    if (narouUseridFavncode.present) {
+      map['narou_userid_favncode'] = drift.Variable<String>(
+        narouUseridFavncode.value,
+      );
+    }
+    if (narouFavToken.present) {
+      map['narou_fav_token'] = drift.Variable<String>(narouFavToken.value);
+    }
     if (rowid.present) {
       map['rowid'] = drift.Variable<int>(rowid.value);
     }
@@ -2065,6 +2192,8 @@ class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
           ..write('ncode: $ncode, ')
           ..write('addedAt: $addedAt, ')
           ..write('narouBookmarkSyncedAt: $narouBookmarkSyncedAt, ')
+          ..write('narouUseridFavncode: $narouUseridFavncode, ')
+          ..write('narouFavToken: $narouFavToken, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4024,6 +4153,8 @@ typedef $$LibraryEntriesTableCreateCompanionBuilder =
       required String ncode,
       required int addedAt,
       drift.Value<int?> narouBookmarkSyncedAt,
+      drift.Value<String?> narouUseridFavncode,
+      drift.Value<String?> narouFavToken,
       drift.Value<int> rowid,
     });
 typedef $$LibraryEntriesTableUpdateCompanionBuilder =
@@ -4031,6 +4162,8 @@ typedef $$LibraryEntriesTableUpdateCompanionBuilder =
       drift.Value<String> ncode,
       drift.Value<int> addedAt,
       drift.Value<int?> narouBookmarkSyncedAt,
+      drift.Value<String?> narouUseridFavncode,
+      drift.Value<String?> narouFavToken,
       drift.Value<int> rowid,
     });
 
@@ -4085,6 +4218,16 @@ class $$LibraryEntriesTableFilterComposer
     builder: (column) => drift.ColumnFilters(column),
   );
 
+  drift.ColumnFilters<String> get narouUseridFavncode => $composableBuilder(
+    column: $table.narouUseridFavncode,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<String> get narouFavToken => $composableBuilder(
+    column: $table.narouFavToken,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
   $$NovelsTableFilterComposer get ncode {
     final $$NovelsTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -4128,6 +4271,16 @@ class $$LibraryEntriesTableOrderingComposer
     builder: (column) => drift.ColumnOrderings(column),
   );
 
+  drift.ColumnOrderings<String> get narouUseridFavncode => $composableBuilder(
+    column: $table.narouUseridFavncode,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<String> get narouFavToken => $composableBuilder(
+    column: $table.narouFavToken,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
   $$NovelsTableOrderingComposer get ncode {
     final $$NovelsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -4166,6 +4319,16 @@ class $$LibraryEntriesTableAnnotationComposer
 
   drift.GeneratedColumn<int> get narouBookmarkSyncedAt => $composableBuilder(
     column: $table.narouBookmarkSyncedAt,
+    builder: (column) => column,
+  );
+
+  drift.GeneratedColumn<String> get narouUseridFavncode => $composableBuilder(
+    column: $table.narouUseridFavncode,
+    builder: (column) => column,
+  );
+
+  drift.GeneratedColumn<String> get narouFavToken => $composableBuilder(
+    column: $table.narouFavToken,
     builder: (column) => column,
   );
 
@@ -4227,11 +4390,16 @@ class $$LibraryEntriesTableTableManager
                 drift.Value<int> addedAt = const drift.Value.absent(),
                 drift.Value<int?> narouBookmarkSyncedAt =
                     const drift.Value.absent(),
+                drift.Value<String?> narouUseridFavncode =
+                    const drift.Value.absent(),
+                drift.Value<String?> narouFavToken = const drift.Value.absent(),
                 drift.Value<int> rowid = const drift.Value.absent(),
               }) => LibraryEntriesCompanion(
                 ncode: ncode,
                 addedAt: addedAt,
                 narouBookmarkSyncedAt: narouBookmarkSyncedAt,
+                narouUseridFavncode: narouUseridFavncode,
+                narouFavToken: narouFavToken,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4240,11 +4408,16 @@ class $$LibraryEntriesTableTableManager
                 required int addedAt,
                 drift.Value<int?> narouBookmarkSyncedAt =
                     const drift.Value.absent(),
+                drift.Value<String?> narouUseridFavncode =
+                    const drift.Value.absent(),
+                drift.Value<String?> narouFavToken = const drift.Value.absent(),
                 drift.Value<int> rowid = const drift.Value.absent(),
               }) => LibraryEntriesCompanion.insert(
                 ncode: ncode,
                 addedAt: addedAt,
                 narouBookmarkSyncedAt: narouBookmarkSyncedAt,
+                narouUseridFavncode: narouUseridFavncode,
+                narouFavToken: narouFavToken,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

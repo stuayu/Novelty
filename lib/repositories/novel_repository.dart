@@ -122,9 +122,30 @@ class NovelRepository {
   }
 
   /// 小説をライブラリから削除する。
+  ///
+  /// なろう本家側のブックマーク解除もベストエフォートで行う
+  /// （失敗してもローカル削除自体には影響させない）。
   Future<void> removeFromLibrary(String ncode) async {
     final ncodeLower = ncode.toNormalizedNcode();
+    final favToken = await _db.getNarouFavToken(ncodeLower);
     await _db.removeFromLibrary(ncodeLower);
+
+    if (favToken != null) {
+      try {
+        final outcome = await ref
+            .read(narouSyncServiceProvider)
+            .removeBookmarkFromNarou(favToken.token);
+        debugPrint(
+          '[NarouSync] removeFromLibrary($ncodeLower): '
+          'removeBookmarkFromNarou結果=$outcome',
+        );
+      } on Exception catch (e) {
+        debugPrint(
+          '[NarouSync] removeFromLibrary($ncodeLower): '
+          'removeBookmarkFromNarouで予期しない例外: $e',
+        );
+      }
+    }
 
     // Providersを無効化してUIを更新
     ref.invalidate(libraryNovelsProvider);
@@ -678,23 +699,60 @@ class LibraryStatus extends _$LibraryStatus {
         // 追加自体は既に成功しているため、ここで独立してcatchする。
         var narouSyncFailed = false;
         try {
-          final syncOutcome = await ref
+          final syncResult = await ref
               .read(narouSyncServiceProvider)
               .addBookmarkToNarou(novelInfo.ncode!);
-          if (syncOutcome == NarouBookmarkSyncOutcome.success) {
-            await db.markNarouBookmarkSynced(novelInfo.ncode!);
+          debugPrint(
+            '[NarouSync] toggle(${novelInfo.ncode}): '
+            'addBookmarkToNarou結果=${syncResult.outcome}',
+          );
+          if (syncResult.outcome == NarouBookmarkSyncOutcome.success) {
+            await db.markNarouBookmarkSynced(
+              novelInfo.ncode!,
+              useridFavncode: syncResult.useridFavncode,
+              favToken: syncResult.token,
+            );
           }
-          narouSyncFailed = syncOutcome == NarouBookmarkSyncOutcome.failed;
-        } on Exception {
+          narouSyncFailed =
+              syncResult.outcome == NarouBookmarkSyncOutcome.failed;
+        } on Exception catch (e) {
+          debugPrint(
+            '[NarouSync] toggle(${novelInfo.ncode}): '
+            'addBookmarkToNarouで予期しない例外: $e',
+          );
           narouSyncFailed = true;
         }
 
         ref.invalidate(libraryNovelsProvider);
         return LibraryToggleResult.added(narouSyncFailed: narouSyncFailed);
       } else {
+        // ローカル削除でトークンが失われる前に、なろう解除に必要な
+        // トークン情報を先に取得しておく。
+        final favToken = await db.getNarouFavToken(novelInfo.ncode!);
         await db.removeFromLibrary(novelInfo.ncode!);
+
+        var narouSyncFailed = false;
+        if (favToken != null) {
+          try {
+            final outcome = await ref
+                .read(narouSyncServiceProvider)
+                .removeBookmarkFromNarou(favToken.token);
+            debugPrint(
+              '[NarouSync] toggle(${novelInfo.ncode}): '
+              'removeBookmarkFromNarou結果=$outcome',
+            );
+            narouSyncFailed = outcome == NarouBookmarkSyncOutcome.failed;
+          } on Exception catch (e) {
+            debugPrint(
+              '[NarouSync] toggle(${novelInfo.ncode}): '
+              'removeBookmarkFromNarouで予期しない例外: $e',
+            );
+            narouSyncFailed = true;
+          }
+        }
+
         ref.invalidate(libraryNovelsProvider);
-        return const LibraryToggleResult.removed();
+        return LibraryToggleResult.removed(narouSyncFailed: narouSyncFailed);
       }
     } on Exception catch (e, st) {
       state = AsyncValue.error(e, st);

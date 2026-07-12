@@ -233,6 +233,30 @@ class LibraryNovelEntry {
   int get hashCode => Object.hash(novel, addedAt);
 }
 
+/// しおり更新(`ichiupdateajax`)に必要な、なろう本家のトークン情報。
+@immutable
+class NarouFavToken {
+  /// コンストラクタ。
+  const NarouFavToken({required this.useridFavncode, required this.token});
+
+  /// なろう本家のブックマークID（"{userid}_{favncode}"形式）。
+  final String useridFavncode;
+
+  /// なろう本家のブックマーク操作用トークン。
+  final String token;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NarouFavToken &&
+          runtimeType == other.runtimeType &&
+          useridFavncode == other.useridFavncode &&
+          token == other.token;
+
+  @override
+  int get hashCode => Object.hash(useridFavncode, token);
+}
+
 /// ライブラリ登録情報を格納するテーブル（正規化済み）
 class LibraryEntries extends Table {
   /// 小説のncode (外部キー)
@@ -245,6 +269,14 @@ class LibraryEntries extends Table {
   /// なろう本家へのブックマーク登録が成功した日時（UNIXミリ秒）。
   /// nullの場合はなろう側への同期が未完了・未確認であることを示す。
   IntColumn get narouBookmarkSyncedAt => integer().nullable()();
+
+  /// なろう本家のブックマークID（"{userid}_{favncode}"形式）。
+  /// しおり更新(ichiupdateajax)のURL構築に使用する。
+  TextColumn get narouUseridFavncode => text().nullable()();
+
+  /// なろう本家のブックマーク操作用トークン（addajax登録時に発行される）。
+  /// しおり更新(ichiupdateajax)のtokenパラメータとして再利用する。
+  TextColumn get narouFavToken => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {ncode};
@@ -321,7 +353,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 16;
+  int get schemaVersion => 17;
 
   @override
   MigrationStrategy get migration {
@@ -413,6 +445,16 @@ class AppDatabase extends _$AppDatabase {
           await customStatement(
             'ALTER TABLE library_entries '
             'ADD COLUMN narou_bookmark_synced_at INTEGER',
+          );
+        }
+
+        if (from < 17) {
+          await customStatement(
+            'ALTER TABLE library_entries '
+            'ADD COLUMN narou_userid_favncode TEXT',
+          );
+          await customStatement(
+            'ALTER TABLE library_entries ADD COLUMN narou_fav_token TEXT',
           );
         }
       },
@@ -714,7 +756,14 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// なろう本家へのブックマーク登録が完了したことを記録する。
-  Future<void> markNarouBookmarkSynced(String ncode) async {
+  ///
+  /// [useridFavncode]・[favToken]を指定した場合、しおり更新
+  /// (`ichiupdateajax`)に必要な情報として併せて保存する。
+  Future<void> markNarouBookmarkSynced(
+    String ncode, {
+    String? useridFavncode,
+    String? favToken,
+  }) async {
     await (update(
       libraryEntries,
     )..where((t) => t.ncode.equals(ncode.toNormalizedNcode()))).write(
@@ -722,8 +771,28 @@ class AppDatabase extends _$AppDatabase {
         narouBookmarkSyncedAt: drift.Value(
           DateTime.now().millisecondsSinceEpoch,
         ),
+        narouUseridFavncode: useridFavncode != null
+            ? drift.Value(useridFavncode)
+            : const drift.Value.absent(),
+        narouFavToken: favToken != null
+            ? drift.Value(favToken)
+            : const drift.Value.absent(),
       ),
     );
+  }
+
+  /// しおり更新(`ichiupdateajax`)に必要なトークン情報を取得する。
+  ///
+  /// [markNarouBookmarkSynced]で保存されていない場合はnullを返す。
+  Future<NarouFavToken?> getNarouFavToken(String ncode) async {
+    final result =
+        await (select(libraryEntries)
+              ..where((t) => t.ncode.equals(ncode.toNormalizedNcode())))
+            .getSingleOrNull();
+    final useridFavncode = result?.narouUseridFavncode;
+    final token = result?.narouFavToken;
+    if (useridFavncode == null || token == null) return null;
+    return NarouFavToken(useridFavncode: useridFavncode, token: token);
   }
 
   /// なろう本家へのブックマーク登録が完了しているかを確認する。

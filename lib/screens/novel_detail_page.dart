@@ -572,6 +572,15 @@ Future<void> _toggleLibrary(
         );
       }
     },
+    removed: (narouSyncFailed) {
+      if (narouSyncFailed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('なろうのブックマーク解除に失敗しました'),
+          ),
+        );
+      }
+    },
   );
 }
 

@@ -125,11 +125,11 @@ return error(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( bool narouSyncFailed)?  added,TResult Function()?  removed,TResult Function()?  error,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( bool narouSyncFailed)?  added,TResult Function( bool narouSyncFailed)?  removed,TResult Function()?  error,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _Added() when added != null:
 return added(_that.narouSyncFailed);case _Removed() when removed != null:
-return removed();case _Error() when error != null:
+return removed(_that.narouSyncFailed);case _Error() when error != null:
 return error();case _:
   return orElse();
 
@@ -148,11 +148,11 @@ return error();case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( bool narouSyncFailed)  added,required TResult Function()  removed,required TResult Function()  error,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( bool narouSyncFailed)  added,required TResult Function( bool narouSyncFailed)  removed,required TResult Function()  error,}) {final _that = this;
 switch (_that) {
 case _Added():
 return added(_that.narouSyncFailed);case _Removed():
-return removed();case _Error():
+return removed(_that.narouSyncFailed);case _Error():
 return error();case _:
   throw StateError('Unexpected subclass');
 
@@ -170,11 +170,11 @@ return error();case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( bool narouSyncFailed)?  added,TResult? Function()?  removed,TResult? Function()?  error,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( bool narouSyncFailed)?  added,TResult? Function( bool narouSyncFailed)?  removed,TResult? Function()?  error,}) {final _that = this;
 switch (_that) {
 case _Added() when added != null:
 return added(_that.narouSyncFailed);case _Removed() when removed != null:
-return removed();case _Error() when error != null:
+return removed(_that.narouSyncFailed);case _Error() when error != null:
 return error();case _:
   return null;
 
@@ -254,33 +254,68 @@ as bool,
 
 
 class _Removed implements LibraryToggleResult {
-  const _Removed();
+  const _Removed({this.narouSyncFailed = false});
   
 
+/// なろう本家のブックマーク解除に失敗したかどうか（ログイン中のみ意味を持つ）。
+@JsonKey() final  bool narouSyncFailed;
 
-
+/// Create a copy of LibraryToggleResult
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+_$RemovedCopyWith<_Removed> get copyWith => __$RemovedCopyWithImpl<_Removed>(this, _$identity);
 
 
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _Removed);
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _Removed&&(identical(other.narouSyncFailed, narouSyncFailed) || other.narouSyncFailed == narouSyncFailed));
 }
 
 
 @override
-int get hashCode => runtimeType.hashCode;
+int get hashCode => Object.hash(runtimeType,narouSyncFailed);
 
 @override
 String toString() {
-  return 'LibraryToggleResult.removed()';
+  return 'LibraryToggleResult.removed(narouSyncFailed: $narouSyncFailed)';
 }
 
 
 }
 
+/// @nodoc
+abstract mixin class _$RemovedCopyWith<$Res> implements $LibraryToggleResultCopyWith<$Res> {
+  factory _$RemovedCopyWith(_Removed value, $Res Function(_Removed) _then) = __$RemovedCopyWithImpl;
+@useResult
+$Res call({
+ bool narouSyncFailed
+});
 
 
+
+
+}
+/// @nodoc
+class __$RemovedCopyWithImpl<$Res>
+    implements _$RemovedCopyWith<$Res> {
+  __$RemovedCopyWithImpl(this._self, this._then);
+
+  final _Removed _self;
+  final $Res Function(_Removed) _then;
+
+/// Create a copy of LibraryToggleResult
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? narouSyncFailed = null,}) {
+  return _then(_Removed(
+narouSyncFailed: null == narouSyncFailed ? _self.narouSyncFailed : narouSyncFailed // ignore: cast_nullable_to_non_nullable
+as bool,
+  ));
+}
+
+
+}
 
 /// @nodoc
 

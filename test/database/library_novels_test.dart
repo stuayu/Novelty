@@ -142,6 +142,40 @@ void main() {
       expect(await database.isNarouBookmarkSynced(ncode), false);
     });
 
+    test('markNarouBookmarkSyncedでuseridFavncode・tokenも保存できること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(ncode);
+
+      await database.markNarouBookmarkSynced(
+        ncode,
+        useridFavncode: '1119968_3231307',
+        favToken: '3d05fae7f1247fa4a905e99f1ff1773d',
+      );
+
+      final favToken = await database.getNarouFavToken(ncode);
+      expect(favToken, isNotNull);
+      expect(favToken!.useridFavncode, '1119968_3231307');
+      expect(favToken.token, '3d05fae7f1247fa4a905e99f1ff1773d');
+    });
+
+    test('useridFavncode・tokenを指定しない場合はgetNarouFavTokenがnullを返すこと', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(ncode);
+
+      await database.markNarouBookmarkSynced(ncode);
+
+      expect(await database.getNarouFavToken(ncode), isNull);
+    });
+
+    test('ライブラリ未登録の小説はgetNarouFavTokenがnullを返すこと', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+
+      expect(await database.getNarouFavToken(ncode), isNull);
+    });
+
     test('重複追加は無視されること', () async {
       const ncode = 'n1234ab';
       await insertDummyNovel(ncode);

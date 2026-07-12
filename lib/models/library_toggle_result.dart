@@ -12,7 +12,10 @@ class LibraryToggleResult with _$LibraryToggleResult {
   }) = _Added;
 
   /// ライブラリから削除された結果を作成する。
-  const factory LibraryToggleResult.removed() = _Removed;
+  const factory LibraryToggleResult.removed({
+    /// なろう本家のブックマーク解除に失敗したかどうか（ログイン中のみ意味を持つ）。
+    @Default(false) bool narouSyncFailed,
+  }) = _Removed;
 
   /// ローカルDB操作でエラーが発生した結果を作成する。
   const factory LibraryToggleResult.error() = _Error;

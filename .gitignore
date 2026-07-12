@@ -5,6 +5,7 @@ custom_lint.log
 .env
 .claude/*.local.*
 mise.local.toml
+*_cookies.txt
 
 ### Flutter ###
 # Flutter/Dart/Pub related

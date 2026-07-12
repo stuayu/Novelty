@@ -549,13 +549,29 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
           as _i5.Stream<bool>);
 
   @override
-  _i5.Future<void> markNarouBookmarkSynced(String? ncode) =>
+  _i5.Future<void> markNarouBookmarkSynced(
+    String? ncode, {
+    String? useridFavncode,
+    String? favToken,
+  }) =>
       (super.noSuchMethod(
-            Invocation.method(#markNarouBookmarkSynced, [ncode]),
+            Invocation.method(
+              #markNarouBookmarkSynced,
+              [ncode],
+              {#useridFavncode: useridFavncode, #favToken: favToken},
+            ),
             returnValue: _i5.Future<void>.value(),
             returnValueForMissingStub: _i5.Future<void>.value(),
           )
           as _i5.Future<void>);
+
+  @override
+  _i5.Future<_i3.NarouFavToken?> getNarouFavToken(String? ncode) =>
+      (super.noSuchMethod(
+            Invocation.method(#getNarouFavToken, [ncode]),
+            returnValue: _i5.Future<_i3.NarouFavToken?>.value(),
+          )
+          as _i5.Future<_i3.NarouFavToken?>);
 
   @override
   _i5.Future<bool> isNarouBookmarkSynced(String? ncode) =>
