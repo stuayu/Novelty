@@ -1,0 +1,76 @@
+name: Kakuyomu Native Sync Verify
+
+on:
+  push:
+    paths:
+      - .github/workflows/kakuyomu-native-verify.yml
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          cache: true
+
+      - name: Run verification and capture result
+        run: |
+          set +e
+          mkdir -p docs/novelty
+          LOG=/tmp/kakuyomu-native-verify.log
+          : > "$LOG"
+
+          run_step() {
+            name="$1"
+            shift
+            echo "=== $name ===" >> "$LOG"
+            "$@" >> "$LOG" 2>&1
+            code=$?
+            echo "exit_code=$code" >> "$LOG"
+            return $code
+          }
+
+          overall=0
+          run_step get mise run get || overall=1
+          if [ "$overall" -eq 0 ]; then
+            run_step codegen mise run codegen || overall=1
+          fi
+          if [ "$overall" -eq 0 ]; then
+            run_step follow_test mise exec -- flutter test test/services/kakuyomu_follow_service_test.dart || overall=1
+          fi
+          if [ "$overall" -eq 0 ]; then
+            run_step graphql_test mise exec -- flutter test test/services/kakuyomu_graphql_service_test.dart || overall=1
+          fi
+          if [ "$overall" -eq 0 ]; then
+            run_step adapter_test mise exec -- flutter test test/sites/kakuyomu/kakuyomu_account_sync_adapter_test.dart || overall=1
+          fi
+          if [ "$overall" -eq 0 ]; then
+            run_step check mise run check || overall=1
+          fi
+
+          {
+            echo "result=$([ "$overall" -eq 0 ] && echo PASS || echo FAIL)"
+            echo "tested_commit=${GITHUB_SHA}"
+            echo
+            tail -n 160 "$LOG"
+          } > docs/novelty/kakuyomu_native_verify_result.txt
+          cat docs/novelty/kakuyomu_native_verify_result.txt
+
+      - name: Commit verification result
+        if: always()
+        run: |
+          set -euo pipefail
+          test -f docs/novelty/kakuyomu_native_verify_result.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/novelty/kakuyomu_native_verify_result.txt
+          git commit -m 'chore: カクヨムネイティブ同期検証結果を一時保存'
+          git push origin HEAD:develop
