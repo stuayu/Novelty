@@ -17,7 +17,7 @@ jobs:
       - name: Checkout research branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Probe current Kakuyomu episode viewer history implementation
+      - name: Extract compact viewer history evidence
         shell: bash
         run: |
           python3 - <<'PY'
@@ -44,81 +44,82 @@ jobs:
                   return response.read().decode('utf-8', errors='replace')
 
           page = fetch(episode_url)
-          sources = {'inline:episode': page}
-          script_urls = []
-          for src in re.findall(
-              r'<script[^>]+src=["\']([^"\']+)["\']',
-              page,
-              flags=re.IGNORECASE,
-          ):
+          scripts = []
+          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page, re.I):
               absolute = urllib.parse.urljoin(episode_url, html.unescape(src))
-              host = urllib.parse.urlparse(absolute).netloc
-              if host not in {'kakuyomu.jp', 'cdn-static.kakuyomu.jp'}:
-                  continue
-              script_urls.append(absolute)
-              try:
-                  sources[absolute] = fetch(absolute)
-              except Exception as exc:
-                  sources[absolute] = f'FETCH_ERROR: {exc!r}'
+              if urllib.parse.urlparse(absolute).netloc == 'cdn-static.kakuyomu.jp':
+                  scripts.append(absolute)
 
-          tokens = (
-              'data-viewer-history-path',
-              'viewer-history',
-              'historyPath',
-              '/history',
-              'position',
-              'scrollTop',
-              'js-episode-body',
+          kakuyomu_js = next(
+              (url for url in scripts if '/js/kakuyomu.js' in url),
+              None,
           )
+          if kakuyomu_js is None:
+              raise SystemExit('kakuyomu.js not found')
+          source = fetch(kakuyomu_js)
+
           lines = [
               f'capturedAt={datetime.now(timezone.utc).isoformat()}',
               f'episodeUrl={episode_url}',
+              f'kakuyomuJs={kakuyomu_js}',
               '',
-              '=== first-party scripts ===',
-              *script_urls,
-              '',
-              '=== evidence ===',
           ]
 
-          count = 0
-          for url, source in sources.items():
-              if source.startswith('FETCH_ERROR:'):
-                  lines.extend([f'source={url}', source, ''])
-                  continue
-              lower = source.lower()
-              for token in tokens:
-                  start = 0
-                  while count < 120:
-                      index = lower.find(token.lower(), start)
-                      if index < 0:
-                          break
-                      left = max(0, index - 3500)
-                      right = min(len(source), index + len(token) + 6500)
+          body_match = re.search(
+              r'data-viewer-history-path=["\']([^"\']+)["\']',
+              page,
+          )
+          if body_match:
+              lines.append(f'historyPath={html.unescape(body_match.group(1))}')
+          lines.append('')
+
+          tokens = [
+              'viewer-history',
+              'data-viewer-history-path',
+              '/history',
+              'historyPath',
+              'position',
+              'scrollTop',
+              'scrollY',
+              'ajax',
+              'fetch(',
+              'XMLHttpRequest',
+              'js-episode-body',
+          ]
+          emitted = set()
+          for token in tokens:
+              start = 0
+              occurrence = 0
+              while occurrence < 12:
+                  idx = source.lower().find(token.lower(), start)
+                  if idx < 0:
+                      break
+                  occurrence += 1
+                  left = max(0, idx - 1800)
+                  right = min(len(source), idx + len(token) + 2800)
+                  snippet = source[left:right]
+                  key = re.sub(r'\s+', ' ', snippet[:250])
+                  if key not in emitted:
+                      emitted.add(key)
                       lines.extend([
-                          f'--- token={token} ---',
-                          f'source={url}',
-                          source[left:right],
+                          f'=== {token} #{occurrence} ===',
+                          snippet,
                           '',
                       ])
-                      count += 1
-                      start = index + len(token)
-                  if count >= 120:
-                      break
-              if count >= 120:
-                  break
+                  start = idx + len(token)
 
-          output = Path('docs/novelty/kakuyomu_position_push_probe_result.txt')
+          output = Path('docs/novelty/kakuyomu_position_compact_evidence.txt')
           output.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
 
-      - name: Commit probe result
+      - name: Commit compact evidence
         shell: bash
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add docs/novelty/kakuyomu_position_push_probe_result.txt
+          git add docs/novelty/kakuyomu_position_compact_evidence.txt
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨムviewer履歴送信形式を保存"
+          git commit -m "調査: viewer履歴通信の最小根拠を保存"
           git push origin HEAD:research/kakuyomu-position-probe-20260822
