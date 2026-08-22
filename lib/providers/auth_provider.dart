@@ -67,7 +67,9 @@ class Auth extends _$Auth {
       );
       // ログイン成功後に、なろうのリモートライブラリを同期する。
       final adapter = ref.read(accountSyncRegistryProvider)[NovelSource.narou];
-      await adapter?.pullLibrary();
+      if (adapter != null) {
+        await adapter.pullLibrary();
+      }
     } else {
       state = const AsyncValue.data(null);
     }
