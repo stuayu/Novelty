@@ -10,8 +10,9 @@ const _kakuyomuSessionCheckUrl = '$_kakuyomuBaseUrl/my';
 
 /// `/my` の HTML がログイン済み状態を示しているか判定する。
 ///
-/// 未ログイン時はログイン導線 (`/auth/login` または `/login`) が表示されるため、
-/// それらが存在しない場合だけログイン済みとみなす。
+/// ログイン導線が無いだけの汎用200ページを成功扱いせず、カクヨムが実際に
+/// ログイン済みページへ出している `data-is-guest="0"` または
+/// `isSignedInUser` マーカーを確認する。
 bool kakuyomuDashboardIndicatesLoggedIn(String html) {
   if (html.isEmpty) return false;
 
@@ -21,8 +22,13 @@ bool kakuyomuDashboardIndicatesLoggedIn(String html) {
     if (href == null) return false;
     return href == '/auth/login' || href == '/login';
   });
+  if (hasLoginLink) return false;
 
-  return !hasLoginLink;
+  final htmlElement = document.querySelector('html');
+  final explicitlyNotGuest = htmlElement?.attributes['data-is-guest'] == '0';
+  final hasSignedInMarker = document.querySelector('.isSignedInUser') != null;
+
+  return explicitlyNotGuest || hasSignedInMarker;
 }
 
 /// カクヨム認証サービスのプロバイダー。
@@ -47,7 +53,7 @@ class KakuyomuAuthService {
   /// 保存済み Cookie がログイン済みセッションとして有効か確認する。
   ///
   /// カクヨムの `/my` は未ログインでも表示できるため、HTTP ステータスだけでなく
-  /// ログイン導線が残っていないことも確認する。
+  /// ログイン済み固有マーカーも確認する。
   Future<bool> isSessionValid() async {
     final cookieHeader = await _sessionRepository.buildCookieHeader();
     if (cookieHeader == null || cookieHeader.isEmpty) return false;
