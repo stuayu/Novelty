@@ -6,13 +6,16 @@ on:
       - .github/workflows/kakuyomu-api-research.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   inspect-official-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - name: Download official Kakuyomu Viewer XAPK
         run: |
           set -euo pipefail
@@ -28,97 +31,92 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/kakuyomu-xapk /tmp/kakuyomu-apk
           unzip -q /tmp/kakuyomu.xapk -d /tmp/kakuyomu-xapk
-          find /tmp/kakuyomu-xapk -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
           BASE_APK="$(find /tmp/kakuyomu-xapk -maxdepth 2 -type f -name '*.apk' | sort | head -n1)"
           test -n "$BASE_APK"
           echo "Using APK: $BASE_APK"
           unzip -q "$BASE_APK" -d /tmp/kakuyomu-apk
 
-      - name: Locate React Native and bytecode assets
+      - name: Extract sanitized API identifiers
         run: |
           set -euo pipefail
-          echo '=== Candidate app assets ==='
-          find /tmp/kakuyomu-apk -type f \( \
-            -name '*.bundle' -o -name '*.js' -o -name '*.hbc' -o \
-            -name 'classes*.dex' -o -name '*.json' \
-          \) -printf '%p %s bytes\n' | sort | head -n 200
-
-      - name: Extract API and GraphQL identifiers
-        run: |
-          set -euo pipefail
-          CANDIDATES=/tmp/candidates.txt
-          find /tmp/kakuyomu-apk -type f \( \
-            -name '*.bundle' -o -name '*.js' -o -name '*.hbc' -o \
-            -name 'classes*.dex' -o -name '*.json' \
-          \) -print > "$CANDIDATES"
-
-          echo '=== URLs / API paths containing kakuyomu, graphql, api ==='
-          while IFS= read -r f; do
-            strings -a -n 5 "$f" 2>/dev/null || true
-          done < "$CANDIDATES" \
-            | grep -Eio 'https?://[^"[:space:]<>]+' \
-            | grep -Ei 'kakuyomu|graphql|/api/' \
-            | sort -u \
-            | head -n 300 || true
-
-          echo '=== Exact-looking API path literals ==='
-          while IFS= read -r f; do
-            strings -a -n 5 "$f" 2>/dev/null || true
-          done < "$CANDIDATES" \
-            | grep -Eio '/(api|graphql)[A-Za-z0-9_./?=&:-]{1,180}' \
-            | sort -u \
-            | head -n 500 || true
-
-          echo '=== Follow / library / reading GraphQL-ish identifiers ==='
-          while IFS= read -r f; do
-            strings -a -n 5 "$f" 2>/dev/null || true
-          done < "$CANDIDATES" \
-            | grep -Ei 'follow|unfollow|following|antenna|reading.?history|read.?history|last.?read|episode.?history|viewer.?history|graphql|mutation|operationName' \
-            | sed -E 's/[[:cntrl:]]+/ /g' \
-            | cut -c1-600 \
-            | sort -u \
-            | head -n 1000 || true
-
-      - name: Search binary context around mutation and follow strings
-        run: |
-          set -euo pipefail
+          mkdir -p docs/novelty
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          roots = []
+          files = []
           for p in Path('/tmp/kakuyomu-apk').rglob('*'):
-              if p.is_file() and (p.suffix in {'.bundle','.js','.hbc','.dex','.json'} or p.name.startswith('classes')):
-                  roots.append(p)
+              if not p.is_file():
+                  continue
+              if p.suffix in {'.bundle', '.js', '.hbc', '.dex', '.json'} or p.name.startswith('classes'):
+                  files.append(p)
 
-          needles = [
-              b'graphql', b'GraphQL', b'mutation', b'operationName',
-              b'follow', b'Follow', b'unfollow', b'Unfollow',
-              b'following', b'Following', b'antenna',
-              b'readingHistory', b'ReadingHistory', b'lastRead', b'LastRead',
-          ]
-          seen = set()
-          emitted = 0
-          for p in roots:
+          urls = set()
+          paths = set()
+          operations = set()
+          identifiers = set()
+          candidate_files = []
+
+          url_re = re.compile(rb'https?://[^\x00-\x20"\'<>]{4,240}')
+          path_re = re.compile(rb'/(?:api|graphql)/?[A-Za-z0-9_./?=&:%+-]{0,180}')
+          operation_re = re.compile(rb'\b(?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]{1,100})')
+          identifier_re = re.compile(
+              rb'\b[A-Za-z_][A-Za-z0-9_]{0,100}'
+              rb'(?:Follow|follow|Unfollow|unfollow|Following|following|'
+              rb'ReadingHistory|readingHistory|ReadHistory|readHistory|'
+              rb'LastRead|lastRead|Antenna|antenna|EpisodeHistory|episodeHistory)'
+              rb'[A-Za-z0-9_]{0,100}\b'
+          )
+
+          for p in files:
               try:
                   data = p.read_bytes()
               except OSError:
                   continue
-              for needle in needles:
-                  pos = 0
-                  while emitted < 500:
-                      idx = data.find(needle, pos)
-                      if idx < 0:
-                          break
-                      start = max(0, idx - 220)
-                      end = min(len(data), idx + len(needle) + 380)
-                      raw = data[start:end]
-                      text = ''.join(chr(b) if 32 <= b < 127 else ' ' for b in raw)
-                      text = re.sub(r'\s+', ' ', text).strip()
-                      key = text
-                      if key and key not in seen:
-                          seen.add(key)
-                          print(f'{p}: {text[:700]}')
-                          emitted += 1
-                      pos = idx + len(needle)
+              if any(k in data for k in (b'graphql', b'GraphQL', b'follow', b'Follow', b'history', b'History', b'/api/')):
+                  candidate_files.append(str(p.relative_to('/tmp/kakuyomu-apk')))
+              for m in url_re.findall(data):
+                  s = m.decode('utf-8', 'ignore')
+                  if 'kakuyomu' in s.lower() or '/api/' in s.lower() or 'graphql' in s.lower():
+                      urls.add(s)
+              for m in path_re.findall(data):
+                  paths.add(m.decode('utf-8', 'ignore'))
+              for m in operation_re.findall(data):
+                  operations.add(m.decode('utf-8', 'ignore'))
+              for m in identifier_re.findall(data):
+                  identifiers.add(m.decode('utf-8', 'ignore'))
+
+          out = Path('docs/novelty/kakuyomu_api_static_research.txt')
+          with out.open('w', encoding='utf-8') as f:
+              f.write('Temporary static-analysis result from the public official Kakuyomu Viewer APK.\n')
+              f.write('Only URLs, API paths, GraphQL operation names, and relevant identifiers are retained.\n\n')
+              f.write('=== Candidate files ===\n')
+              for x in sorted(candidate_files)[:200]:
+                  f.write(x + '\n')
+              f.write('\n=== URLs ===\n')
+              for x in sorted(urls)[:500]:
+                  f.write(x + '\n')
+              f.write('\n=== API paths ===\n')
+              for x in sorted(paths)[:1000]:
+                  f.write(x + '\n')
+              f.write('\n=== GraphQL operations ===\n')
+              for x in sorted(operations)[:1000]:
+                  f.write(x + '\n')
+              f.write('\n=== Follow / reading identifiers ===\n')
+              for x in sorted(identifiers)[:2000]:
+                  f.write(x + '\n')
           PY
+          cat docs/novelty/kakuyomu_api_static_research.txt
+
+      - name: Commit sanitized research result
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/novelty/kakuyomu_api_static_research.txt
+          if git diff --cached --quiet; then
+            echo 'No research result changes.'
+            exit 0
+          fi
+          git commit -m 'chore: カクヨムAPI静的解析結果を一時保存'
+          git push origin HEAD:develop
