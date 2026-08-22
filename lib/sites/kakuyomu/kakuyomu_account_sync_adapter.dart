@@ -167,12 +167,12 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
 
   @override
   Future<AccountSyncOutcome> addToRemoteLibrary(String workId) {
-    return _followOperator(workId, true);
+    return _followOperator(workId, shouldFollow: true);
   }
 
   @override
   Future<AccountSyncOutcome> removeFromRemoteLibrary(String workId) {
-    return _followOperator(workId, false);
+    return _followOperator(workId, shouldFollow: false);
   }
 
   @override
