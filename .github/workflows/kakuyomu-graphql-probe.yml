@@ -1,0 +1,85 @@
+name: Kakuyomu GraphQL Validation Probe
+
+on:
+  push:
+    paths:
+      - .github/workflows/kakuyomu-graphql-probe.yml
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Probe required input fields without authentication
+        run: |
+          set -euo pipefail
+          mkdir -p docs/novelty
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, urllib.request, urllib.error
+
+          operations = {
+            'FollowWork': 'mutation FollowWork($input: FollowWorkInput!){followWork(input:$input){__typename}}',
+            'FollowWorks': 'mutation FollowWorks($input: FollowWorksInput!){followWorks(input:$input){__typename}}',
+            'UnfollowWorks': 'mutation UnfollowWorks($input: UnfollowWorksInput!){unfollowWorks(input:$input){__typename}}',
+            'RecordReadingHistory': 'mutation RecordReadingHistory($input: RecordReadingHistoryInput!){recordReadingHistory(input:$input){__typename}}',
+            'IncrementReadCount': 'mutation IncrementReadCount($input: IncrementReadCountInput!){incrementReadCount(input:$input){__typename}}',
+          }
+          result = {}
+          for name, query in operations.items():
+            payload = json.dumps({'operationName':name,'variables':{'input':{}},'query':query}).encode()
+            req = urllib.request.Request(
+              f'https://kakuyomu.jp/graphql?opname={name}',
+              data=payload,
+              headers={
+                'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/143.0.0.0 Safari/537.36',
+                'Accept':'application/json',
+                'Content-Type':'application/json',
+                'X-Requested-With':'XMLHttpRequest',
+                'Origin':'https://kakuyomu.jp',
+                'Referer':'https://kakuyomu.jp/',
+              },
+              method='POST',
+            )
+            status = 0; body = {}
+            try:
+              with urllib.request.urlopen(req, timeout=20) as r:
+                status = r.status; body = json.load(r)
+            except urllib.error.HTTPError as e:
+              status = e.code
+              try: body = json.loads(e.read().decode('utf-8','replace'))
+              except Exception: body = {'errors':[{'message':f'HTTP {status}'}]}
+            except Exception as e:
+              body = {'errors':[{'message':type(e).__name__}]}
+            result[name] = {
+              'httpStatus': status,
+              'errors': [
+                {
+                  'message': x.get('message'),
+                  'code': (x.get('extensions') or {}).get('code'),
+                  'validationErrorCode': (x.get('extensions') or {}).get('validationErrorCode'),
+                }
+                for x in (body.get('errors') or [])
+              ],
+              'hasData': body.get('data') is not None,
+            }
+          p = Path('docs/novelty/kakuyomu_graphql_validation_probes.json')
+          p.write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)+'\n', encoding='utf-8')
+          print(p.read_text(encoding='utf-8'))
+          PY
+
+      - name: Commit sanitized probe result
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/novelty/kakuyomu_graphql_validation_probes.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'chore: カクヨムGraphQL入力検証結果を一時保存'
+          git push origin HEAD:develop
