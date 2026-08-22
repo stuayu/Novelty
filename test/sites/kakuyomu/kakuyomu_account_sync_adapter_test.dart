@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
-import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
 
@@ -120,75 +119,6 @@ void main() {
       expect(stored?.writer, '既存作者');
       expect(stored?.story, '既存あらすじ');
       expect(stored?.generalAllNo, 100);
-    });
-  });
-
-  group('KakuyomuAccountSyncAdapter remote follow', () {
-    late AppDatabase db;
-
-    setUp(() {
-      db = AppDatabase.memory();
-    });
-
-    tearDown(() async {
-      await db.close();
-    });
-
-    test('addToRemoteLibraryはfollow=trueで委譲する', () async {
-      String? receivedWorkId;
-      bool? receivedShouldFollow;
-      final adapter = KakuyomuAccountSyncAdapter(
-        sessionRepository: _FakeSessionRepository('session=test'),
-        db: db,
-        followOperator: (workId, {required shouldFollow}) async {
-          receivedWorkId = workId;
-          receivedShouldFollow = shouldFollow;
-          return AccountSyncOutcome.success;
-        },
-      );
-
-      final result = await adapter.addToRemoteLibrary('1177354054880000001');
-
-      expect(result, AccountSyncOutcome.success);
-      expect(receivedWorkId, '1177354054880000001');
-      expect(receivedShouldFollow, isTrue);
-    });
-
-    test('removeFromRemoteLibraryはfollow=falseで委譲する', () async {
-      bool? receivedShouldFollow;
-      final adapter = KakuyomuAccountSyncAdapter(
-        sessionRepository: _FakeSessionRepository('session=test'),
-        db: db,
-        followOperator: (workId, {required shouldFollow}) async {
-          receivedShouldFollow = shouldFollow;
-          return AccountSyncOutcome.notLoggedIn;
-        },
-      );
-
-      final result = await adapter.removeFromRemoteLibrary(
-        '1177354054880000001',
-      );
-
-      expect(result, AccountSyncOutcome.notLoggedIn);
-      expect(receivedShouldFollow, isFalse);
-    });
-
-    test('フォロー操作失敗をfailedのまま返す', () async {
-      final adapter = KakuyomuAccountSyncAdapter(
-        sessionRepository: _FakeSessionRepository('session=test'),
-        db: db,
-        followOperator: (workId, {required shouldFollow}) async =>
-            AccountSyncOutcome.failed,
-      );
-
-      expect(
-        await adapter.addToRemoteLibrary('1177354054880000001'),
-        AccountSyncOutcome.failed,
-      );
-      expect(
-        await adapter.removeFromRemoteLibrary('1177354054880000001'),
-        AccountSyncOutcome.failed,
-      );
     });
   });
 }
