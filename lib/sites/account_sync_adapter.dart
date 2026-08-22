@@ -32,8 +32,12 @@ abstract interface class AccountSyncAdapter {
   Future<AccountSyncOutcome> removeFromRemoteLibrary(String workId);
 
   /// ローカルの読書位置をリモートへ反映する。
+  ///
+  /// [position] はサイト固有の詳細位置を確認できた場合だけ指定する。
+  /// なろうのように話数だけで同期するサイトは無視してよい。
   Future<bool> pushReadingProgress({
     required String workId,
     required int episode,
+    String? position,
   });
 }
