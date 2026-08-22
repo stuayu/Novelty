@@ -42,9 +42,30 @@ class KakuyomuGraphqlResponse {
   final Map<String, Object?> body;
 
   /// GraphQL errorsが含まれているか。
-  bool get hasErrors {
-    final errors = body['errors'];
-    return errors is List<Object?> && errors.isNotEmpty;
+  bool get hasErrors => errors.isNotEmpty;
+
+  /// GraphQL errorsを文字列キーのMapとして取得する。
+  List<Map<String, Object?>> get errors {
+    final value = body['errors'];
+    if (value is! List<Object?>) return const [];
+
+    return value
+        .whereType<Map<Object?, Object?>>()
+        .map(
+          (error) => error.map(
+            (key, entry) => MapEntry(key.toString(), entry),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  /// GraphQL errorの`extensions.code`に[code]が含まれるか確認する。
+  bool hasErrorCode(String code) {
+    return errors.any((error) {
+      final extensions = error['extensions'];
+      if (extensions is! Map<Object?, Object?>) return false;
+      return extensions['code'] == code;
+    });
   }
 
   /// dataオブジェクト。
