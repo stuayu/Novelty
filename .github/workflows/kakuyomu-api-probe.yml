@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Probe reading history operation and call site
+      - name: Probe reading history position call site
         shell: bash
         run: |
           python3 - <<'PY'
@@ -39,12 +39,6 @@ jobs:
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
               'AppleWebKit/537.36 (KHTML, like Gecko) '
               'Chrome/143.0.0.0 Safari/537.36'
-          )
-          tokens = (
-              'RecordReadingHistory',
-              'recordReadingHistory',
-              'IncrementReadCount',
-              'incrementReadCount',
           )
 
           def fetch(url):
@@ -70,25 +64,57 @@ jobs:
               f'capturedAt={datetime.now(timezone.utc).isoformat()}',
               f'bundleCount={len(bundle_sources)}',
               '',
+              '=== episodeId / position near-pairs ===',
           ]
+
+          seen = set()
           for url, source in bundle_sources.items():
-              for token in tokens:
-                  start = 0
-                  occurrence = 0
-                  while occurrence < 16:
-                      index = source.find(token, start)
-                      if index < 0:
-                          break
-                      occurrence += 1
-                      left = max(0, index - 3000)
-                      right = min(len(source), index + len(token) + 5500)
+              # 実callsiteを狙い、episodeId と position が近接する箇所だけを抽出する。
+              for match in re.finditer(r'episodeId', source):
+                  left = max(0, match.start() - 2500)
+                  right = min(len(source), match.end() + 4000)
+                  snippet = source[left:right]
+                  if 'position' not in snippet:
+                      continue
+                  compact_key = snippet[:300]
+                  if compact_key in seen:
+                      continue
+                  seen.add(compact_key)
+                  lines.extend([
+                      f'bundle={url}',
+                      snippet,
+                      '',
+                  ])
+                  if len(seen) >= 40:
+                      break
+
+          lines.append('=== position literals / builders ===')
+          position_patterns = (
+              r'position\s*:',
+              r'["\']position["\']\s*:',
+              r'position\s*=',
+          )
+          emitted = 0
+          for url, source in bundle_sources.items():
+              for pattern in position_patterns:
+                  for match in re.finditer(pattern, source):
+                      left = max(0, match.start() - 1800)
+                      right = min(len(source), match.end() + 2800)
+                      snippet = source[left:right]
+                      if 'episode' not in snippet.lower() and 'reading' not in snippet.lower():
+                          continue
                       lines.extend([
-                          f'=== {token} #{occurrence} ===',
                           f'bundle={url}',
-                          source[left:right],
+                          snippet,
                           '',
                       ])
-                      start = index + len(token)
+                      emitted += 1
+                      if emitted >= 40:
+                          break
+                  if emitted >= 40:
+                      break
+              if emitted >= 40:
+                  break
 
           mutation = '''mutation RecordReadingHistory($input: RecordReadingHistoryInput!) {
             recordReadingHistory(input: $input) {
@@ -139,5 +165,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨム読書履歴API入力根拠を保存"
+          git commit -m "調査: カクヨム読書位置position根拠を保存"
           git push origin HEAD:${{ github.head_ref }}
