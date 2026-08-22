@@ -12,29 +12,52 @@ void main() {
   String fixture(String name) =>
       File('test/fixtures/kakuyomu/$name').readAsStringSync();
 
-  test('通常ページから作品IDとタイトルと次ページを抽出する', () {
+  test('通常ページから作品IDとタイトルと作者名と次ページを抽出する', () {
     final result = parser.parse(
       fixture('followed_works_page.html'),
       baseUri: baseUri,
     );
 
+    expect(result.isGuestPage, isFalse);
     expect(result.entries, hasLength(2));
     expect(result.entries[0].workId, '1177354054880000001');
     expect(result.entries[0].title, 'テスト作品 1');
+    expect(result.entries[0].writer, 'テスト作者 1');
     expect(result.entries[1].workId, '1177354054880000002');
     expect(result.entries[1].title, 'テスト作品 2');
+    expect(result.entries[1].writer, 'テスト作者 2');
     expect(
       result.nextPageUrl.toString(),
       'https://kakuyomu.jp/my/antenna/works/all?page=2&order=last_read_at',
     );
   });
 
-  test('空ページは0件かつ次ページなし', () {
+  test('空ページは0件かつguestではなく次ページなし', () {
     final result = parser.parse(
       fixture('followed_works_empty.html'),
       baseUri: baseUri,
     );
 
+    expect(result.isGuestPage, isFalse);
+    expect(result.entries, isEmpty);
+    expect(result.nextPageUrl, isNull);
+  });
+
+  test('guestページを空一覧と区別する', () {
+    const html = '''
+      <!doctype html>
+      <html lang="ja">
+        <body id="page-my-antenna-worksGuest">
+          <main>
+            <h3>ユーザー登録して更新情報をチェック</h3>
+          </main>
+        </body>
+      </html>
+    ''';
+
+    final result = parser.parse(html, baseUri: baseUri);
+
+    expect(result.isGuestPage, isTrue);
     expect(result.entries, isEmpty);
     expect(result.nextPageUrl, isNull);
   });
