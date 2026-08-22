@@ -10,6 +10,32 @@ import 'package:novelty/sites/novel_source.dart';
 const _initialFollowedWorksUrl =
     'https://kakuyomu.jp/my/antenna/works/all?order=last_read_at';
 
+/// フォロー一覧1ページのHTTP取得結果。
+class KakuyomuFollowedWorksHttpResponse {
+  /// コンストラクタ。
+  const KakuyomuFollowedWorksHttpResponse({
+    required this.statusCode,
+    required this.realUri,
+    this.body,
+  });
+
+  /// HTTPステータスコード。
+  final int statusCode;
+
+  /// リダイレクト後の最終URL。
+  final Uri realUri;
+
+  /// HTML本文。
+  final String? body;
+}
+
+/// テスト時にHTTP取得を差し替えるためのコールバック。
+typedef KakuyomuFollowedWorksPageFetcher =
+    Future<KakuyomuFollowedWorksHttpResponse> Function(
+      Uri url,
+      String cookieHeader,
+    );
+
 /// Phase 3 のカクヨム読み取り同期に使用する専用Provider。
 ///
 /// リモート書き込みが完成するPhase 4までは共通AccountSyncRegistryへ登録しない。
@@ -31,18 +57,51 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     required AppDatabase db,
     Dio? dio,
     KakuyomuFollowedWorksParser? parser,
+    KakuyomuFollowedWorksPageFetcher? pageFetcher,
   }) : _sessionRepository = sessionRepository,
        _db = db,
        _dio = dio ?? Dio(),
-       _parser = parser ?? KakuyomuFollowedWorksParser();
+       _parser = parser ?? KakuyomuFollowedWorksParser(),
+       _pageFetcher = pageFetcher;
 
   final KakuyomuSessionRepository _sessionRepository;
   final AppDatabase _db;
   final Dio _dio;
   final KakuyomuFollowedWorksParser _parser;
+  final KakuyomuFollowedWorksPageFetcher? _pageFetcher;
 
   @override
   NovelSource get source => NovelSource.kakuyomu;
+
+  Future<KakuyomuFollowedWorksHttpResponse> _fetchPage(
+    Uri url,
+    String cookieHeader,
+  ) async {
+    final override = _pageFetcher;
+    if (override != null) return override(url, cookieHeader);
+
+    final response = await _dio.get<String>(
+      url.toString(),
+      options: Options(
+        headers: <String, Object>{
+          'Cookie': cookieHeader,
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+              'AppleWebKit/537.36 (KHTML, like Gecko) '
+              'Chrome/143.0.0.0 Safari/537.36',
+        },
+        followRedirects: true,
+        validateStatus: (status) => status != null && status < 500,
+        responseType: ResponseType.plain,
+      ),
+    );
+
+    return KakuyomuFollowedWorksHttpResponse(
+      statusCode: response.statusCode ?? 0,
+      realUri: response.realUri,
+      body: response.data,
+    );
+  }
 
   @override
   Future<int> pullLibrary() async {
@@ -59,25 +118,8 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     for (var page = 0; page < 500; page++) {
       if (!seenPageUrls.add(currentUrl)) break;
 
-      final response = await _dio.get<String>(
-        currentUrl.toString(),
-        options: Options(
-          headers: <String, Object>{
-            'Cookie': cookieHeader,
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/143.0.0.0 Safari/537.36',
-          },
-          followRedirects: true,
-          validateStatus: (status) => status != null && status < 500,
-          responseType: ResponseType.plain,
-        ),
-      );
-
-      if (response.statusCode == null || response.statusCode! >= 400) {
-        break;
-      }
+      final response = await _fetchPage(currentUrl, cookieHeader);
+      if (response.statusCode >= 400 || response.statusCode <= 0) break;
 
       final finalUri = response.realUri;
       if (finalUri.path.startsWith('/auth/login') ||
@@ -85,7 +127,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
         break;
       }
 
-      final body = response.data;
+      final body = response.body;
       if (body == null || body.isEmpty) break;
 
       final parsed = _parser.parse(body, baseUri: finalUri);
@@ -95,6 +137,8 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
         final wasInLibrary = await _db.isInLibrary(source, entry.workId);
         final existingNovel = await _db.getNovel(source, entry.workId);
 
+        // 一覧ページ由来の最小メタデータで、既存の詳細メタデータを
+        // null上書きしない。未登録作品だけ最小レコードを作成する。
         if (existingNovel == null) {
           await _db.insertNovel(
             NovelInfo(
