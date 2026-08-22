@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
-import 'package:novelty/services/kakuyomu_web_cookie_service.dart';
 import 'package:riverpod/riverpod.dart';
 
 const _kakuyomuBaseUrl = 'https://kakuyomu.jp';
@@ -28,7 +27,6 @@ bool kakuyomuDashboardIndicatesLoggedIn(String html) {
 final kakuyomuAuthServiceProvider = Provider<KakuyomuAuthService>((ref) {
   return KakuyomuAuthService(
     sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
-    webCookieService: ref.watch(kakuyomuWebCookieServiceProvider),
   );
 });
 
@@ -37,14 +35,11 @@ class KakuyomuAuthService {
   /// コンストラクタ。
   KakuyomuAuthService({
     required KakuyomuSessionRepository sessionRepository,
-    KakuyomuWebCookieService? webCookieService,
     Dio? dio,
   }) : _sessionRepository = sessionRepository,
-       _webCookieService = webCookieService,
        _dio = dio ?? Dio();
 
   final KakuyomuSessionRepository _sessionRepository;
-  final KakuyomuWebCookieService? _webCookieService;
   final Dio _dio;
 
   /// 保存済み Cookie がログイン済みセッションとして有効か確認する。
@@ -90,13 +85,8 @@ class KakuyomuAuthService {
     }
   }
 
-  /// Novelty と WebView に保存されたカクヨム認証情報を破棄する。
-  Future<void> logout() async {
-    if (_webCookieService != null) {
-      await _webCookieService.clearWebViewCookies();
-    }
-    await _sessionRepository.clearAll();
-  }
+  /// Novelty に保存されたカクヨム認証情報を破棄する。
+  Future<void> logout() => _sessionRepository.clearAll();
 }
 
 /// カクヨムの保存済みセッション状態を監視するプロバイダー。
