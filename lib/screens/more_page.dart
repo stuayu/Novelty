@@ -5,6 +5,7 @@ import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/router/router.dart';
 import 'package:novelty/screens/kakuyomu_login_page.dart';
 import 'package:novelty/services/kakuyomu_auth_service.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/utils/settings_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -211,6 +212,28 @@ class _MorePageState extends ConsumerState<MorePage> {
           title: const Text('カクヨム'),
           subtitle: const Text('ログイン済み'),
           children: [
+            ListTile(
+              leading: const Icon(Icons.sync),
+              title: const Text('フォロー作品を同期'),
+              subtitle: const Text('カクヨムでフォロー中の作品をNoveltyへ追加します'),
+              onTap: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                try {
+                  final count = await ref
+                      .read(kakuyomuAccountSyncAdapterProvider)
+                      .pullLibrary();
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('$count 件のフォロー作品を追加しました')),
+                  );
+                } on Exception {
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('フォロー作品の同期に失敗しました')),
+                  );
+                }
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('ログアウト'),
