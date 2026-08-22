@@ -11,7 +11,10 @@ const _workLoadTimeout = Duration(seconds: 20);
 
 /// カクヨム作品のフォロー状態を変更する処理。
 typedef KakuyomuWorkFollowOperator =
-    Future<AccountSyncOutcome> Function(String workId, bool shouldFollow);
+    Future<AccountSyncOutcome> Function(
+      String workId, {
+      required bool shouldFollow,
+    });
 
 /// カクヨム公式作品ページを使ってフォロー・解除を行うサービス。
 ///
