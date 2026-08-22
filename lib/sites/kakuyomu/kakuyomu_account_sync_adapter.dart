@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
@@ -8,6 +9,16 @@ import 'package:novelty/sites/novel_source.dart';
 
 const _initialFollowedWorksUrl =
     'https://kakuyomu.jp/my/antenna/works/all?order=last_read_at';
+
+/// Phase 3 のカクヨム読み取り同期に使用する専用Provider。
+///
+/// リモート書き込みが完成するPhase 4までは共通AccountSyncRegistryへ登録しない。
+final kakuyomuAccountSyncAdapterProvider = Provider<KakuyomuAccountSyncAdapter>(
+  (ref) => KakuyomuAccountSyncAdapter(
+    sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
+    db: ref.watch(appDatabaseProvider),
+  ),
+);
 
 /// カクヨムのアカウント同期アダプター。
 ///
