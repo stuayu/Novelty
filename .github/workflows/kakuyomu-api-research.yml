@@ -26,15 +26,21 @@ jobs:
           echo "Downloaded bytes: $(stat -c %s /tmp/kakuyomu.xapk)"
           sha256sum /tmp/kakuyomu.xapk
 
-      - name: Extract APK payloads
+      - name: Extract all APK payloads
         run: |
           set -euo pipefail
-          mkdir -p /tmp/kakuyomu-xapk /tmp/kakuyomu-apk
+          mkdir -p /tmp/kakuyomu-xapk /tmp/kakuyomu-apks
           unzip -q /tmp/kakuyomu.xapk -d /tmp/kakuyomu-xapk
-          BASE_APK="$(find /tmp/kakuyomu-xapk -maxdepth 2 -type f -name '*.apk' | sort | head -n1)"
-          test -n "$BASE_APK"
-          echo "Using APK: $BASE_APK"
-          unzip -q "$BASE_APK" -d /tmp/kakuyomu-apk
+          find /tmp/kakuyomu-xapk -type f -name '*.apk' -printf '%s %p\n' | sort -nr
+          count=0
+          while IFS= read -r apk; do
+            count=$((count + 1))
+            dest="/tmp/kakuyomu-apks/apk-$count"
+            mkdir -p "$dest"
+            unzip -q "$apk" -d "$dest"
+          done < <(find /tmp/kakuyomu-xapk -type f -name '*.apk' | sort)
+          test "$count" -gt 0
+          echo "Extracted APK count: $count"
 
       - name: Extract sanitized API identifiers
         run: |
@@ -44,11 +50,16 @@ jobs:
           from pathlib import Path
           import re
 
+          root = Path('/tmp/kakuyomu-apks')
           files = []
-          for p in Path('/tmp/kakuyomu-apk').rglob('*'):
+          for p in root.rglob('*'):
               if not p.is_file():
                   continue
-              if p.suffix in {'.bundle', '.js', '.hbc', '.dex', '.json'} or p.name.startswith('classes'):
+              if (
+                  p.suffix in {'.bundle', '.js', '.hbc', '.dex', '.json', '.so'}
+                  or p.name.startswith('classes')
+                  or p.name in {'index.android.bundle', 'main.jsbundle'}
+              ):
                   files.append(p)
 
           urls = set()
@@ -74,7 +85,7 @@ jobs:
               except OSError:
                   continue
               if any(k in data for k in (b'graphql', b'GraphQL', b'follow', b'Follow', b'history', b'History', b'/api/')):
-                  candidate_files.append(str(p.relative_to('/tmp/kakuyomu-apk')))
+                  candidate_files.append(str(p.relative_to(root)))
               for m in url_re.findall(data):
                   s = m.decode('utf-8', 'ignore')
                   if 'kakuyomu' in s.lower() or '/api/' in s.lower() or 'graphql' in s.lower():
@@ -91,19 +102,19 @@ jobs:
               f.write('Temporary static-analysis result from the public official Kakuyomu Viewer APK.\n')
               f.write('Only URLs, API paths, GraphQL operation names, and relevant identifiers are retained.\n\n')
               f.write('=== Candidate files ===\n')
-              for x in sorted(candidate_files)[:200]:
+              for x in sorted(candidate_files)[:400]:
                   f.write(x + '\n')
               f.write('\n=== URLs ===\n')
-              for x in sorted(urls)[:500]:
+              for x in sorted(urls)[:1000]:
                   f.write(x + '\n')
               f.write('\n=== API paths ===\n')
-              for x in sorted(paths)[:1000]:
+              for x in sorted(paths)[:2000]:
                   f.write(x + '\n')
               f.write('\n=== GraphQL operations ===\n')
-              for x in sorted(operations)[:1000]:
+              for x in sorted(operations)[:2000]:
                   f.write(x + '\n')
               f.write('\n=== Follow / reading identifiers ===\n')
-              for x in sorted(identifiers)[:2000]:
+              for x in sorted(identifiers)[:4000]:
                   f.write(x + '\n')
           PY
           cat docs/novelty/kakuyomu_api_static_research.txt
@@ -118,5 +129,5 @@ jobs:
             echo 'No research result changes.'
             exit 0
           fi
-          git commit -m 'chore: カクヨムAPI静的解析結果を一時保存'
+          git commit -m 'chore: カクヨムAPI静的解析結果を更新'
           git push origin HEAD:develop
