@@ -32,7 +32,7 @@ void main() {
       await db.close();
     });
 
-    test('Cookieが無い場合はHTTP取得せず0件', () async {
+    test('Cookieが無い場合はHTTP取得せずセッション切れを返す', () async {
       var fetched = false;
       final adapter = KakuyomuAccountSyncAdapter(
         sessionRepository: _FakeSessionRepository(null),
@@ -43,11 +43,14 @@ void main() {
         },
       );
 
-      expect(await adapter.pullLibrary(), 0);
+      await expectLater(
+        adapter.pullLibrary(),
+        throwsA(isA<KakuyomuSessionExpiredException>()),
+      );
       expect(fetched, isFalse);
     });
 
-    test('ログイン画面へ戻された場合は0件', () async {
+    test('ログイン画面へ戻された場合はセッション切れを返す', () async {
       final adapter = KakuyomuAccountSyncAdapter(
         sessionRepository: _FakeSessionRepository('session=test'),
         db: db,
@@ -60,11 +63,40 @@ void main() {
         },
       );
 
-      expect(await adapter.pullLibrary(), 0);
+      await expectLater(
+        adapter.pullLibrary(),
+        throwsA(isA<KakuyomuSessionExpiredException>()),
+      );
       expect(await db.getLibraryNovels(), isEmpty);
     });
 
-    test('複数作品をライブラリへ追加し重複同期では0件', () async {
+    test('guestページを返された場合は空一覧ではなくセッション切れを返す', () async {
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        db: db,
+        pageFetcher: (url, cookie) async {
+          return KakuyomuFollowedWorksHttpResponse(
+            statusCode: 200,
+            realUri: url,
+            body: '''
+              <html>
+                <body id="page-my-antenna-worksGuest">
+                  <h3>ユーザー登録して更新情報をチェック</h3>
+                </body>
+              </html>
+            ''',
+          );
+        },
+      );
+
+      await expectLater(
+        adapter.pullLibrary(),
+        throwsA(isA<KakuyomuSessionExpiredException>()),
+      );
+      expect(await db.getLibraryNovels(), isEmpty);
+    });
+
+    test('複数作品をライブラリへ追加し作者名を保存して重複同期では0件', () async {
       final html = fixture('followed_works_page.html').replaceFirst(
         '<a href="/my/antenna/works/all?page=2&amp;order=last_read_at">\n      <i class="icon-next-large"></i>\n    </a>',
         '',
@@ -84,6 +116,11 @@ void main() {
       expect(await adapter.pullLibrary(), 2);
       expect(await adapter.pullLibrary(), 0);
       expect(await db.getLibraryNovels(), hasLength(2));
+      final first = await db.getNovel(
+        NovelSource.kakuyomu,
+        '1177354054880000001',
+      );
+      expect(first?.writer, 'テスト作者 1');
     });
 
     test('既存の詳細メタデータを一覧由来の値で上書きしない', () async {
