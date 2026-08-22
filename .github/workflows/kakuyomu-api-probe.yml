@@ -7,14 +7,16 @@ on:
       - docs/novelty/kakuyomu_api_probe_trigger.txt
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout research branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.head_ref }}
 
       - name: Probe Kakuyomu GraphQL and current work bundle
         shell: bash
@@ -26,6 +28,7 @@ jobs:
           import urllib.parse
           import urllib.request
           from datetime import datetime, timezone
+          from pathlib import Path
 
           endpoint = 'https://kakuyomu.jp/graphql?opname=NoveltyIntrospection'
           work_url = 'https://kakuyomu.jp/works/2912051601045930861'
@@ -35,6 +38,17 @@ jobs:
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
               'X-Requested-With': 'XMLHttpRequest',
           }
+
+          def type_name(node):
+              if not isinstance(node, dict):
+                  return None
+              kind = node.get('kind')
+              name = node.get('name')
+              if kind == 'NON_NULL':
+                  return f'{type_name(node.get("ofType"))}!'
+              if kind == 'LIST':
+                  return f'[{type_name(node.get("ofType"))}]'
+              return name or kind
 
           result = {
               'capturedAt': datetime.now(timezone.utc).isoformat(),
@@ -93,9 +107,15 @@ jobs:
                           name = str(field.get('name') or '')
                           lowered = name.lower()
                           if any(token in lowered for token in ('follow', 'work', 'reading', 'history', 'label')):
-                              interesting.append(field)
+                              interesting.append({
+                                  'name': name,
+                                  'args': [
+                                      {'name': arg.get('name'), 'type': type_name(arg.get('type'))}
+                                      for arg in field.get('args') or []
+                                  ],
+                                  'returnType': type_name(field.get('type')),
+                              })
                       result['introspection']['interestingMutationFields'] = interesting
-                      result['introspection']['allMutationFieldNames'] = [field.get('name') for field in mutation_fields]
                   else:
                       result['introspection']['body'] = parsed
           except Exception as exc:
@@ -107,15 +127,10 @@ jobs:
                   page = response.read().decode('utf-8', errors='replace')
               script_srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page)
               keywords = [
-                  'WorkFollowing',
-                  'visitorWorkFollowing',
-                  'FollowWork',
-                  'UnfollowWork',
-                  'followWork',
-                  'unfollowWork',
-                  'workFollowing',
-                  'followingWork',
-                  'Antenna',
+                  'WorkFollowing', 'visitorWorkFollowing',
+                  'FollowWork', 'UnfollowWork', 'followWork', 'unfollowWork',
+                  'workFollowing', 'followingWork', 'Antenna',
+                  'ReadingHistory', 'readingHistory',
               ]
               for src in script_srcs:
                   absolute = urllib.parse.urljoin(work_url, html.unescape(src))
@@ -127,37 +142,45 @@ jobs:
                       req = urllib.request.Request(absolute, headers={'User-Agent': headers['User-Agent']})
                       with urllib.request.urlopen(req, timeout=30) as response:
                           text = response.read().decode('utf-8', errors='replace')
-                  except Exception as exc:
-                      result['bundleEvidence'].append({'url': absolute, 'error': repr(exc)})
+                  except Exception:
                       continue
 
                   matches = []
                   for keyword in keywords:
-                      start = 0
-                      while True:
-                          index = text.find(keyword, start)
-                          if index < 0:
-                              break
-                          left = max(0, index - 1200)
-                          right = min(len(text), index + len(keyword) + 2600)
-                          matches.append({
-                              'keyword': keyword,
-                              'snippet': text[left:right],
-                          })
-                          start = index + len(keyword)
-                          if len(matches) >= 40:
-                              break
-                      if len(matches) >= 40:
+                      index = text.find(keyword)
+                      if index < 0:
+                          continue
+                      left = max(0, index - 550)
+                      right = min(len(text), index + len(keyword) + 900)
+                      matches.append({
+                          'keyword': keyword,
+                          'snippet': text[left:right],
+                      })
+                      if len(matches) >= 12:
                           break
                   if matches:
                       result['bundleEvidence'].append({
                           'url': absolute,
                           'matches': matches,
                       })
+                  if len(result['bundleEvidence']) >= 8:
+                      break
           except Exception as exc:
               result['bundlePageError'] = repr(exc)
 
-          print('NOVELTY_KAKUYOMU_PROBE_BEGIN')
-          print(json.dumps(result, ensure_ascii=False, indent=2))
-          print('NOVELTY_KAKUYOMU_PROBE_END')
+          output = Path('docs/novelty/kakuyomu_api_probe_result.json')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
           PY
+
+      - name: Commit probe result to research branch
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add docs/novelty/kakuyomu_api_probe_result.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "調査: カクヨムAPIプローブ結果を保存"
+          git push origin HEAD:${{ github.head_ref }}
