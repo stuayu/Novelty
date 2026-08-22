@@ -3,6 +3,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/services/kakuyomu_auth_service.dart';
 import 'package:novelty/services/kakuyomu_web_cookie_service.dart';
+import 'package:novelty/utils/kakuyomu_uri.dart';
 import 'package:novelty/utils/kakuyomu_webview_support.dart';
 
 const _kakuyomuLoginUrl = 'https://kakuyomu.jp/auth/login';
@@ -47,7 +48,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
     if (_isCheckingLogin || _isCompleted || currentUrl == null) return;
 
     final uri = Uri.tryParse(currentUrl.toString());
-    if (uri == null || !uri.host.endsWith('kakuyomu.jp')) return;
+    if (uri == null || !isTrustedKakuyomuUri(uri)) return;
 
     // 認証画面の途中ではセッション検証を行わない。
     if (uri.path.startsWith('/auth/login') || uri.path == '/login') return;
