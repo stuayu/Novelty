@@ -18,12 +18,14 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Probe Kakuyomu reading call sites
+      - name: Probe Kakuyomu reading API
         shell: bash
         run: |
           python3 - <<'PY'
           import html
+          import json
           import re
+          import urllib.error
           import urllib.parse
           import urllib.request
           from datetime import datetime, timezone
@@ -80,14 +82,48 @@ jobs:
                       occurrence += 1
                       left = max(0, index - 2500)
                       right = min(len(source), index + len(token) + 4500)
-                      snippet = source[left:right]
                       lines.extend([
                           f'=== {token} #{occurrence} ===',
                           f'bundle={url}',
-                          snippet,
+                          source[left:right],
                           '',
                       ])
                       start = index + len(token)
+
+          mutation = '''mutation RecordReadingHistory($input: RecordReadingHistoryInput!) {
+            recordReadingHistory(input: $input) {
+              clientMutationId
+              __typename
+            }
+          }'''
+          payload = json.dumps({
+              'operationName': 'RecordReadingHistory',
+              'variables': {'input': {}},
+              'query': mutation,
+          }).encode('utf-8')
+          request = urllib.request.Request(
+              'https://kakuyomu.jp/graphql?opname=RecordReadingHistory',
+              data=payload,
+              headers={
+                  'Accept': 'application/json',
+                  'Content-Type': 'application/json',
+                  'Origin': 'https://kakuyomu.jp',
+                  'Referer': pages[1],
+                  'User-Agent': ua,
+                  'X-Requested-With': 'XMLHttpRequest',
+              },
+              method='POST',
+          )
+          lines.append('=== server validation with empty input ===')
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  lines.append(f'status={response.status}')
+                  lines.append(response.read().decode('utf-8', errors='replace'))
+          except urllib.error.HTTPError as exc:
+              lines.append(f'status={exc.code}')
+              lines.append(exc.read().decode('utf-8', errors='replace'))
+          except Exception as exc:
+              lines.append(f'error={exc!r}')
 
           output = Path('docs/novelty/kakuyomu_reading_callsite_summary.txt')
           output.parent.mkdir(parents=True, exist_ok=True)
@@ -103,5 +139,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨム読書履歴API呼び出し箇所を保存"
+          git commit -m "調査: カクヨム読書履歴API入力根拠を保存"
           git push origin HEAD:${{ github.head_ref }}
