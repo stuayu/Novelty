@@ -58,6 +58,7 @@ jobs:
               'bundles': [],
               'operations': [],
           }
+          all_operations = []
           seen_bundles = set()
           seen_operations = set()
 
@@ -128,8 +129,6 @@ jobs:
                           'contexts': contexts,
                       })
 
-                  # Textual GraphQL documents are embedded in the current Next.js
-                  # bundles. Capture operation blocks that mention account sync data.
                   for match in re.finditer(
                       r'(?P<kind>mutation|query)\s+'
                       r'(?P<name>[A-Za-z_][A-Za-z0-9_]*)',
@@ -139,18 +138,22 @@ jobs:
                       key = (match.group('kind'), name)
                       if key in seen_operations:
                           continue
-                      left = max(0, match.start() - 200)
-                      right = min(len(decoded), match.start() + 5000)
-                      snippet = decoded[left:right]
-                      if not any(token.lower() in snippet.lower() for token in target_tokens):
-                          continue
                       seen_operations.add(key)
-                      result['operations'].append({
+                      left = max(0, match.start() - 200)
+                      right = min(len(decoded), match.start() + 4500)
+                      snippet = decoded[left:right]
+                      operation = {
                           'kind': match.group('kind'),
                           'name': name,
                           'bundle': absolute,
                           'snippet': snippet,
-                      })
+                      }
+                      all_operations.append(operation)
+                      if any(
+                          token.lower() in snippet.lower()
+                          for token in target_tokens
+                      ):
+                          result['operations'].append(operation)
 
           output = Path('docs/novelty/kakuyomu_api_probe_result.json')
           output.parent.mkdir(parents=True, exist_ok=True)
@@ -158,6 +161,32 @@ jobs:
               json.dumps(result, ensure_ascii=False, indent=2) + '\n',
               encoding='utf-8',
           )
+
+          summary_lines = [
+              f'capturedAt={result["capturedAt"]}',
+              f'bundleCount={len(seen_bundles)}',
+              '',
+              '=== operation names containing read/history/episode/follow/label ===',
+          ]
+          for operation in sorted(
+              all_operations,
+              key=lambda item: (item['kind'], item['name']),
+          ):
+              haystack = operation['name'].lower()
+              if not any(
+                  token in haystack
+                  for token in ('read', 'history', 'episode', 'follow', 'label')
+              ):
+                  continue
+              summary_lines.append(
+                  f"{operation['kind']} {operation['name']} :: {operation['bundle']}"
+              )
+              compact = re.sub(r'\s+', ' ', operation['snippet']).strip()
+              summary_lines.append(compact[:1800])
+              summary_lines.append('')
+
+          summary = Path('docs/novelty/kakuyomu_reading_probe_summary.txt')
+          summary.write_text('\n'.join(summary_lines) + '\n', encoding='utf-8')
           PY
 
       - name: Commit probe result to research branch
@@ -165,9 +194,11 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add docs/novelty/kakuyomu_api_probe_result.json
+          git add \
+            docs/novelty/kakuyomu_api_probe_result.json \
+            docs/novelty/kakuyomu_reading_probe_summary.txt
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨム読書履歴APIプローブ結果を保存"
+          git commit -m "調査: カクヨム読書履歴operation要約を保存"
           git push origin HEAD:${{ github.head_ref }}
