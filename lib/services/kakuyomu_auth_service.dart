@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/kakuyomu_web_cookie_service.dart';
+import 'package:novelty/utils/kakuyomu_webview_support.dart';
 import 'package:riverpod/riverpod.dart';
 
 const _kakuyomuBaseUrl = 'https://kakuyomu.jp';
@@ -85,8 +87,16 @@ class KakuyomuAuthService {
     }
   }
 
-  /// Novelty に保存されたカクヨム認証情報を破棄する。
-  Future<void> logout() => _sessionRepository.clearAll();
+  /// Novelty と WebView に保存されたカクヨム認証情報を破棄する。
+  Future<void> logout() async {
+    if (isKakuyomuWebViewSupported) {
+      final webCookieService = KakuyomuWebCookieService(
+        sessionRepository: _sessionRepository,
+      );
+      await webCookieService.clearWebViewCookies();
+    }
+    await _sessionRepository.clearAll();
+  }
 }
 
 /// カクヨムの保存済みセッション状態を監視するプロバイダー。
