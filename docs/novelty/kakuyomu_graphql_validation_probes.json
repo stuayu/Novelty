@@ -1,67 +1,24 @@
 {
   "FollowWork": {
+    "dataKeys": [],
     "errors": [
       {
-        "code": "BAD_USER_INPUT",
-        "message": "Variable \"$input\" got invalid value {}; Field \"workId\" of required type \"ID!\" was not provided.",
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required",
         "validationErrorCode": null
       }
     ],
-    "hasData": false,
-    "httpStatus": 200
-  },
-  "FollowWorks": {
-    "errors": [
-      {
-        "code": "BAD_USER_INPUT",
-        "message": "Variable \"$input\" got invalid value {}; Field \"workIds\" of required type \"[ID!]!\" was not provided.",
-        "validationErrorCode": null
-      }
-    ],
-    "hasData": false,
-    "httpStatus": 200
-  },
-  "IncrementReadCount": {
-    "errors": [
-      {
-        "code": "BAD_USER_INPUT",
-        "message": "Variable \"$input\" got invalid value {}; Field \"workId\" of required type \"ID!\" was not provided.",
-        "validationErrorCode": null
-      },
-      {
-        "code": "BAD_USER_INPUT",
-        "message": "Variable \"$input\" got invalid value {}; Field \"episodeId\" of required type \"ID!\" was not provided.",
-        "validationErrorCode": null
-      }
-    ],
-    "hasData": false,
-    "httpStatus": 200
-  },
-  "RecordReadingHistory": {
-    "errors": [
-      {
-        "code": "BAD_USER_INPUT",
-        "message": "Variable \"$input\" got invalid value {}; Field \"episodeId\" of required type \"ID!\" was not provided.",
-        "validationErrorCode": null
-      },
-      {
-        "code": "BAD_USER_INPUT",
-        "message": "Variable \"$input\" got invalid value {}; Field \"position\" of required type \"String!\" was not provided.",
-        "validationErrorCode": null
-      }
-    ],
-    "hasData": false,
     "httpStatus": 200
   },
   "UnfollowWorks": {
+    "dataKeys": [],
     "errors": [
       {
-        "code": "BAD_USER_INPUT",
-        "message": "Variable \"$input\" got invalid value {}; Field \"workIds\" of required type \"[ID!]!\" was not provided.",
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required",
         "validationErrorCode": null
       }
     ],
-    "hasData": false,
     "httpStatus": 200
   }
 }
