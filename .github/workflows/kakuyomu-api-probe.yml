@@ -5,6 +5,7 @@ on:
     branches: [develop]
     paths:
       - docs/novelty/kakuyomu_api_probe_trigger.txt
+      - .github/workflows/kakuyomu-api-probe.yml
 
 permissions:
   contents: write
@@ -31,10 +32,12 @@ jobs:
           from datetime import datetime, timezone
           from pathlib import Path
 
-          pages = [
-              'https://kakuyomu.jp/works/2912051601045930861',
-              'https://kakuyomu.jp/works/2912051601045930861/episodes/2912051601046590969',
-          ]
+          work_url = 'https://kakuyomu.jp/works/2912051601045930861'
+          episode_url = (
+              'https://kakuyomu.jp/works/2912051601045930861/'
+              'episodes/2912051601046590969'
+          )
+          pages = [work_url, episode_url]
           ua = (
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
               'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -46,74 +49,95 @@ jobs:
               with urllib.request.urlopen(request, timeout=30) as response:
                   return response.read().decode('utf-8', errors='replace')
 
-          bundle_sources = {}
+          sources = {}
+          inline_sources = {}
+          page_html = {}
+          allowed_hosts = {'kakuyomu.jp', 'cdn-static.kakuyomu.jp'}
           for page_url in pages:
               page = fetch(page_url)
-              for src in re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page):
+              page_html[page_url] = page
+              inline_sources[page_url] = '\n'.join(
+                  re.findall(
+                      r'<script(?![^>]+src=)[^>]*>(.*?)</script>',
+                      page,
+                      flags=re.IGNORECASE | re.DOTALL,
+                  )
+              )
+              for src in re.findall(
+                  r'<script[^>]+src=["\']([^"\']+)["\']',
+                  page,
+                  flags=re.IGNORECASE,
+              ):
                   absolute = urllib.parse.urljoin(page_url, html.unescape(src))
                   parsed = urllib.parse.urlparse(absolute)
-                  if parsed.netloc != 'kakuyomu.jp' or '/_next/static/' not in absolute:
+                  if parsed.netloc not in allowed_hosts:
                       continue
-                  if absolute not in bundle_sources:
+                  if absolute not in sources:
                       try:
-                          bundle_sources[absolute] = fetch(absolute)
-                      except Exception:
-                          pass
+                          sources[absolute] = fetch(absolute)
+                      except Exception as exc:
+                          sources[absolute] = f'FETCH_ERROR: {exc!r}'
+
+          all_sources = dict(sources)
+          for page_url, source in inline_sources.items():
+              all_sources[f'inline:{page_url}'] = source
 
           lines = [
               f'capturedAt={datetime.now(timezone.utc).isoformat()}',
-              f'bundleCount={len(bundle_sources)}',
+              f'scriptCount={len(sources)}',
+              f'inlineSourceCount={len(inline_sources)}',
               '',
-              '=== episodeId / position near-pairs ===',
+              '=== script URLs ===',
+              *sorted(sources.keys()),
+              '',
+              '=== RecordReadingHistory / position evidence ===',
           ]
 
-          seen = set()
-          for url, source in bundle_sources.items():
-              # 実callsiteを狙い、episodeId と position が近接する箇所だけを抽出する。
-              for match in re.finditer(r'episodeId', source):
-                  left = max(0, match.start() - 2500)
-                  right = min(len(source), match.end() + 4000)
-                  snippet = source[left:right]
-                  if 'position' not in snippet:
-                      continue
-                  compact_key = snippet[:300]
-                  if compact_key in seen:
-                      continue
-                  seen.add(compact_key)
-                  lines.extend([
-                      f'bundle={url}',
-                      snippet,
-                      '',
-                  ])
-                  if len(seen) >= 40:
-                      break
-
-          lines.append('=== position literals / builders ===')
-          position_patterns = (
-              r'position\s*:',
-              r'["\']position["\']\s*:',
-              r'position\s*=',
+          evidence_count = 0
+          tokens = (
+              'RecordReadingHistory',
+              'recordReadingHistory',
+              'RecordReadingHistoryInput',
+              'readingHistory',
+              'episodeId',
+              'position',
           )
-          emitted = 0
-          for url, source in bundle_sources.items():
-              for pattern in position_patterns:
-                  for match in re.finditer(pattern, source):
-                      left = max(0, match.start() - 1800)
-                      right = min(len(source), match.end() + 2800)
+          for url, source in all_sources.items():
+              if source.startswith('FETCH_ERROR:'):
+                  continue
+              lowered = source.lower()
+              if not any(token.lower() in lowered for token in tokens):
+                  continue
+              for token in tokens:
+                  start = 0
+                  occurrences = 0
+                  while occurrences < 12:
+                      index = lowered.find(token.lower(), start)
+                      if index < 0:
+                          break
+                      occurrences += 1
+                      left = max(0, index - 4500)
+                      right = min(len(source), index + len(token) + 7500)
                       snippet = source[left:right]
-                      if 'episode' not in snippet.lower() and 'reading' not in snippet.lower():
-                          continue
+                      # operation registryだけでなく、position/episodeの実処理を優先。
+                      if token.lower() in {'episodeid', 'position'}:
+                          nearby = snippet.lower()
+                          if 'reading' not in nearby and 'record' not in nearby:
+                              start = index + len(token)
+                              continue
                       lines.extend([
-                          f'bundle={url}',
+                          f'--- token={token} ---',
+                          f'source={url}',
                           snippet,
                           '',
                       ])
-                      emitted += 1
-                      if emitted >= 40:
+                      evidence_count += 1
+                      start = index + len(token)
+                      if evidence_count >= 100:
                           break
-                  if emitted >= 40:
+                  if evidence_count >= 100:
                       break
-              if emitted >= 40:
+              if evidence_count >= 100:
                   break
 
           mutation = '''mutation RecordReadingHistory($input: RecordReadingHistoryInput!) {
@@ -122,34 +146,45 @@ jobs:
               __typename
             }
           }'''
-          payload = json.dumps({
-              'operationName': 'RecordReadingHistory',
-              'variables': {'input': {}},
-              'query': mutation,
-          }).encode('utf-8')
-          request = urllib.request.Request(
-              'https://kakuyomu.jp/graphql?opname=RecordReadingHistory',
-              data=payload,
-              headers={
-                  'Accept': 'application/json',
-                  'Content-Type': 'application/json',
-                  'Origin': 'https://kakuyomu.jp',
-                  'Referer': pages[1],
-                  'User-Agent': ua,
-                  'X-Requested-With': 'XMLHttpRequest',
-              },
-              method='POST',
-          )
-          lines.append('=== server validation with empty input ===')
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  lines.append(f'status={response.status}')
-                  lines.append(response.read().decode('utf-8', errors='replace'))
-          except urllib.error.HTTPError as exc:
-              lines.append(f'status={exc.code}')
-              lines.append(exc.read().decode('utf-8', errors='replace'))
-          except Exception as exc:
-              lines.append(f'error={exc!r}')
+
+          def validate_input(input_value, label):
+              payload = json.dumps({
+                  'operationName': 'RecordReadingHistory',
+                  'variables': {'input': input_value},
+                  'query': mutation,
+              }).encode('utf-8')
+              request = urllib.request.Request(
+                  'https://kakuyomu.jp/graphql?opname=RecordReadingHistory',
+                  data=payload,
+                  headers={
+                      'Accept': 'application/json',
+                      'Content-Type': 'application/json',
+                      'Origin': 'https://kakuyomu.jp',
+                      'Referer': episode_url,
+                      'User-Agent': ua,
+                      'X-Requested-With': 'XMLHttpRequest',
+                  },
+                  method='POST',
+              )
+              lines.append(f'=== server validation: {label} ===')
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      lines.append(f'status={response.status}')
+                      lines.append(response.read().decode('utf-8', errors='replace'))
+              except urllib.error.HTTPError as exc:
+                  lines.append(f'status={exc.code}')
+                  lines.append(exc.read().decode('utf-8', errors='replace'))
+              except Exception as exc:
+                  lines.append(f'error={exc!r}')
+
+          validate_input({}, 'empty input')
+          # 既知の実episodeIdを使い、position文字列のサーバー側検証順だけ確認する。
+          # 未認証なので状態変更は起きない。
+          for value in ('', '0', 'p1', '#p1', 'top'):
+              validate_input(
+                  {'episodeId': '2912051601046590969', 'position': value},
+                  f'position={value!r}',
+              )
 
           output = Path('docs/novelty/kakuyomu_reading_callsite_summary.txt')
           output.parent.mkdir(parents=True, exist_ok=True)
