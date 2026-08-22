@@ -1,0 +1,124 @@
+name: Kakuyomu API Research
+
+on:
+  push:
+    paths:
+      - .github/workflows/kakuyomu-api-research.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-official-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download official Kakuyomu Viewer XAPK
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/139 Safari/537.36' \
+            'https://d.apkpure.net/b/XAPK/jp.kadokawa.el.kakuyomu?version=latest' \
+            -o /tmp/kakuyomu.xapk
+          echo "Downloaded bytes: $(stat -c %s /tmp/kakuyomu.xapk)"
+          sha256sum /tmp/kakuyomu.xapk
+
+      - name: Extract APK payloads
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/kakuyomu-xapk /tmp/kakuyomu-apk
+          unzip -q /tmp/kakuyomu.xapk -d /tmp/kakuyomu-xapk
+          find /tmp/kakuyomu-xapk -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
+          BASE_APK="$(find /tmp/kakuyomu-xapk -maxdepth 2 -type f -name '*.apk' | sort | head -n1)"
+          test -n "$BASE_APK"
+          echo "Using APK: $BASE_APK"
+          unzip -q "$BASE_APK" -d /tmp/kakuyomu-apk
+
+      - name: Locate React Native and bytecode assets
+        run: |
+          set -euo pipefail
+          echo '=== Candidate app assets ==='
+          find /tmp/kakuyomu-apk -type f \( \
+            -name '*.bundle' -o -name '*.js' -o -name '*.hbc' -o \
+            -name 'classes*.dex' -o -name '*.json' \
+          \) -printf '%p %s bytes\n' | sort | head -n 200
+
+      - name: Extract API and GraphQL identifiers
+        run: |
+          set -euo pipefail
+          CANDIDATES=/tmp/candidates.txt
+          find /tmp/kakuyomu-apk -type f \( \
+            -name '*.bundle' -o -name '*.js' -o -name '*.hbc' -o \
+            -name 'classes*.dex' -o -name '*.json' \
+          \) -print > "$CANDIDATES"
+
+          echo '=== URLs / API paths containing kakuyomu, graphql, api ==='
+          while IFS= read -r f; do
+            strings -a -n 5 "$f" 2>/dev/null || true
+          done < "$CANDIDATES" \
+            | grep -Eio 'https?://[^"[:space:]<>]+' \
+            | grep -Ei 'kakuyomu|graphql|/api/' \
+            | sort -u \
+            | head -n 300 || true
+
+          echo '=== Exact-looking API path literals ==='
+          while IFS= read -r f; do
+            strings -a -n 5 "$f" 2>/dev/null || true
+          done < "$CANDIDATES" \
+            | grep -Eio '/(api|graphql)[A-Za-z0-9_./?=&:-]{1,180}' \
+            | sort -u \
+            | head -n 500 || true
+
+          echo '=== Follow / library / reading GraphQL-ish identifiers ==='
+          while IFS= read -r f; do
+            strings -a -n 5 "$f" 2>/dev/null || true
+          done < "$CANDIDATES" \
+            | grep -Ei 'follow|unfollow|following|antenna|reading.?history|read.?history|last.?read|episode.?history|viewer.?history|graphql|mutation|operationName' \
+            | sed -E 's/[[:cntrl:]]+/ /g' \
+            | cut -c1-600 \
+            | sort -u \
+            | head -n 1000 || true
+
+      - name: Search binary context around mutation and follow strings
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          roots = []
+          for p in Path('/tmp/kakuyomu-apk').rglob('*'):
+              if p.is_file() and (p.suffix in {'.bundle','.js','.hbc','.dex','.json'} or p.name.startswith('classes')):
+                  roots.append(p)
+
+          needles = [
+              b'graphql', b'GraphQL', b'mutation', b'operationName',
+              b'follow', b'Follow', b'unfollow', b'Unfollow',
+              b'following', b'Following', b'antenna',
+              b'readingHistory', b'ReadingHistory', b'lastRead', b'LastRead',
+          ]
+          seen = set()
+          emitted = 0
+          for p in roots:
+              try:
+                  data = p.read_bytes()
+              except OSError:
+                  continue
+              for needle in needles:
+                  pos = 0
+                  while emitted < 500:
+                      idx = data.find(needle, pos)
+                      if idx < 0:
+                          break
+                      start = max(0, idx - 220)
+                      end = min(len(data), idx + len(needle) + 380)
+                      raw = data[start:end]
+                      text = ''.join(chr(b) if 32 <= b < 127 else ' ' for b in raw)
+                      text = re.sub(r'\s+', ' ', text).strip()
+                      key = text
+                      if key and key not in seen:
+                          seen.add(key)
+                          print(f'{p}: {text[:700]}')
+                          emitted += 1
+                      pos = idx + len(needle)
+          PY
