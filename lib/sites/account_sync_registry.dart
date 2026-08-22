@@ -10,12 +10,13 @@ import 'package:novelty/sites/novel_source.dart';
 ///
 /// 対応していないサイトは Map に登録しない。呼び出し側は `registry[source]`
 /// が null の場合、同期機能なしとしてローカル処理だけを継続する。
-final accountSyncRegistryProvider = Provider<Map<NovelSource, AccountSyncAdapter>>(
-  (ref) => <NovelSource, AccountSyncAdapter>{
-    NovelSource.narou: NarouAccountSyncAdapter(
-      syncService: ref.watch(narouSyncServiceProvider),
-      db: ref.watch(appDatabaseProvider),
-    ),
-    NovelSource.kakuyomu: ref.watch(kakuyomuAccountSyncAdapterProvider),
-  },
-);
+final accountSyncRegistryProvider =
+    Provider<Map<NovelSource, AccountSyncAdapter>>(
+      (ref) => <NovelSource, AccountSyncAdapter>{
+        NovelSource.narou: NarouAccountSyncAdapter(
+          syncService: ref.watch(narouSyncServiceProvider),
+          db: ref.watch(appDatabaseProvider),
+        ),
+        NovelSource.kakuyomu: ref.watch(kakuyomuAccountSyncAdapterProvider),
+      },
+    );
