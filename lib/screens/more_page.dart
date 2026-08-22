@@ -226,6 +226,19 @@ class _MorePageState extends ConsumerState<MorePage> {
                   messenger.showSnackBar(
                     SnackBar(content: Text('$count 件のフォロー作品を追加しました')),
                   );
+                } on KakuyomuSessionExpiredException {
+                  try {
+                    await ref.read(kakuyomuAuthServiceProvider).logout();
+                  } on Exception {
+                    // Secure Storage / WebView Cookie削除に失敗してもUI状態は更新する。
+                  }
+                  ref.invalidate(kakuyomuSessionValidProvider);
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    const SnackBar(
+                      content: Text('カクヨムのログイン期限が切れました。再ログインしてください'),
+                    ),
+                  );
                 } on Exception {
                   if (!mounted) return;
                   messenger.showSnackBar(
