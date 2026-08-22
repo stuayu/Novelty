@@ -18,93 +18,116 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Extract Kakuyomu GraphQL operation registry
+      - name: Probe reading history operation and call site
         shell: bash
         run: |
           python3 - <<'PY'
           import html
           import json
           import re
+          import urllib.error
           import urllib.parse
           import urllib.request
           from datetime import datetime, timezone
           from pathlib import Path
 
-          work_url = 'https://kakuyomu.jp/works/2912051601045930861'
-          user_agent = (
+          pages = [
+              'https://kakuyomu.jp/works/2912051601045930861',
+              'https://kakuyomu.jp/works/2912051601045930861/episodes/2912051601046590969',
+          ]
+          ua = (
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
               'AppleWebKit/537.36 (KHTML, like Gecko) '
               'Chrome/143.0.0.0 Safari/537.36'
           )
-          headers = {'User-Agent': user_agent}
-          result = {
-              'capturedAt': datetime.now(timezone.utc).isoformat(),
-              'workUrl': work_url,
-              'operations': [],
-              'bundleUrls': [],
-          }
-
-          request = urllib.request.Request(work_url, headers=headers)
-          with urllib.request.urlopen(request, timeout=30) as response:
-              page = response.read().decode('utf-8', errors='replace')
-
-          script_srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page)
-          wanted_tokens = ('follow', 'reading', 'history', 'label')
-          seen = set()
-
-          for src in script_srcs:
-              absolute = urllib.parse.urljoin(work_url, html.unescape(src))
-              parsed_url = urllib.parse.urlparse(absolute)
-              if parsed_url.netloc != 'kakuyomu.jp' or '/_next/static/' not in absolute:
-                  continue
-
-              try:
-                  req = urllib.request.Request(absolute, headers=headers)
-                  with urllib.request.urlopen(req, timeout=30) as response:
-                      text = response.read().decode('utf-8', errors='replace')
-              except Exception:
-                  continue
-
-              result['bundleUrls'].append(absolute)
-
-              # operation registry はJS文字列内のJSONとして埋め込まれている。
-              # エスケープされた引用符だけ1段戻し、各entryを抽出する。
-              normalized = text.replace('\\"', '"')
-              entry_pattern = re.compile(
-                  r'"id":"(?P<id>[0-9a-f]+)",'
-                  r'"name":"(?P<name>[^"]+)",'
-                  r'"type":"(?P<type>query|mutation)",'
-                  r'"body":"(?P<body>(?:\\.|[^"\\])*)"'
-              )
-              for match in entry_pattern.finditer(normalized):
-                  name = match.group('name')
-                  body_raw = match.group('body')
-                  try:
-                      body = json.loads('"' + body_raw + '"')
-                  except json.JSONDecodeError:
-                      body = body_raw.replace('\\n', '\n')
-                  haystack = (name + '\n' + body).lower()
-                  if not any(token in haystack for token in wanted_tokens):
-                      continue
-                  key = (name, match.group('type'))
-                  if key in seen:
-                      continue
-                  seen.add(key)
-                  result['operations'].append({
-                      'id': match.group('id'),
-                      'name': name,
-                      'type': match.group('type'),
-                      'body': body,
-                      'bundleUrl': absolute,
-                  })
-
-          result['operations'].sort(key=lambda item: (item['type'], item['name']))
-          output = Path('docs/novelty/kakuyomu_api_probe_result.json')
-          output.parent.mkdir(parents=True, exist_ok=True)
-          output.write_text(
-              json.dumps(result, ensure_ascii=False, indent=2) + '\n',
-              encoding='utf-8',
+          tokens = (
+              'RecordReadingHistory',
+              'recordReadingHistory',
+              'IncrementReadCount',
+              'incrementReadCount',
           )
+
+          def fetch(url):
+              request = urllib.request.Request(url, headers={'User-Agent': ua})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return response.read().decode('utf-8', errors='replace')
+
+          bundle_sources = {}
+          for page_url in pages:
+              page = fetch(page_url)
+              for src in re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page):
+                  absolute = urllib.parse.urljoin(page_url, html.unescape(src))
+                  parsed = urllib.parse.urlparse(absolute)
+                  if parsed.netloc != 'kakuyomu.jp' or '/_next/static/' not in absolute:
+                      continue
+                  if absolute not in bundle_sources:
+                      try:
+                          bundle_sources[absolute] = fetch(absolute)
+                      except Exception:
+                          pass
+
+          lines = [
+              f'capturedAt={datetime.now(timezone.utc).isoformat()}',
+              f'bundleCount={len(bundle_sources)}',
+              '',
+          ]
+          for url, source in bundle_sources.items():
+              for token in tokens:
+                  start = 0
+                  occurrence = 0
+                  while occurrence < 16:
+                      index = source.find(token, start)
+                      if index < 0:
+                          break
+                      occurrence += 1
+                      left = max(0, index - 3000)
+                      right = min(len(source), index + len(token) + 5500)
+                      lines.extend([
+                          f'=== {token} #{occurrence} ===',
+                          f'bundle={url}',
+                          source[left:right],
+                          '',
+                      ])
+                      start = index + len(token)
+
+          mutation = '''mutation RecordReadingHistory($input: RecordReadingHistoryInput!) {
+            recordReadingHistory(input: $input) {
+              clientMutationId
+              __typename
+            }
+          }'''
+          payload = json.dumps({
+              'operationName': 'RecordReadingHistory',
+              'variables': {'input': {}},
+              'query': mutation,
+          }).encode('utf-8')
+          request = urllib.request.Request(
+              'https://kakuyomu.jp/graphql?opname=RecordReadingHistory',
+              data=payload,
+              headers={
+                  'Accept': 'application/json',
+                  'Content-Type': 'application/json',
+                  'Origin': 'https://kakuyomu.jp',
+                  'Referer': pages[1],
+                  'User-Agent': ua,
+                  'X-Requested-With': 'XMLHttpRequest',
+              },
+              method='POST',
+          )
+          lines.append('=== server validation with empty input ===')
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  lines.append(f'status={response.status}')
+                  lines.append(response.read().decode('utf-8', errors='replace'))
+          except urllib.error.HTTPError as exc:
+              lines.append(f'status={exc.code}')
+              lines.append(exc.read().decode('utf-8', errors='replace'))
+          except Exception as exc:
+              lines.append(f'error={exc!r}')
+
+          output = Path('docs/novelty/kakuyomu_reading_callsite_summary.txt')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
 
       - name: Commit probe result to research branch
@@ -112,9 +135,9 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add docs/novelty/kakuyomu_api_probe_result.json
+          git add docs/novelty/kakuyomu_reading_callsite_summary.txt
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨムoperation registryを保存"
+          git commit -m "調査: カクヨム読書履歴API入力根拠を保存"
           git push origin HEAD:${{ github.head_ref }}
