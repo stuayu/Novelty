@@ -1,5 +1,12 @@
 Temporary static-analysis result from current public Kakuyomu Next.js bundles.
-Only endpoint literals, GraphQL signatures, and follow/history identifiers are retained.
+Only endpoint literals, GraphQL signatures, protocol indicators, and follow/history identifiers are retained.
+
+=== Protocol indicators ===
+contains_opname=true
+contains_x_requested_with=true
+contains_application_json=true
+contains_credentials_include=false
+contains_apollo_require_preflight=false
 
 === Relevant bundles ===
 bundle-003.js
