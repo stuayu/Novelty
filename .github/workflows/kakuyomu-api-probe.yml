@@ -1,13 +1,13 @@
 name: Kakuyomu API Probe
 
 on:
-  push:
+  pull_request:
     branches: [develop]
     paths:
-      - .github/workflows/kakuyomu-api-probe.yml
+      - docs/novelty/kakuyomu_api_probe_trigger.txt
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   probe:
@@ -15,8 +15,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: develop
 
       - name: Probe Kakuyomu GraphQL and current work bundle
         shell: bash
@@ -28,7 +26,6 @@ jobs:
           import urllib.parse
           import urllib.request
           from datetime import datetime, timezone
-          from pathlib import Path
 
           endpoint = 'https://kakuyomu.jp/graphql?opname=NoveltyIntrospection'
           work_url = 'https://kakuyomu.jp/works/2912051601045930861'
@@ -141,16 +138,16 @@ jobs:
                           index = text.find(keyword, start)
                           if index < 0:
                               break
-                          left = max(0, index - 900)
-                          right = min(len(text), index + len(keyword) + 1800)
+                          left = max(0, index - 1200)
+                          right = min(len(text), index + len(keyword) + 2600)
                           matches.append({
                               'keyword': keyword,
                               'snippet': text[left:right],
                           })
                           start = index + len(keyword)
-                          if len(matches) >= 30:
+                          if len(matches) >= 40:
                               break
-                      if len(matches) >= 30:
+                      if len(matches) >= 40:
                           break
                   if matches:
                       result['bundleEvidence'].append({
@@ -160,19 +157,7 @@ jobs:
           except Exception as exc:
               result['bundlePageError'] = repr(exc)
 
-          output = Path('docs/novelty/kakuyomu_api_probe_result.json')
-          output.parent.mkdir(parents=True, exist_ok=True)
-          output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print('NOVELTY_KAKUYOMU_PROBE_BEGIN')
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          print('NOVELTY_KAKUYOMU_PROBE_END')
           PY
-
-      - name: Commit probe result
-        shell: bash
-        run: |
-          if git diff --quiet -- docs/novelty/kakuyomu_api_probe_result.json && git ls-files --error-unmatch docs/novelty/kakuyomu_api_probe_result.json >/dev/null 2>&1; then
-            exit 0
-          fi
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add docs/novelty/kakuyomu_api_probe_result.json
-          git commit -m "調査: カクヨムGraphQL API結果を記録"
-          git push origin HEAD:develop
