@@ -1,0 +1,124 @@
+name: Kakuyomu Position Push Probe
+
+on:
+  push:
+    branches:
+      - research/kakuyomu-position-probe-20260822
+    paths:
+      - docs/novelty/kakuyomu_position_push_trigger.txt
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout research branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Probe current Kakuyomu episode viewer history implementation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import html
+          import re
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          episode_url = (
+              'https://kakuyomu.jp/works/2912051601045930861/'
+              'episodes/2912051601046590969'
+          )
+          ua = (
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+              'AppleWebKit/537.36 (KHTML, like Gecko) '
+              'Chrome/143.0.0.0 Safari/537.36'
+          )
+
+          def fetch(url):
+              req = urllib.request.Request(url, headers={'User-Agent': ua})
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return response.read().decode('utf-8', errors='replace')
+
+          page = fetch(episode_url)
+          sources = {'inline:episode': page}
+          script_urls = []
+          for src in re.findall(
+              r'<script[^>]+src=["\']([^"\']+)["\']',
+              page,
+              flags=re.IGNORECASE,
+          ):
+              absolute = urllib.parse.urljoin(episode_url, html.unescape(src))
+              host = urllib.parse.urlparse(absolute).netloc
+              if host not in {'kakuyomu.jp', 'cdn-static.kakuyomu.jp'}:
+                  continue
+              script_urls.append(absolute)
+              try:
+                  sources[absolute] = fetch(absolute)
+              except Exception as exc:
+                  sources[absolute] = f'FETCH_ERROR: {exc!r}'
+
+          tokens = (
+              'data-viewer-history-path',
+              'viewer-history',
+              'historyPath',
+              '/history',
+              'position',
+              'scrollTop',
+              'js-episode-body',
+          )
+          lines = [
+              f'capturedAt={datetime.now(timezone.utc).isoformat()}',
+              f'episodeUrl={episode_url}',
+              '',
+              '=== first-party scripts ===',
+              *script_urls,
+              '',
+              '=== evidence ===',
+          ]
+
+          count = 0
+          for url, source in sources.items():
+              if source.startswith('FETCH_ERROR:'):
+                  lines.extend([f'source={url}', source, ''])
+                  continue
+              lower = source.lower()
+              for token in tokens:
+                  start = 0
+                  while count < 120:
+                      index = lower.find(token.lower(), start)
+                      if index < 0:
+                          break
+                      left = max(0, index - 3500)
+                      right = min(len(source), index + len(token) + 6500)
+                      lines.extend([
+                          f'--- token={token} ---',
+                          f'source={url}',
+                          source[left:right],
+                          '',
+                      ])
+                      count += 1
+                      start = index + len(token)
+                  if count >= 120:
+                      break
+              if count >= 120:
+                  break
+
+          output = Path('docs/novelty/kakuyomu_position_push_probe_result.txt')
+          output.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
+
+      - name: Commit probe result
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add docs/novelty/kakuyomu_position_push_probe_result.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "調査: カクヨムviewer履歴送信形式を保存"
+          git push origin HEAD:research/kakuyomu-position-probe-20260822
