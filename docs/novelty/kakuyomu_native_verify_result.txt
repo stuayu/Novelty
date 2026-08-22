@@ -1,0 +1,163 @@
+result=FAIL
+tested_commit=5e0c24bd58924124f322df0863ce6b1dc40878d9
+
+  built_value 8.12.5 (8.12.7 available)
+  cli_util 0.4.2 (0.6.0 available)
+  code_assets 1.0.0 (2.0.0 available)
+  coverage 1.15.0 (1.15.1 available)
+  cross_file 0.3.5+2 (0.3.5+4 available)
+  dart_style 3.1.8 (3.1.12 available)
+  dbus 0.7.12 (0.7.15 available)
+  dio_web_adapter 2.1.2 (2.2.1 available)
+  drift_dev 2.34.0 (2.34.5 available)
+  dynamic_color 1.8.1 (2.1.0 available)
+  file_picker 10.3.10 (12.0.0 available)
+  flutter_plugin_android_lifecycle 2.0.34 (2.0.35 available)
+  flutter_riverpod 3.3.2 (3.4.2 available)
+  flutter_secure_storage 9.2.4 (11.0.0 available)
+  flutter_secure_storage_linux 1.2.3 (3.0.2 available)
+  flutter_secure_storage_macos 3.1.3 (4.0.0 available)
+  flutter_secure_storage_platform_interface 1.1.2 (2.0.3 available)
+  flutter_secure_storage_web 1.2.1 (2.1.1 available)
+  flutter_secure_storage_windows 3.1.2 (4.2.2 available)
+  freezed 3.2.6-dev.1 (4.0.0-dev.3 available)
+  hooks 1.0.2 (2.2.0 available)
+  hooks_riverpod 3.3.2 (3.4.2 available)
+  intl 0.20.2 (0.20.3 available)
+  js 0.6.7 (0.7.2 available)
+  matcher 0.12.19 (0.12.20 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.0 (1.19.0 available)
+  mockito 5.6.4 (5.8.1 available)
+  native_toolchain_c 0.17.6 (0.19.4 available)
+  objective_c 9.3.0 (9.6.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  path_provider_android 2.2.23 (2.3.1 available)
+  path_provider_linux 2.2.1 (2.2.2 available)
+  path_provider_platform_interface 2.1.2 (2.1.3 available)
+  posix 6.5.0 (6.5.2 available)
+  riverpod 3.3.2 (3.4.2 available)
+  riverpod_analyzer_utils 1.0.0-dev.10 (1.0.0-dev.11 available)
+  riverpod_annotation 4.0.3 (4.0.6 available)
+  riverpod_generator 4.0.4 (4.0.8 available)
+  riverpod_lint 3.1.4 (3.1.8 available)
+  shared_preferences_android 2.4.23 (2.4.27 available)
+  source_gen 4.2.2 (4.3.0 available)
+  source_maps 0.10.13 (0.10.14 available)
+  sqlparser 0.44.5 (0.45.0 available)
+  test 1.31.0 (1.31.2 available)
+  test_api 0.7.11 (0.7.13 available)
+  test_core 0.6.17 (0.6.19 available)
+  url_launcher_android 6.3.29 (6.3.32 available)
+  url_launcher_web 2.4.2 (2.4.3 available)
+  uuid 4.5.3 (4.6.0 available)
+  vector_graphics_compiler 1.2.0 (1.3.0 available)
+  vector_math 2.2.0 (2.4.2 available)
+  vm_service 15.0.2 (15.3.0 available)
+  win32 5.15.0 (6.4.0 available)
+  xml 6.6.1 (7.0.1 available)
+Got dependencies!
+64 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+✅ KakuyomuAccountSyncAdapter Cookieが無い場合はHTTP取得せず0件
+✅ KakuyomuAccountSyncAdapter ログイン画面へ戻された場合は0件
+✅ KakuyomuAccountSyncAdapter 複数作品をライブラリへ追加し重複同期では0件
+✅ KakuyomuAccountSyncAdapter 既存の詳細メタデータを一覧由来の値で上書きしない
+✅ KakuyomuAccountSyncAdapter addToRemoteLibraryはネイティブfollow操作へ委譲する
+✅ KakuyomuAccountSyncAdapter removeFromRemoteLibraryはネイティブunfollow操作へ委譲する
+
+🎉 6 tests passed.
+exit_code=0
+=== check ===
+[38;5;14m[check][0m [1m$ dart analyze && dart format --dry-run .[0m
+Analyzing Novelty...
+
+warning - test/widgets/enriched_novel_list_test.dart:97:9 - Scoped providers must specify a list of dependencies. - scoped_providers_should_specify_dependencies
+warning - test/widgets/enriched_novel_list_test.dart:98:9 - Scoped providers must specify a list of dependencies. - scoped_providers_should_specify_dependencies
+warning - test/widgets/enriched_novel_list_test.dart:100:9 - Scoped providers must specify a list of dependencies. - scoped_providers_should_specify_dependencies
+warning - test/widgets/enriched_novel_list_test.dart:102:9 - Scoped providers must specify a list of dependencies. - scoped_providers_should_specify_dependencies
+   info - lib/models/kakuyomu_session_cookie.dart:64:11 - Constructor declarations should be before non-constructor declarations. Try moving the constructor declaration before all other members. - sort_constructors_first
+   info - lib/models/kakuyomu_session_cookie.dart:64:11 - Constructor declarations should be before non-constructor declarations. Try moving the constructor declaration before all other members. - sort_constructors_first
+   info - lib/repositories/kakuyomu_session_repository.dart:61:7 - The type 'TypeError' should not be caught because it is a subclass of 'Error'. Try removing the catch or catching an 'Exception' instead. - avoid_catching_errors
+   info - lib/repositories/kakuyomu_session_repository.dart:61:7 - The type 'TypeError' should not be caught because it is a subclass of 'Error'. Try removing the catch or catching an 'Exception' instead. - avoid_catching_errors
+   info - lib/screens/kakuyomu_login_page.dart:29:7 - 'Future'-returning calls in a non-'async' function. Try converting the enclosing function to be 'async' and then 'await' the future, or wrap the expression in 'unawaited'. - discarded_futures
+   info - lib/screens/kakuyomu_login_page.dart:29:7 - 'Future'-returning calls in a non-'async' function. Try converting the enclosing function to be 'async' and then 'await' the future, or wrap the expression in 'unawaited'. - discarded_futures
+   info - lib/screens/kakuyomu_login_page.dart:130:42 - The value of the argument is redundant because it matches the default value. Try removing the argument. - avoid_redundant_argument_values
+   info - lib/screens/kakuyomu_login_page.dart:130:42 - The value of the argument is redundant because it matches the default value. Try removing the argument. - avoid_redundant_argument_values
+   info - lib/screens/kakuyomu_login_page.dart:131:49 - The value of the argument is redundant because it matches the default value. Try removing the argument. - avoid_redundant_argument_values
+   info - lib/screens/kakuyomu_login_page.dart:131:49 - The value of the argument is redundant because it matches the default value. Try removing the argument. - avoid_redundant_argument_values
+   info - lib/services/api_service.dart:244:48 - Unnecessary use of a null check ('!'). Try removing the null check. - unnecessary_null_checks
+   info - lib/services/api_service.dart:244:48 - Unnecessary use of a null check ('!'). Try removing the null check. - unnecessary_null_checks
+   info - lib/services/api_service.dart:256:20 - Unnecessary use of a raw string. Try using a normal string. - unnecessary_raw_strings
+   info - lib/services/api_service.dart:256:20 - Unnecessary use of a raw string. Try using a normal string. - unnecessary_raw_strings
+   info - lib/services/api_service.dart:267:16 - Unnecessary use of a raw string. Try using a normal string. - unnecessary_raw_strings
+   info - lib/services/api_service.dart:267:16 - Unnecessary use of a raw string. Try using a normal string. - unnecessary_raw_strings
+   info - lib/services/api_service.dart:274:73 - Unnecessary use of a null check ('!'). Try removing the null check. - unnecessary_null_checks
+   info - lib/services/api_service.dart:274:73 - Unnecessary use of a null check ('!'). Try removing the null check. - unnecessary_null_checks
+   info - lib/services/kakuyomu_graphql_service.dart:155:11 - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?'. - use_null_aware_elements
+   info - lib/services/kakuyomu_graphql_service.dart:155:11 - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?'. - use_null_aware_elements
+   info - lib/services/narou_sync_service.dart:137:23 - Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation. - prefer_const_constructors
+   info - lib/services/narou_sync_service.dart:137:23 - Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation. - prefer_const_constructors
+   info - lib/sites/account_sync_registry.dart:13:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - lib/sites/account_sync_registry.dart:13:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/database/library_novels_test.dart:127:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/database/library_novels_test.dart:127:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/database/library_novels_test.dart:137:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/database/library_novels_test.dart:137:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/database/library_novels_test.dart:144:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/database/library_novels_test.dart:144:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/database/library_novels_test.dart:159:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/database/library_novels_test.dart:159:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/database/library_novels_test.dart:200:9 - Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation. - prefer_const_constructors
+   info - test/database/library_novels_test.dart:200:9 - Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation. - prefer_const_constructors
+   info - test/database/library_novels_test.dart:202:19 - Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation. - prefer_const_constructors
+   info - test/database/library_novels_test.dart:202:19 - Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation. - prefer_const_constructors
+   info - test/domain/library_filter_state_test.dart:38:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/domain/library_filter_state_test.dart:38:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:9:1 - Sort directive sections alphabetically. Try sorting the directives. - directives_ordering
+   info - test/repositories/library_status_toggle_test.dart:9:1 - Sort directive sections alphabetically. Try sorting the directives. - directives_ordering
+   info - test/repositories/library_status_toggle_test.dart:48:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:48:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:82:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:82:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:109:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:109:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:135:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:135:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:180:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:180:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:183:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:183:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:197:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:197:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:200:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:200:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:215:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:215:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:218:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/repositories/library_status_toggle_test.dart:218:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/screens/data_storage_page_test.dart:169:7 - Unnecessary type annotation on a function expression parameter. Try removing the type annotation. - avoid_types_on_closure_parameters
+   info - test/screens/data_storage_page_test.dart:169:7 - Unnecessary type annotation on a function expression parameter. Try removing the type annotation. - avoid_types_on_closure_parameters
+   info - test/screens/data_storage_page_test.dart:185:39 - Unnecessary type annotation on a function expression parameter. Try removing the type annotation. - avoid_types_on_closure_parameters
+   info - test/screens/data_storage_page_test.dart:185:39 - Unnecessary type annotation on a function expression parameter. Try removing the type annotation. - avoid_types_on_closure_parameters
+   info - test/services/kakuyomu_follow_service_test.dart:30:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/kakuyomu_follow_service_test.dart:30:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/kakuyomu_follow_service_test.dart:48:40 - Use a raw string to avoid using escapes. Try making the string a raw string and removing the escapes. - use_raw_strings
+   info - test/services/kakuyomu_follow_service_test.dart:48:40 - Use a raw string to avoid using escapes. Try making the string a raw string and removing the escapes. - use_raw_strings
+   info - test/services/kakuyomu_follow_service_test.dart:84:40 - Use a raw string to avoid using escapes. Try making the string a raw string and removing the escapes. - use_raw_strings
+   info - test/services/kakuyomu_follow_service_test.dart:84:40 - Use a raw string to avoid using escapes. Try making the string a raw string and removing the escapes. - use_raw_strings
+   info - test/services/narou_sync_service_test.dart:109:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/narou_sync_service_test.dart:109:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/narou_sync_service_test.dart:110:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/narou_sync_service_test.dart:110:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/narou_sync_service_test.dart:111:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/narou_sync_service_test.dart:111:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/narou_sync_service_test.dart:599:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/narou_sync_service_test.dart:599:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/narou_sync_service_test.dart:655:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+   info - test/services/narou_sync_service_test.dart:655:81 - The line length exceeds the 80-character limit. Try breaking the line across multiple lines. - lines_longer_than_80_chars
+
+84 issues found.
+[38;5;14m[check][0m [31mERROR[0m task failed
+exit_code=2
