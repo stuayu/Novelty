@@ -5,6 +5,7 @@ on:
     branches: [develop]
     paths:
       - docs/novelty/kakuyomu_api_probe_trigger.txt
+      - .github/workflows/kakuyomu-api-probe.yml
 
 permissions:
   contents: write
@@ -18,7 +19,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Probe reading history operation and call site
+      - name: Probe reading history position call site
         shell: bash
         run: |
           python3 - <<'PY'
@@ -31,20 +32,16 @@ jobs:
           from datetime import datetime, timezone
           from pathlib import Path
 
-          pages = [
-              'https://kakuyomu.jp/works/2912051601045930861',
-              'https://kakuyomu.jp/works/2912051601045930861/episodes/2912051601046590969',
-          ]
+          work_url = 'https://kakuyomu.jp/works/2912051601045930861'
+          episode_url = (
+              'https://kakuyomu.jp/works/2912051601045930861/'
+              'episodes/2912051601046590969'
+          )
+          pages = [work_url, episode_url]
           ua = (
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
               'AppleWebKit/537.36 (KHTML, like Gecko) '
               'Chrome/143.0.0.0 Safari/537.36'
-          )
-          tokens = (
-              'RecordReadingHistory',
-              'recordReadingHistory',
-              'IncrementReadCount',
-              'incrementReadCount',
           )
 
           def fetch(url):
@@ -52,43 +49,95 @@ jobs:
               with urllib.request.urlopen(request, timeout=30) as response:
                   return response.read().decode('utf-8', errors='replace')
 
-          bundle_sources = {}
+          sources = {}
+          inline_sources = {}
+          allowed_hosts = {'kakuyomu.jp', 'cdn-static.kakuyomu.jp'}
           for page_url in pages:
               page = fetch(page_url)
-              for src in re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page):
+              inline_sources[page_url] = '\n'.join(
+                  re.findall(
+                      r'<script(?![^>]+src=)[^>]*>(.*?)</script>',
+                      page,
+                      flags=re.IGNORECASE | re.DOTALL,
+                  )
+              )
+              for src in re.findall(
+                  r'<script[^>]+src=["\']([^"\']+)["\']',
+                  page,
+                  flags=re.IGNORECASE,
+              ):
                   absolute = urllib.parse.urljoin(page_url, html.unescape(src))
                   parsed = urllib.parse.urlparse(absolute)
-                  if parsed.netloc != 'kakuyomu.jp' or '/_next/static/' not in absolute:
+                  if parsed.netloc not in allowed_hosts:
                       continue
-                  if absolute not in bundle_sources:
+                  if absolute not in sources:
                       try:
-                          bundle_sources[absolute] = fetch(absolute)
-                      except Exception:
-                          pass
+                          sources[absolute] = fetch(absolute)
+                      except Exception as exc:
+                          sources[absolute] = f'FETCH_ERROR: {exc!r}'
+
+          all_sources = dict(sources)
+          for page_url, source in inline_sources.items():
+              all_sources[f'inline:{page_url}'] = source
 
           lines = [
               f'capturedAt={datetime.now(timezone.utc).isoformat()}',
-              f'bundleCount={len(bundle_sources)}',
+              f'scriptCount={len(sources)}',
+              f'inlineSourceCount={len(inline_sources)}',
               '',
+              '=== script URLs ===',
+              *sorted(sources.keys()),
+              '',
+              '=== RecordReadingHistory / position evidence ===',
           ]
-          for url, source in bundle_sources.items():
+
+          evidence_count = 0
+          tokens = (
+              'RecordReadingHistory',
+              'recordReadingHistory',
+              'RecordReadingHistoryInput',
+              'data-viewer-history-path',
+              'viewer-history',
+              'readingHistory',
+              'episodeId',
+              'position',
+          )
+          for url, source in all_sources.items():
+              if source.startswith('FETCH_ERROR:'):
+                  continue
+              lowered = source.lower()
+              if not any(token.lower() in lowered for token in tokens):
+                  continue
               for token in tokens:
                   start = 0
-                  occurrence = 0
-                  while occurrence < 16:
-                      index = source.find(token, start)
+                  occurrences = 0
+                  while occurrences < 16:
+                      index = lowered.find(token.lower(), start)
                       if index < 0:
                           break
-                      occurrence += 1
-                      left = max(0, index - 3000)
-                      right = min(len(source), index + len(token) + 5500)
+                      occurrences += 1
+                      left = max(0, index - 4500)
+                      right = min(len(source), index + len(token) + 7500)
+                      snippet = source[left:right]
+                      if token.lower() in {'episodeid', 'position'}:
+                          nearby = snippet.lower()
+                          if not any(word in nearby for word in ('reading', 'history', 'viewer')):
+                              start = index + len(token)
+                              continue
                       lines.extend([
-                          f'=== {token} #{occurrence} ===',
-                          f'bundle={url}',
-                          source[left:right],
+                          f'--- token={token} ---',
+                          f'source={url}',
+                          snippet,
                           '',
                       ])
+                      evidence_count += 1
                       start = index + len(token)
+                      if evidence_count >= 120:
+                          break
+                  if evidence_count >= 120:
+                      break
+              if evidence_count >= 120:
+                  break
 
           mutation = '''mutation RecordReadingHistory($input: RecordReadingHistoryInput!) {
             recordReadingHistory(input: $input) {
@@ -96,34 +145,43 @@ jobs:
               __typename
             }
           }'''
-          payload = json.dumps({
-              'operationName': 'RecordReadingHistory',
-              'variables': {'input': {}},
-              'query': mutation,
-          }).encode('utf-8')
-          request = urllib.request.Request(
-              'https://kakuyomu.jp/graphql?opname=RecordReadingHistory',
-              data=payload,
-              headers={
-                  'Accept': 'application/json',
-                  'Content-Type': 'application/json',
-                  'Origin': 'https://kakuyomu.jp',
-                  'Referer': pages[1],
-                  'User-Agent': ua,
-                  'X-Requested-With': 'XMLHttpRequest',
-              },
-              method='POST',
-          )
-          lines.append('=== server validation with empty input ===')
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  lines.append(f'status={response.status}')
-                  lines.append(response.read().decode('utf-8', errors='replace'))
-          except urllib.error.HTTPError as exc:
-              lines.append(f'status={exc.code}')
-              lines.append(exc.read().decode('utf-8', errors='replace'))
-          except Exception as exc:
-              lines.append(f'error={exc!r}')
+
+          def validate_input(input_value, label):
+              payload = json.dumps({
+                  'operationName': 'RecordReadingHistory',
+                  'variables': {'input': input_value},
+                  'query': mutation,
+              }).encode('utf-8')
+              request = urllib.request.Request(
+                  'https://kakuyomu.jp/graphql?opname=RecordReadingHistory',
+                  data=payload,
+                  headers={
+                      'Accept': 'application/json',
+                      'Content-Type': 'application/json',
+                      'Origin': 'https://kakuyomu.jp',
+                      'Referer': episode_url,
+                      'User-Agent': ua,
+                      'X-Requested-With': 'XMLHttpRequest',
+                  },
+                  method='POST',
+              )
+              lines.append(f'=== server validation: {label} ===')
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      lines.append(f'status={response.status}')
+                      lines.append(response.read().decode('utf-8', errors='replace'))
+              except urllib.error.HTTPError as exc:
+                  lines.append(f'status={exc.code}')
+                  lines.append(exc.read().decode('utf-8', errors='replace'))
+              except Exception as exc:
+                  lines.append(f'error={exc!r}')
+
+          validate_input({}, 'empty input')
+          for value in ('', '0', 'p1', '#p1', 'top'):
+              validate_input(
+                  {'episodeId': '2912051601046590969', 'position': value},
+                  f'position={value!r}',
+              )
 
           output = Path('docs/novelty/kakuyomu_reading_callsite_summary.txt')
           output.parent.mkdir(parents=True, exist_ok=True)
@@ -139,5 +197,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨム読書履歴API入力根拠を保存"
+          git commit -m "調査: カクヨム読書位置position根拠を保存"
           git push origin HEAD:${{ github.head_ref }}
