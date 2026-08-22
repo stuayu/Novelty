@@ -49,6 +49,7 @@ class KakuyomuSessionRepository {
 
       return decoded
           .whereType<Map<String, dynamic>>()
+          .where(_isValidCookieJson)
           .map(
             (json) => KakuyomuSessionCookie.fromJson(
               Map<String, Object?>.from(json),
@@ -57,8 +58,6 @@ class KakuyomuSessionRepository {
           .where((cookie) => cookie.belongsToKakuyomu && !cookie.isExpired)
           .toList(growable: false);
     } on FormatException {
-      return const [];
-    } on TypeError {
       return const [];
     }
   }
@@ -86,5 +85,21 @@ class KakuyomuSessionRepository {
     // Windows の Secure Storage 実装で書き込み競合を起こさないよう直列に削除する。
     await _storage.delete(key: _kakuyomuSessionCookiesKey);
     await _storage.delete(key: _kakuyomuUsernameKey);
+  }
+
+  bool _isValidCookieJson(Map<String, dynamic> json) {
+    if (json['name'] is! String ||
+        json['value'] is! String ||
+        json['domain'] is! String ||
+        json['path'] is! String) {
+      return false;
+    }
+
+    final expiresDate = json['expiresDate'];
+    final isSecure = json['isSecure'];
+    final isHttpOnly = json['isHttpOnly'];
+    return (expiresDate == null || expiresDate is int) &&
+        (isSecure == null || isSecure is bool) &&
+        (isHttpOnly == null || isHttpOnly is bool);
   }
 }
