@@ -125,6 +125,8 @@ class KakuyomuGraphqlService {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
           'X-Requested-With': 'XMLHttpRequest',
+          'Origin': 'https://kakuyomu.jp',
+          'Referer': 'https://kakuyomu.jp/',
           'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
               'AppleWebKit/537.36 (KHTML, like Gecko) '
