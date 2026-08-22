@@ -1,0 +1,12 @@
+Temporary static-analysis result from the public official Kakuyomu Viewer APK.
+Only URLs, API paths, GraphQL operation names, and relevant identifiers are retained.
+
+=== Candidate files ===
+
+=== URLs ===
+
+=== API paths ===
+
+=== GraphQL operations ===
+
+=== Follow / reading identifiers ===
