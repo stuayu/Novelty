@@ -51,7 +51,9 @@ class NarouAccountSyncAdapter implements AccountSyncAdapter {
   Future<bool> pushReadingProgress({
     required String workId,
     required int episode,
+    String? position,
   }) {
+    // なろうの既存しおりAPIは話数単位のため、サイト固有詳細位置は使用しない。
     return _syncService.setShioriIfLoggedIn(
       ncode: workId,
       episode: episode,
