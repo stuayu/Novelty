@@ -8,6 +8,7 @@ import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/utils/kakuyomu_webview_support.dart';
 
 const _workLoadTimeout = Duration(seconds: 20);
+final _kakuyomuWorkIdPattern = RegExp(r'^\d+$');
 
 /// カクヨム作品のフォロー状態を変更する処理。
 typedef KakuyomuWorkFollowOperator =
@@ -37,6 +38,10 @@ class KakuyomuWorkFollowService {
     String workId, {
     required bool shouldFollow,
   }) async {
+    if (!_kakuyomuWorkIdPattern.hasMatch(workId)) {
+      return AccountSyncOutcome.failed;
+    }
+
     if (!isKakuyomuWebViewSupported) {
       return AccountSyncOutcome.failed;
     }
