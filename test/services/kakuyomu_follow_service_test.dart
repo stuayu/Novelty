@@ -108,7 +108,35 @@ void main() {
       expect(called, isFalse);
     });
 
-    test('GraphQL errorsがあれば失敗を返す', () async {
+    test('GraphQL UNAUTHORIZEDは未ログインを返す', () async {
+      final graphql = KakuyomuGraphqlService(
+        sessionRepository: _FakeSessionRepository('expired=session'),
+        transport: (request) async {
+          return const KakuyomuGraphqlResponse(
+            statusCode: 200,
+            body: <String, Object?>{
+              'errors': <Object?>[
+                <String, Object?>{
+                  'message': 'Authentication required',
+                  'extensions': <String, Object?>{'code': 'UNAUTHORIZED'},
+                },
+              ],
+            },
+          );
+        },
+      );
+      final service = KakuyomuFollowService(
+        graphqlService: graphql,
+        sessionValidator: () async => true,
+      );
+
+      expect(
+        await service.followWork(workId),
+        AccountSyncOutcome.notLoggedIn,
+      );
+    });
+
+    test('その他のGraphQL errorsは失敗を返す', () async {
       final graphql = KakuyomuGraphqlService(
         sessionRepository: _FakeSessionRepository('session=test'),
         transport: (request) async {
