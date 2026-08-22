@@ -133,6 +133,21 @@ class KakuyomuGraphqlService {
     final override = _transport;
     if (override != null) return override(request);
 
+    final headers = <String, Object>{
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Origin': 'https://kakuyomu.jp',
+      'Referer': 'https://kakuyomu.jp/',
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+          'AppleWebKit/537.36 (KHTML, like Gecko) '
+          'Chrome/143.0.0.0 Safari/537.36',
+    };
+    if (cookieHeader != null) {
+      headers['Cookie'] = cookieHeader;
+    }
+
     final response = await _dio.post<Object?>(
       _kakuyomuGraphqlEndpoint,
       queryParameters: <String, Object?>{'opname': operationName},
@@ -142,18 +157,7 @@ class KakuyomuGraphqlService {
         'query': query,
       },
       options: Options(
-        headers: <String, Object>{
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Origin': 'https://kakuyomu.jp',
-          'Referer': 'https://kakuyomu.jp/',
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-              'AppleWebKit/537.36 (KHTML, like Gecko) '
-              'Chrome/143.0.0.0 Safari/537.36',
-          if (cookieHeader != null) 'Cookie': cookieHeader,
-        },
+        headers: headers,
         followRedirects: false,
         validateStatus: (status) => status != null && status < 500,
         responseType: ResponseType.json,
