@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Probe Kakuyomu GraphQL and current work bundle
+      - name: Extract Kakuyomu GraphQL operation registry
         shell: bash
         run: |
           python3 - <<'PY'
@@ -30,147 +30,81 @@ jobs:
           from datetime import datetime, timezone
           from pathlib import Path
 
-          endpoint = 'https://kakuyomu.jp/graphql?opname=NoveltyIntrospection'
           work_url = 'https://kakuyomu.jp/works/2912051601045930861'
-          headers = {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-              'X-Requested-With': 'XMLHttpRequest',
-          }
-
-          def type_name(node):
-              if not isinstance(node, dict):
-                  return None
-              kind = node.get('kind')
-              name = node.get('name')
-              if kind == 'NON_NULL':
-                  return f'{type_name(node.get("ofType"))}!'
-              if kind == 'LIST':
-                  return f'[{type_name(node.get("ofType"))}]'
-              return name or kind
-
+          user_agent = (
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+              'AppleWebKit/537.36 (KHTML, like Gecko) '
+              'Chrome/143.0.0.0 Safari/537.36'
+          )
+          headers = {'User-Agent': user_agent}
           result = {
               'capturedAt': datetime.now(timezone.utc).isoformat(),
-              'endpoint': endpoint,
               'workUrl': work_url,
-              'introspection': {},
-              'bundleEvidence': [],
+              'operations': [],
+              'bundleUrls': [],
           }
 
-          query = '''query NoveltyIntrospection {
-            __schema {
-              mutationType {
-                fields(includeDeprecated: true) {
-                  name
-                  args {
-                    name
-                    type {
-                      kind
-                      name
-                      ofType {
-                        kind
-                        name
-                        ofType {
-                          kind
-                          name
-                          ofType { kind name }
-                        }
-                      }
-                    }
-                  }
-                  type {
-                    kind
-                    name
-                    ofType { kind name }
-                  }
-                }
-              }
-            }
-          }'''
-          payload = json.dumps({
-              'operationName': 'NoveltyIntrospection',
-              'variables': {},
-              'query': query,
-          }).encode()
+          request = urllib.request.Request(work_url, headers=headers)
+          with urllib.request.urlopen(request, timeout=30) as response:
+              page = response.read().decode('utf-8', errors='replace')
 
-          try:
-              req = urllib.request.Request(endpoint, data=payload, headers=headers, method='POST')
-              with urllib.request.urlopen(req, timeout=30) as response:
-                  body = response.read().decode('utf-8', errors='replace')
-                  result['introspection']['status'] = response.status
-                  parsed = json.loads(body)
-                  mutation_fields = (((parsed.get('data') or {}).get('__schema') or {}).get('mutationType') or {}).get('fields')
-                  if isinstance(mutation_fields, list):
-                      interesting = []
-                      for field in mutation_fields:
-                          name = str(field.get('name') or '')
-                          lowered = name.lower()
-                          if any(token in lowered for token in ('follow', 'work', 'reading', 'history', 'label')):
-                              interesting.append({
-                                  'name': name,
-                                  'args': [
-                                      {'name': arg.get('name'), 'type': type_name(arg.get('type'))}
-                                      for arg in field.get('args') or []
-                                  ],
-                                  'returnType': type_name(field.get('type')),
-                              })
-                      result['introspection']['interestingMutationFields'] = interesting
-                  else:
-                      result['introspection']['body'] = parsed
-          except Exception as exc:
-              result['introspection']['error'] = repr(exc)
+          script_srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page)
+          wanted_tokens = ('follow', 'reading', 'history', 'label')
+          seen = set()
 
-          try:
-              request = urllib.request.Request(work_url, headers={'User-Agent': headers['User-Agent']})
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  page = response.read().decode('utf-8', errors='replace')
-              script_srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page)
-              keywords = [
-                  'WorkFollowing', 'visitorWorkFollowing',
-                  'FollowWork', 'UnfollowWork', 'followWork', 'unfollowWork',
-                  'workFollowing', 'followingWork', 'Antenna',
-                  'ReadingHistory', 'readingHistory',
-              ]
-              for src in script_srcs:
-                  absolute = urllib.parse.urljoin(work_url, html.unescape(src))
-                  if urllib.parse.urlparse(absolute).netloc != 'kakuyomu.jp':
-                      continue
-                  if '/_next/static/' not in absolute:
-                      continue
+          for src in script_srcs:
+              absolute = urllib.parse.urljoin(work_url, html.unescape(src))
+              parsed_url = urllib.parse.urlparse(absolute)
+              if parsed_url.netloc != 'kakuyomu.jp' or '/_next/static/' not in absolute:
+                  continue
+
+              try:
+                  req = urllib.request.Request(absolute, headers=headers)
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      text = response.read().decode('utf-8', errors='replace')
+              except Exception:
+                  continue
+
+              result['bundleUrls'].append(absolute)
+
+              # operation registry はJS文字列内のJSONとして埋め込まれている。
+              # エスケープされた引用符だけ1段戻し、各entryを抽出する。
+              normalized = text.replace('\\"', '"')
+              entry_pattern = re.compile(
+                  r'"id":"(?P<id>[0-9a-f]+)",'
+                  r'"name":"(?P<name>[^"]+)",'
+                  r'"type":"(?P<type>query|mutation)",'
+                  r'"body":"(?P<body>(?:\\.|[^"\\])*)"'
+              )
+              for match in entry_pattern.finditer(normalized):
+                  name = match.group('name')
+                  body_raw = match.group('body')
                   try:
-                      req = urllib.request.Request(absolute, headers={'User-Agent': headers['User-Agent']})
-                      with urllib.request.urlopen(req, timeout=30) as response:
-                          text = response.read().decode('utf-8', errors='replace')
-                  except Exception:
+                      body = json.loads('"' + body_raw + '"')
+                  except json.JSONDecodeError:
+                      body = body_raw.replace('\\n', '\n')
+                  haystack = (name + '\n' + body).lower()
+                  if not any(token in haystack for token in wanted_tokens):
                       continue
+                  key = (name, match.group('type'))
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  result['operations'].append({
+                      'id': match.group('id'),
+                      'name': name,
+                      'type': match.group('type'),
+                      'body': body,
+                      'bundleUrl': absolute,
+                  })
 
-                  matches = []
-                  for keyword in keywords:
-                      index = text.find(keyword)
-                      if index < 0:
-                          continue
-                      left = max(0, index - 550)
-                      right = min(len(text), index + len(keyword) + 900)
-                      matches.append({
-                          'keyword': keyword,
-                          'snippet': text[left:right],
-                      })
-                      if len(matches) >= 12:
-                          break
-                  if matches:
-                      result['bundleEvidence'].append({
-                          'url': absolute,
-                          'matches': matches,
-                      })
-                  if len(result['bundleEvidence']) >= 8:
-                      break
-          except Exception as exc:
-              result['bundlePageError'] = repr(exc)
-
+          result['operations'].sort(key=lambda item: (item['type'], item['name']))
           output = Path('docs/novelty/kakuyomu_api_probe_result.json')
           output.parent.mkdir(parents=True, exist_ok=True)
-          output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          output.write_text(
+              json.dumps(result, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
           PY
 
       - name: Commit probe result to research branch
@@ -182,5 +116,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨムAPIプローブ結果を保存"
+          git commit -m "調査: カクヨムoperation registryを保存"
           git push origin HEAD:${{ github.head_ref }}
