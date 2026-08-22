@@ -5,7 +5,6 @@ on:
     branches: [develop]
     paths:
       - docs/novelty/kakuyomu_api_probe_trigger.txt
-      - .github/workflows/kakuyomu-api-probe.yml
 
 permissions:
   contents: write
@@ -19,25 +18,21 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Probe reading history position call site
+      - name: Extract viewer history implementation
         shell: bash
         run: |
           python3 - <<'PY'
           import html
-          import json
           import re
-          import urllib.error
           import urllib.parse
           import urllib.request
           from datetime import datetime, timezone
           from pathlib import Path
 
-          work_url = 'https://kakuyomu.jp/works/2912051601045930861'
           episode_url = (
               'https://kakuyomu.jp/works/2912051601045930861/'
               'episodes/2912051601046590969'
           )
-          pages = [work_url, episode_url]
           ua = (
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
               'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -49,146 +44,147 @@ jobs:
               with urllib.request.urlopen(request, timeout=30) as response:
                   return response.read().decode('utf-8', errors='replace')
 
-          sources = {}
-          inline_sources = {}
-          allowed_hosts = {'kakuyomu.jp', 'cdn-static.kakuyomu.jp'}
-          for page_url in pages:
-              page = fetch(page_url)
-              inline_sources[page_url] = '\n'.join(
-                  re.findall(
-                      r'<script(?![^>]+src=)[^>]*>(.*?)</script>',
-                      page,
-                      flags=re.IGNORECASE | re.DOTALL,
-                  )
-              )
-              for src in re.findall(
-                  r'<script[^>]+src=["\']([^"\']+)["\']',
-                  page,
-                  flags=re.IGNORECASE,
-              ):
-                  absolute = urllib.parse.urljoin(page_url, html.unescape(src))
-                  parsed = urllib.parse.urlparse(absolute)
-                  if parsed.netloc not in allowed_hosts:
-                      continue
-                  if absolute not in sources:
-                      try:
-                          sources[absolute] = fetch(absolute)
-                      except Exception as exc:
-                          sources[absolute] = f'FETCH_ERROR: {exc!r}'
+          page = fetch(episode_url)
+          history_match = re.search(
+              r'data-viewer-history-path=["\']([^"\']+)["\']',
+              page,
+              flags=re.IGNORECASE,
+          )
+          quantity_match = re.search(
+              r'data-viewer-reading-quantity-path=["\']([^"\']+)["\']',
+              page,
+              flags=re.IGNORECASE,
+          )
+          paragraph_ids = re.findall(
+              r'<p\b[^>]*\bid=["\']([^"\']+)["\']',
+              page,
+              flags=re.IGNORECASE,
+          )
 
-          all_sources = dict(sources)
-          for page_url, source in inline_sources.items():
-              all_sources[f'inline:{page_url}'] = source
+          scripts = []
+          for src in re.findall(
+              r'<script[^>]+src=["\']([^"\']+)["\']',
+              page,
+              flags=re.IGNORECASE,
+          ):
+              absolute = urllib.parse.urljoin(episode_url, html.unescape(src))
+              parsed = urllib.parse.urlparse(absolute)
+              if parsed.netloc not in {'kakuyomu.jp', 'cdn-static.kakuyomu.jp'}:
+                  continue
+              try:
+                  scripts.append((absolute, fetch(absolute)))
+              except Exception as exc:
+                  scripts.append((absolute, f'FETCH_ERROR: {exc!r}'))
 
           lines = [
               f'capturedAt={datetime.now(timezone.utc).isoformat()}',
-              f'scriptCount={len(sources)}',
-              f'inlineSourceCount={len(inline_sources)}',
+              f'episodeUrl={episode_url}',
+              f'historyPath={history_match.group(1) if history_match else "NOT_FOUND"}',
+              f'readingQuantityPath={quantity_match.group(1) if quantity_match else "NOT_FOUND"}',
+              f'paragraphIds={paragraph_ids[:12]}',
               '',
-              '=== script URLs ===',
-              *sorted(sources.keys()),
-              '',
-              '=== RecordReadingHistory / position evidence ===',
+              '=== first-party scripts ===',
           ]
+          for url, source in scripts:
+              lines.append(f'{url} length={len(source)}')
+          lines.append('')
 
-          evidence_count = 0
-          tokens = (
-              'RecordReadingHistory',
-              'recordReadingHistory',
-              'RecordReadingHistoryInput',
-              'data-viewer-history-path',
-              'viewer-history',
-              'readingHistory',
-              'episodeId',
-              'position',
-          )
-          for url, source in all_sources.items():
+          # Legacy episode viewer is minified into kakuyomu.js.  Do not dump the
+          # whole file: retain only compact contexts around highly specific
+          # history/position markers so the result is human-reviewable.
+          marker_groups = [
+              ('viewer-history-path', ('viewer-history-path', 'viewerHistoryPath')),
+              ('history request', ('/history', 'historyPath')),
+              ('paragraph position', ('position', 'scrollTop', 'getBoundingClientRect')),
+              ('request transport', ('XMLHttpRequest', '$.ajax', '.ajax(', 'fetch(')),
+          ]
+          emitted = set()
+          context_count = 0
+          for url, source in scripts:
               if source.startswith('FETCH_ERROR:'):
                   continue
-              lowered = source.lower()
-              if not any(token.lower() in lowered for token in tokens):
+              lower = source.lower()
+              is_viewer_script = (
+                  'kakuyomu.js' in url
+                  or 'viewer-history' in lower
+                  or 'viewerhistory' in lower
+              )
+              if not is_viewer_script:
                   continue
-              for token in tokens:
-                  start = 0
-                  occurrences = 0
-                  while occurrences < 16:
-                      index = lowered.find(token.lower(), start)
-                      if index < 0:
-                          break
-                      occurrences += 1
-                      left = max(0, index - 4500)
-                      right = min(len(source), index + len(token) + 7500)
-                      snippet = source[left:right]
-                      if token.lower() in {'episodeid', 'position'}:
+              for group_name, markers in marker_groups:
+                  for marker in markers:
+                      start = 0
+                      marker_lower = marker.lower()
+                      while context_count < 36:
+                          index = lower.find(marker_lower, start)
+                          if index < 0:
+                              break
+                          left = max(0, index - 1800)
+                          right = min(len(source), index + len(marker) + 2600)
+                          snippet = source[left:right]
                           nearby = snippet.lower()
-                          if not any(word in nearby for word in ('reading', 'history', 'viewer')):
-                              start = index + len(token)
-                              continue
-                      lines.extend([
-                          f'--- token={token} ---',
-                          f'source={url}',
-                          snippet,
-                          '',
-                      ])
-                      evidence_count += 1
-                      start = index + len(token)
-                      if evidence_count >= 120:
+                          # Generic markers are useful only when the same compact
+                          # context is clearly tied to viewer/history/episode.
+                          if group_name in {'paragraph position', 'request transport'}:
+                              if not any(
+                                  token in nearby
+                                  for token in (
+                                      'viewer-history',
+                                      'viewerhistory',
+                                      'history-path',
+                                      '/history',
+                                      'episode-body',
+                                  )
+                              ):
+                                  start = index + len(marker)
+                                  continue
+                          key = (url, left // 500)
+                          if key not in emitted:
+                              emitted.add(key)
+                              lines.extend([
+                                  f'=== {group_name}: {marker} ===',
+                                  f'source={url}',
+                                  snippet,
+                                  '',
+                              ])
+                              context_count += 1
+                          start = index + len(marker)
+                      if context_count >= 36:
                           break
-                  if evidence_count >= 120:
+                  if context_count >= 36:
                       break
-              if evidence_count >= 120:
+              if context_count >= 36:
                   break
 
-          mutation = '''mutation RecordReadingHistory($input: RecordReadingHistoryInput!) {
-            recordReadingHistory(input: $input) {
-              clientMutationId
-              __typename
-            }
-          }'''
-
-          def validate_input(input_value, label):
-              payload = json.dumps({
-                  'operationName': 'RecordReadingHistory',
-                  'variables': {'input': input_value},
-                  'query': mutation,
-              }).encode('utf-8')
-              request = urllib.request.Request(
-                  'https://kakuyomu.jp/graphql?opname=RecordReadingHistory',
-                  data=payload,
-                  headers={
-                      'Accept': 'application/json',
-                      'Content-Type': 'application/json',
-                      'Origin': 'https://kakuyomu.jp',
-                      'Referer': episode_url,
-                      'User-Agent': ua,
-                      'X-Requested-With': 'XMLHttpRequest',
-                  },
-                  method='POST',
-              )
-              lines.append(f'=== server validation: {label} ===')
-              try:
-                  with urllib.request.urlopen(request, timeout=30) as response:
-                      lines.append(f'status={response.status}')
-                      lines.append(response.read().decode('utf-8', errors='replace'))
-              except urllib.error.HTTPError as exc:
-                  lines.append(f'status={exc.code}')
-                  lines.append(exc.read().decode('utf-8', errors='replace'))
-              except Exception as exc:
-                  lines.append(f'error={exc!r}')
-
-          validate_input({}, 'empty input')
-          for value in ('', '0', 'p1', '#p1', 'top'):
-              validate_input(
-                  {'episodeId': '2912051601046590969', 'position': value},
-                  f'position={value!r}',
-              )
+          # Extra targeted scan: if the data attribute string itself is present,
+          # preserve a larger one-off context that should contain method/body and
+          # position construction together.
+          for url, source in scripts:
+              if source.startswith('FETCH_ERROR:'):
+                  continue
+              lower = source.lower()
+              candidates = [
+                  lower.find('viewer-history-path'),
+                  lower.find('viewerhistorypath'),
+              ]
+              index = next((value for value in candidates if value >= 0), -1)
+              if index >= 0:
+                  left = max(0, index - 5000)
+                  right = min(len(source), index + 9000)
+                  lines.extend([
+                      '=== primary viewer-history implementation context ===',
+                      f'source={url}',
+                      source[left:right],
+                      '',
+                  ])
+                  break
 
           output = Path('docs/novelty/kakuyomu_reading_callsite_summary.txt')
           output.parent.mkdir(parents=True, exist_ok=True)
           output.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
 
-      - name: Commit probe result to research branch
+      - name: Commit compact probe result
         shell: bash
         run: |
           git config user.name github-actions[bot]
@@ -197,5 +193,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨム読書位置position根拠を保存"
+          git commit -m "調査: カクヨムviewer履歴実装をコンパクト抽出"
           git push origin HEAD:${{ github.head_ref }}
