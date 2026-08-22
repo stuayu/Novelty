@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/router/router.dart';
+import 'package:novelty/screens/kakuyomu_login_page.dart';
+import 'package:novelty/services/kakuyomu_auth_service.dart';
 import 'package:novelty/utils/settings_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -107,33 +109,35 @@ class _MorePageState extends ConsumerState<MorePage> {
   }
 
   Widget _buildAccountSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader('アカウント'),
+        _buildNarouAccountSection(),
+        const Divider(indent: 56),
+        _buildKakuyomuAccountSection(),
+      ],
+    );
+  }
+
+  Widget _buildNarouAccountSection() {
     final authAsync = ref.watch(authProvider);
     return authAsync.when(
       data: (user) {
         if (user == null) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _sectionHeader('なろうアカウント'),
-              ListTile(
-                leading: const Icon(Icons.login),
-                title: const Text('ログイン'),
-                subtitle:
-                    const Text('ブックマーク同期・しおり連携が利用できます'),
-                onTap: () => const LoginRoute().push<void>(context),
-              ),
-            ],
+          return ListTile(
+            leading: const Icon(Icons.login),
+            title: const Text('小説家になろう'),
+            subtitle: const Text('未ログイン・ブックマーク同期としおり連携'),
+            trailing: const Text('ログイン'),
+            onTap: () => const LoginRoute().push<void>(context),
           );
         }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        return ExpansionTile(
+          leading: const Icon(Icons.account_circle),
+          title: const Text('小説家になろう'),
+          subtitle: Text(user.username),
           children: [
-            _sectionHeader('なろうアカウント'),
-            ListTile(
-              leading: const Icon(Icons.account_circle),
-              title: Text(user.username),
-              subtitle: Text(user.narouid),
-            ),
             ListTile(
               leading: const Icon(Icons.sync),
               title: const Text('ブックマークを同期'),
@@ -143,9 +147,7 @@ class _MorePageState extends ConsumerState<MorePage> {
                     .read(authProvider.notifier)
                     .syncBookmarks();
                 messenger.showSnackBar(
-                  SnackBar(
-                    content: Text('$count 件のブックマークを同期しました'),
-                  ),
+                  SnackBar(content: Text('$count 件のブックマークを同期しました')),
                 );
               },
             ),
@@ -166,9 +168,80 @@ class _MorePageState extends ConsumerState<MorePage> {
       },
       loading: () => const ListTile(
         leading: CircularProgressIndicator(),
-        title: Text('読み込み中...'),
+        title: Text('小説家になろう'),
+        subtitle: Text('認証状態を確認中...'),
       ),
-      error: (e, _) => ListTile(title: Text('エラー: $e')),
+      error: (e, _) => ListTile(
+        leading: const Icon(Icons.error_outline),
+        title: const Text('小説家になろう'),
+        subtitle: Text('認証状態を確認できませんでした: $e'),
+      ),
+    );
+  }
+
+  Widget _buildKakuyomuAccountSection() {
+    final sessionAsync = ref.watch(kakuyomuSessionValidProvider);
+    return sessionAsync.when(
+      data: (isLoggedIn) {
+        if (!isLoggedIn) {
+          return ListTile(
+            leading: const Icon(Icons.login),
+            title: const Text('カクヨム'),
+            subtitle: const Text('未ログイン・公式ログイン画面を使用します'),
+            trailing: const Text('ログイン'),
+            onTap: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final success = await Navigator.of(context).push<bool>(
+                MaterialPageRoute<bool>(
+                  builder: (context) => const KakuyomuLoginPage(),
+                ),
+              );
+              ref.invalidate(kakuyomuSessionValidProvider);
+              if (success == true && mounted) {
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('カクヨムにログインしました')),
+                );
+              }
+            },
+          );
+        }
+
+        return ExpansionTile(
+          leading: const Icon(Icons.account_circle),
+          title: const Text('カクヨム'),
+          subtitle: const Text('ログイン済み'),
+          children: [
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('ログアウト'),
+              onTap: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                await ref.read(kakuyomuAuthServiceProvider).logout();
+                ref.invalidate(kakuyomuSessionValidProvider);
+                if (mounted) {
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('カクヨムからログアウトしました')),
+                  );
+                }
+              },
+            ),
+          ],
+        );
+      },
+      loading: () => const ListTile(
+        leading: CircularProgressIndicator(),
+        title: Text('カクヨム'),
+        subtitle: Text('認証状態を確認中...'),
+      ),
+      error: (e, _) => ListTile(
+        leading: const Icon(Icons.error_outline),
+        title: const Text('カクヨム'),
+        subtitle: const Text('認証状態を確認できませんでした'),
+        trailing: IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: () => ref.invalidate(kakuyomuSessionValidProvider),
+        ),
+      ),
     );
   }
 
@@ -193,12 +266,12 @@ class _MorePageState extends ConsumerState<MorePage> {
         _sectionHeader('設定'),
         ListTile(
           leading: const Icon(Icons.palette_outlined),
-          title: const Text('一般設定'), // Appearance
+          title: const Text('一般設定'),
           onTap: () => const AppearanceSettingsRoute().go(context),
         ),
         ListTile(
           leading: const Icon(Icons.chrome_reader_mode_outlined),
-          title: const Text('閲覧設定'), // Reader
+          title: const Text('閲覧設定'),
           onTap: () => const ReaderSettingsRoute().go(context),
         ),
         ListTile(
