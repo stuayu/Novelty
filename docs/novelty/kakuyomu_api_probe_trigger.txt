@@ -1,1 +1,1 @@
-2026-08-22 full reading position callsite probe final rerun
+2026-08-22 PR5 position callsite synchronize
