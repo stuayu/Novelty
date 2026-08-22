@@ -1,10 +1,9 @@
 name: Kakuyomu API Probe
 
 on:
-  pull_request:
-    branches: [develop]
-    paths:
-      - docs/novelty/kakuyomu_api_probe_trigger.txt
+  push:
+    branches:
+      - research/kakuyomu-reading-api-20260822
 
 permissions:
   contents: write
@@ -15,8 +14,6 @@ jobs:
     steps:
       - name: Checkout research branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.head_ref }}
 
       - name: Probe Kakuyomu reading API
         shell: bash
@@ -140,4 +137,4 @@ jobs:
             exit 0
           fi
           git commit -m "調査: カクヨム読書履歴API入力根拠を保存"
-          git push origin HEAD:${{ github.head_ref }}
+          git push origin HEAD:research/kakuyomu-reading-api-20260822
