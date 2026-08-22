@@ -7,6 +7,23 @@ import 'package:riverpod/riverpod.dart';
 const _kakuyomuBaseUrl = 'https://kakuyomu.jp';
 const _kakuyomuSessionCheckUrl = '$_kakuyomuBaseUrl/my';
 
+/// `/my` の HTML がログイン済み状態を示しているか判定する。
+///
+/// 未ログイン時はログイン導線 (`/auth/login` または `/login`) が表示されるため、
+/// それらが存在しない場合だけログイン済みとみなす。
+bool kakuyomuDashboardIndicatesLoggedIn(String html) {
+  if (html.isEmpty) return false;
+
+  final document = html_parser.parse(html);
+  final hasLoginLink = document.querySelectorAll('a').any((anchor) {
+    final href = anchor.attributes['href'];
+    if (href == null) return false;
+    return href == '/auth/login' || href == '/login';
+  });
+
+  return !hasLoginLink;
+}
+
 /// カクヨム認証サービスのプロバイダー。
 final kakuyomuAuthServiceProvider = Provider<KakuyomuAuthService>((ref) {
   return KakuyomuAuthService(
@@ -66,16 +83,8 @@ class KakuyomuAuthService {
       }
 
       final body = response.data;
-      if (body == null || body.isEmpty) return false;
-
-      final document = html_parser.parse(body);
-      final hasLoginLink = document.querySelectorAll('a').any((anchor) {
-        final href = anchor.attributes['href'];
-        if (href == null) return false;
-        return href == '/auth/login' || href == '/login';
-      });
-
-      return !hasLoginLink;
+      if (body == null) return false;
+      return kakuyomuDashboardIndicatesLoggedIn(body);
     } on DioException {
       return false;
     }
