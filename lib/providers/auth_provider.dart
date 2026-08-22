@@ -87,6 +87,9 @@ class Auth extends _$Auth {
   /// ブックマークを手動でなろうから同期する。
   Future<int> syncBookmarks() async {
     final adapter = ref.read(accountSyncRegistryProvider)[NovelSource.narou];
-    return adapter?.pullLibrary() ?? 0;
+    if (adapter == null) {
+      return 0;
+    }
+    return adapter.pullLibrary();
   }
 }
