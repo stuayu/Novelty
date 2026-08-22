@@ -58,22 +58,20 @@ void main() {
       expect(sentPosition, '#p42');
     });
 
-    test('position無しでは既存のカクヨム履歴を上書きしない', () async {
-      var resolved = false;
-      var pushed = false;
+    test('詳細position未指定時はviewer先頭を表す:rootを送る', () async {
+      String? sentPosition;
       final adapter = KakuyomuAccountSyncAdapter(
         sessionRepository: _FakeSessionRepository(),
         db: db,
-        episodeUrlResolver: (workId, episode) async {
-          resolved = true;
-          return null;
-        },
+        episodeUrlResolver: (workId, episode) async =>
+            'https://kakuyomu.jp/works/2912051601045930861/'
+            'episodes/2912051601046590969',
         pushReadingProgress: ({
           required workId,
           required episodeId,
           required position,
         }) async {
-          pushed = true;
+          sentPosition = position;
           return true;
         },
       );
@@ -83,10 +81,9 @@ void main() {
           workId: '2912051601045930861',
           episode: 3,
         ),
-        isFalse,
+        isTrue,
       );
-      expect(resolved, isFalse);
-      expect(pushed, isFalse);
+      expect(sentPosition, ':root');
     });
 
     test('別作品URL・別host・不正pathは送信しない', () async {
