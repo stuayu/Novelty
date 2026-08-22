@@ -18,12 +18,11 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Probe Kakuyomu current bundles
+      - name: Probe Kakuyomu reading call sites
         shell: bash
         run: |
           python3 - <<'PY'
           import html
-          import json
           import re
           import urllib.parse
           import urllib.request
@@ -39,154 +38,60 @@ jobs:
               'AppleWebKit/537.36 (KHTML, like Gecko) '
               'Chrome/143.0.0.0 Safari/537.36'
           )
-          target_tokens = (
-              'ReadingHistory',
-              'visitorReadingHistory',
-              'readingHistory',
-              'readAt',
-              'unreadEpisodeCount',
-              'DeleteReadingHistory',
-              'FollowWork',
-              'UnfollowWorks',
-              'WorkFollowing',
-              'Label',
+          tokens = (
+              'RecordReadingHistory',
+              'recordReadingHistory',
+              'IncrementReadCount',
+              'incrementReadCount',
           )
-
-          result = {
-              'capturedAt': datetime.now(timezone.utc).isoformat(),
-              'pages': pages,
-              'bundles': [],
-              'operations': [],
-          }
-          all_operations = []
-          seen_bundles = set()
-          seen_operations = set()
 
           def fetch(url):
               request = urllib.request.Request(url, headers={'User-Agent': ua})
               with urllib.request.urlopen(request, timeout=30) as response:
                   return response.read().decode('utf-8', errors='replace')
 
+          bundle_sources = {}
           for page_url in pages:
-              try:
-                  page = fetch(page_url)
-              except Exception as exc:
-                  result.setdefault('pageErrors', []).append({
-                      'url': page_url,
-                      'error': repr(exc),
-                  })
-                  continue
-
-              script_srcs = re.findall(
-                  r'<script[^>]+src=["\']([^"\']+)["\']',
-                  page,
-              )
-              for src in script_srcs:
+              page = fetch(page_url)
+              for src in re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page):
                   absolute = urllib.parse.urljoin(page_url, html.unescape(src))
-                  parsed_url = urllib.parse.urlparse(absolute)
-                  if parsed_url.netloc != 'kakuyomu.jp':
+                  parsed = urllib.parse.urlparse(absolute)
+                  if parsed.netloc != 'kakuyomu.jp' or '/_next/static/' not in absolute:
                       continue
-                  if '/_next/static/' not in absolute:
-                      continue
-                  if absolute in seen_bundles:
-                      continue
-                  seen_bundles.add(absolute)
+                  if absolute not in bundle_sources:
+                      try:
+                          bundle_sources[absolute] = fetch(absolute)
+                      except Exception:
+                          pass
 
-                  try:
-                      text = fetch(absolute)
-                  except Exception as exc:
-                      result.setdefault('bundleErrors', []).append({
-                          'url': absolute,
-                          'error': repr(exc),
-                      })
-                      continue
-
-                  decoded = (
-                      text.replace('\\\\n', '\n')
-                          .replace('\\n', '\n')
-                          .replace('\\"', '"')
-                  )
-                  contexts = []
-                  for token in target_tokens:
-                      start = 0
-                      count = 0
-                      while count < 4:
-                          index = decoded.find(token, start)
-                          if index < 0:
-                              break
-                          left = max(0, index - 1000)
-                          right = min(len(decoded), index + len(token) + 1800)
-                          contexts.append({
-                              'token': token,
-                              'snippet': decoded[left:right],
-                          })
-                          start = index + len(token)
-                          count += 1
-
-                  if contexts:
-                      result['bundles'].append({
-                          'url': absolute,
-                          'contexts': contexts,
-                      })
-
-                  for match in re.finditer(
-                      r'(?P<kind>mutation|query)\s+'
-                      r'(?P<name>[A-Za-z_][A-Za-z0-9_]*)',
-                      decoded,
-                  ):
-                      name = match.group('name')
-                      key = (match.group('kind'), name)
-                      if key in seen_operations:
-                          continue
-                      seen_operations.add(key)
-                      left = max(0, match.start() - 200)
-                      right = min(len(decoded), match.start() + 4500)
-                      snippet = decoded[left:right]
-                      operation = {
-                          'kind': match.group('kind'),
-                          'name': name,
-                          'bundle': absolute,
-                          'snippet': snippet,
-                      }
-                      all_operations.append(operation)
-                      if any(
-                          token.lower() in snippet.lower()
-                          for token in target_tokens
-                      ):
-                          result['operations'].append(operation)
-
-          output = Path('docs/novelty/kakuyomu_api_probe_result.json')
-          output.parent.mkdir(parents=True, exist_ok=True)
-          output.write_text(
-              json.dumps(result, ensure_ascii=False, indent=2) + '\n',
-              encoding='utf-8',
-          )
-
-          summary_lines = [
-              f'capturedAt={result["capturedAt"]}',
-              f'bundleCount={len(seen_bundles)}',
+          lines = [
+              f'capturedAt={datetime.now(timezone.utc).isoformat()}',
+              f'bundleCount={len(bundle_sources)}',
               '',
-              '=== operation names containing read/history/episode/follow/label ===',
           ]
-          for operation in sorted(
-              all_operations,
-              key=lambda item: (item['kind'], item['name']),
-          ):
-              haystack = operation['name'].lower()
-              if not any(
-                  token in haystack
-                  for token in ('read', 'history', 'episode', 'follow', 'label')
-              ):
-                  continue
-              summary_lines.append(
-                  f"{operation['kind']} {operation['name']} :: {operation['bundle']}"
-              )
-              compact = re.sub(r'\s+', ' ', operation['snippet']).strip()
-              summary_lines.append(compact[:1800])
-              summary_lines.append('')
+          for url, source in bundle_sources.items():
+              for token in tokens:
+                  start = 0
+                  occurrence = 0
+                  while occurrence < 12:
+                      index = source.find(token, start)
+                      if index < 0:
+                          break
+                      occurrence += 1
+                      left = max(0, index - 2500)
+                      right = min(len(source), index + len(token) + 4500)
+                      snippet = source[left:right]
+                      lines.extend([
+                          f'=== {token} #{occurrence} ===',
+                          f'bundle={url}',
+                          snippet,
+                          '',
+                      ])
+                      start = index + len(token)
 
-          summary = Path('docs/novelty/kakuyomu_reading_probe_summary.txt')
-          summary.write_text('\n'.join(summary_lines) + '\n', encoding='utf-8')
+          output = Path('docs/novelty/kakuyomu_reading_callsite_summary.txt')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
 
       - name: Commit probe result to research branch
@@ -194,11 +99,9 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add \
-            docs/novelty/kakuyomu_api_probe_result.json \
-            docs/novelty/kakuyomu_reading_probe_summary.txt
+          git add docs/novelty/kakuyomu_reading_callsite_summary.txt
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨム読書履歴operation要約を保存"
+          git commit -m "調査: カクヨム読書履歴API呼び出し箇所を保存"
           git push origin HEAD:${{ github.head_ref }}
