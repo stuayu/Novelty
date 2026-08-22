@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/router/router.dart';
-import 'package:novelty/screens/kakuyomu_login_page.dart';
-import 'package:novelty/services/kakuyomu_auth_service.dart';
-import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/utils/settings_provider.dart';
+import 'package:novelty/widgets/accounts/kakuyomu_account_tile.dart';
+import 'package:novelty/widgets/accounts/narou_account_tile.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// "もっと"ページ（設定ハブ）のウィジェット。
@@ -114,170 +112,10 @@ class _MorePageState extends ConsumerState<MorePage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionHeader('アカウント'),
-        _buildNarouAccountSection(),
+        const NarouAccountTile(),
         const Divider(indent: 56),
-        _buildKakuyomuAccountSection(),
+        const KakuyomuAccountTile(),
       ],
-    );
-  }
-
-  Widget _buildNarouAccountSection() {
-    final authAsync = ref.watch(authProvider);
-    return authAsync.when(
-      data: (user) {
-        if (user == null) {
-          return ListTile(
-            leading: const Icon(Icons.login),
-            title: const Text('小説家になろう'),
-            subtitle: const Text('未ログイン・ブックマーク同期としおり連携'),
-            trailing: const Text('ログイン'),
-            onTap: () => const LoginRoute().push<void>(context),
-          );
-        }
-        return ExpansionTile(
-          leading: const Icon(Icons.account_circle),
-          title: const Text('小説家になろう'),
-          subtitle: Text(user.username),
-          children: [
-            ListTile(
-              leading: const Icon(Icons.sync),
-              title: const Text('ブックマークを同期'),
-              onTap: () async {
-                final messenger = ScaffoldMessenger.of(context);
-                final count = await ref
-                    .read(authProvider.notifier)
-                    .syncBookmarks();
-                messenger.showSnackBar(
-                  SnackBar(content: Text('$count 件のブックマークを同期しました')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('ログアウト'),
-              onTap: () async {
-                await ref.read(authProvider.notifier).logout();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('ログアウトしました')),
-                  );
-                }
-              },
-            ),
-          ],
-        );
-      },
-      loading: () => const ListTile(
-        leading: CircularProgressIndicator(),
-        title: Text('小説家になろう'),
-        subtitle: Text('認証状態を確認中...'),
-      ),
-      error: (e, _) => ListTile(
-        leading: const Icon(Icons.error_outline),
-        title: const Text('小説家になろう'),
-        subtitle: Text('認証状態を確認できませんでした: $e'),
-      ),
-    );
-  }
-
-  Widget _buildKakuyomuAccountSection() {
-    final sessionAsync = ref.watch(kakuyomuSessionValidProvider);
-    return sessionAsync.when(
-      data: (isLoggedIn) {
-        if (!isLoggedIn) {
-          return ListTile(
-            leading: const Icon(Icons.login),
-            title: const Text('カクヨム'),
-            subtitle: const Text('未ログイン・公式ログイン画面を使用します'),
-            trailing: const Text('ログイン'),
-            onTap: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              final success = await Navigator.of(context).push<bool>(
-                MaterialPageRoute<bool>(
-                  builder: (context) => const KakuyomuLoginPage(),
-                ),
-              );
-              ref.invalidate(kakuyomuSessionValidProvider);
-              if (success == true && mounted) {
-                messenger.showSnackBar(
-                  const SnackBar(content: Text('カクヨムにログインしました')),
-                );
-              }
-            },
-          );
-        }
-
-        return ExpansionTile(
-          leading: const Icon(Icons.account_circle),
-          title: const Text('カクヨム'),
-          subtitle: const Text('ログイン済み'),
-          children: [
-            ListTile(
-              leading: const Icon(Icons.sync),
-              title: const Text('フォロー作品を同期'),
-              subtitle: const Text('カクヨムでフォロー中の作品をNoveltyへ追加します'),
-              onTap: () async {
-                final messenger = ScaffoldMessenger.of(context);
-                try {
-                  final count = await ref
-                      .read(kakuyomuAccountSyncAdapterProvider)
-                      .pullLibrary();
-                  if (!mounted) return;
-                  messenger.showSnackBar(
-                    SnackBar(content: Text('$count 件のフォロー作品を追加しました')),
-                  );
-                } on KakuyomuSessionExpiredException {
-                  try {
-                    await ref.read(kakuyomuAuthServiceProvider).logout();
-                  } on Exception {
-                    // Secure Storage / WebView Cookie削除に失敗してもUI状態は更新する。
-                  }
-                  ref.invalidate(kakuyomuSessionValidProvider);
-                  if (!mounted) return;
-                  messenger.showSnackBar(
-                    const SnackBar(
-                      content: Text('カクヨムのログイン期限が切れました。再ログインしてください'),
-                    ),
-                  );
-                } on Exception {
-                  if (!mounted) return;
-                  messenger.showSnackBar(
-                    const SnackBar(content: Text('フォロー作品の同期に失敗しました')),
-                  );
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('ログアウト'),
-              onTap: () async {
-                final messenger = ScaffoldMessenger.of(context);
-                await ref.read(kakuyomuAuthServiceProvider).logout();
-                ref.invalidate(kakuyomuSessionValidProvider);
-                if (mounted) {
-                  messenger.showSnackBar(
-                    const SnackBar(content: Text('カクヨムからログアウトしました')),
-                  );
-                }
-              },
-            ),
-          ],
-        );
-      },
-      loading: () => const ListTile(
-        leading: CircularProgressIndicator(),
-        title: Text('カクヨム'),
-        subtitle: Text('認証状態を確認中...'),
-      ),
-      error: (e, _) => ListTile(
-        leading: const Icon(Icons.error_outline),
-        title: const Text('カクヨム'),
-        subtitle: const Text('認証状態を確認できませんでした'),
-        trailing: IconButton(
-          icon: const Icon(Icons.refresh),
-          onPressed: () => ref.invalidate(kakuyomuSessionValidProvider),
-        ),
-      ),
     );
   }
 
