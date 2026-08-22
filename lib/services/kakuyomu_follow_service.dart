@@ -38,6 +38,7 @@ final kakuyomuFollowServiceProvider = Provider<KakuyomuFollowService>((ref) {
 /// - `FollowWork(input: FollowWorkInput!)` の必須フィールドは `workId: ID!`
 /// - `UnfollowWorks(input: UnfollowWorksInput!)` の必須フィールドは
 ///   `workIds: [ID!]!`
+/// - 未認証時のGraphQL error codeは `UNAUTHORIZED`
 ///
 /// ブラウザ/WebViewは使用せず、保存済みCookieをDio経由でGraphQLへ送信する。
 class KakuyomuFollowService {
@@ -99,7 +100,9 @@ class KakuyomuFollowService {
     );
     if (response == null) return AccountSyncOutcome.notLoggedIn;
 
-    if (response.statusCode == 401 || response.statusCode == 403) {
+    if (response.statusCode == 401 ||
+        response.statusCode == 403 ||
+        response.hasErrorCode('UNAUTHORIZED')) {
       return AccountSyncOutcome.notLoggedIn;
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
