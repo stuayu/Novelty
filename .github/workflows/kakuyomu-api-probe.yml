@@ -1,9 +1,10 @@
 name: Kakuyomu API Probe
 
 on:
-  push:
-    branches:
-      - research/kakuyomu-reading-api-20260822
+  pull_request:
+    branches: [develop]
+    paths:
+      - docs/novelty/kakuyomu_api_probe_trigger.txt
 
 permissions:
   contents: write
@@ -14,8 +15,10 @@ jobs:
     steps:
       - name: Checkout research branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.head_ref }}
 
-      - name: Probe Kakuyomu reading API
+      - name: Probe reading history operation and call site
         shell: bash
         run: |
           python3 - <<'PY'
@@ -72,13 +75,13 @@ jobs:
               for token in tokens:
                   start = 0
                   occurrence = 0
-                  while occurrence < 12:
+                  while occurrence < 16:
                       index = source.find(token, start)
                       if index < 0:
                           break
                       occurrence += 1
-                      left = max(0, index - 2500)
-                      right = min(len(source), index + len(token) + 4500)
+                      left = max(0, index - 3000)
+                      right = min(len(source), index + len(token) + 5500)
                       lines.extend([
                           f'=== {token} #{occurrence} ===',
                           f'bundle={url}',
@@ -137,4 +140,4 @@ jobs:
             exit 0
           fi
           git commit -m "調査: カクヨム読書履歴API入力根拠を保存"
-          git push origin HEAD:research/kakuyomu-reading-api-20260822
+          git push origin HEAD:${{ github.head_ref }}
