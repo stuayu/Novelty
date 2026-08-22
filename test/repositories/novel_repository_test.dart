@@ -740,6 +740,159 @@ void main() {
       );
     });
   });
+
+  group('NovelRepository refreshStaleLibraryMetadata', () {
+    late MockAppDatabase mockDatabase;
+    late MockApiService mockApiService;
+    late ProviderContainer container;
+
+    setUp(() {
+      mockDatabase = MockAppDatabase();
+      mockApiService = MockApiService();
+    });
+
+    ProviderContainer createContainer() {
+      return ProviderContainer(
+        overrides: [
+          db.appDatabaseProvider.overrideWithValue(mockDatabase),
+          apiServiceProvider.overrideWithValue(mockApiService),
+          settingsProvider.overrideWith(FakeSettings.new),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+    }
+
+    tearDown(() {
+      container.dispose();
+    });
+
+    db.Novel buildNovel(String ncode, {int? cachedAt}) {
+      return db.Novel(
+        source: NovelSource.narou,
+        workId: ncode,
+        title: 'テスト小説',
+        generalAllNo: 10,
+        generalLastup: 20260712234501,
+        cachedAt: cachedAt,
+        isPrivate: false,
+      );
+    }
+
+    test('cachedAtが古い小説のみAPIから再取得する', () async {
+      container = createContainer();
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      when(mockDatabase.getLibraryNovels()).thenAnswer(
+        (_) async => [
+          // 十分新しいためスキップされる
+          buildNovel('n1111aa', cachedAt: now),
+          // 古いため再取得対象
+          buildNovel(
+            'n2222bb',
+            cachedAt: now - const Duration(hours: 10).inMilliseconds,
+          ),
+          // cachedAtがnullなので再取得対象
+          buildNovel('n3333cc'),
+        ],
+      );
+      when(
+        mockApiService.fetchMultipleNovelsInfo(['n2222bb', 'n3333cc']),
+      ).thenAnswer((_) async => {});
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      verify(
+        mockApiService.fetchMultipleNovelsInfo(['n2222bb', 'n3333cc']),
+      ).called(1);
+    });
+
+    test('再取得対象が無い場合はAPIを呼び出さない', () async {
+      container = createContainer();
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      when(
+        mockDatabase.getLibraryNovels(),
+      ).thenAnswer((_) async => [buildNovel('n1111aa', cachedAt: now)]);
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      verifyNever(mockApiService.fetchMultipleNovelsInfo(any));
+    });
+
+    test('取得日時が新しくても掲載日が欠損していれば再取得する', () async {
+      container = createContainer();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      when(mockDatabase.getLibraryNovels()).thenAnswer(
+        (_) async => [
+          db.Novel(
+            source: NovelSource.narou,
+            workId: 'n1111aa',
+            title: 'テスト小説',
+            generalAllNo: 10,
+            cachedAt: now,
+            isPrivate: false,
+          ),
+        ],
+      );
+      when(
+        mockApiService.fetchMultipleNovelsInfo(['n1111aa']),
+      ).thenAnswer((_) async => {});
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      verify(
+        mockApiService.fetchMultipleNovelsInfo(['n1111aa']),
+      ).called(1);
+    });
+
+    test('再取得した最新掲載日をDBへ保存する', () async {
+      container = createContainer();
+      when(
+        mockDatabase.getLibraryNovels(),
+      ).thenAnswer((_) async => [buildNovel('n1111aa')]);
+      when(
+        mockApiService.fetchMultipleNovelsInfo(['n1111aa']),
+      ).thenAnswer(
+        (_) async => {
+          'n1111aa': const NovelInfo(
+            ncode: 'n1111aa',
+            title: '更新後タイトル',
+            generalLastup: '2026-07-12 23:45:01',
+          ),
+        },
+      );
+      when(mockDatabase.insertNovel(any)).thenAnswer((_) async => 1);
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      final captured = verify(mockDatabase.insertNovel(captureAny)).captured;
+      expect(captured, hasLength(1));
+      final companion = captured.single as db.NovelsCompanion;
+      expect(companion.title.value, '更新後タイトル');
+      expect(companion.generalLastup.value, 20260712234501);
+      expect(companion.generalAllNo.value, 10);
+    });
+
+    test('APIが例外を投げても静かに終了する', () async {
+      container = createContainer();
+
+      when(
+        mockDatabase.getLibraryNovels(),
+      ).thenAnswer((_) async => [buildNovel('n1111aa')]);
+      when(
+        mockApiService.fetchMultipleNovelsInfo(['n1111aa']),
+      ).thenThrow(Exception('network error'));
+
+      final repository = container.read(novelRepositoryProvider);
+
+      // 例外がスローされずに完了すればよい
+      await repository.refreshStaleLibraryMetadata();
+    });
+  });
 }
 
 class FakeSettings extends Settings {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/screens/more_page.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
@@ -14,6 +15,15 @@ class FakePathProviderPlatform extends Fake
   Future<String?> getApplicationDocumentsPath() async {
     return '/mock/documents';
   }
+}
+
+/// テスト用のフェイクAuth。
+///
+/// 実機のsecure storage・ネットワークアクセスを避けるため、
+/// 常に「未ログイン」を返す。
+class FakeAuth extends Auth {
+  @override
+  Future<NarouUser?> build() async => null;
 }
 
 void main() {
@@ -31,8 +41,9 @@ void main() {
 
   testWidgets('オフラインモードスイッチが表示される', (tester) async {
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
+      ProviderScope(
+        overrides: [authProvider.overrideWith(FakeAuth.new)],
+        child: const MaterialApp(
           home: MorePage(),
         ),
       ),
@@ -45,8 +56,9 @@ void main() {
 
   testWidgets('オフラインモードスイッチを切り替えると設定が永続化される', (tester) async {
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
+      ProviderScope(
+        overrides: [authProvider.overrideWith(FakeAuth.new)],
+        child: const MaterialApp(
           home: MorePage(),
         ),
       ),

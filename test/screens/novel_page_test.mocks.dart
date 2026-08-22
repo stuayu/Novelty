@@ -123,6 +123,19 @@ class MockNovelRepository extends _i1.Mock implements _i4.NovelRepository {
           as _i8.Future<void>);
 
   @override
+  _i8.Future<void> refreshStaleLibraryMetadata({
+    Duration? staleAfter = const Duration(hours: 6),
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#refreshStaleLibraryMetadata, [], {
+              #staleAfter: staleAfter,
+            }),
+            returnValue: _i8.Future<void>.value(),
+            returnValueForMissingStub: _i8.Future<void>.value(),
+          )
+          as _i8.Future<void>);
+
+  @override
   _i8.Future<void> addToHistory({
     required _i10.NovelSource? source,
     required String? workId,

@@ -84,6 +84,19 @@ void main() {
       expect(await stream.first, true);
     });
 
+    test('watchLibraryNovelsがaddedAtを含めて返すこと', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+
+      await database.addToLibrary(NovelSource.narou, ncode);
+
+      final entries = await database.watchLibraryNovels().first;
+      expect(entries.length, 1);
+      expect(entries.first.novel.workId, ncode);
+      expect(entries.first.addedAt, isA<int>());
+      expect(entries.first.addedAt, greaterThan(0));
+    });
+
     test('追加日時順でソートされること', () async {
       // 複数の小説を追加（時間をずらして）
       await insertDummyNovel('n1234ab');
@@ -104,6 +117,97 @@ void main() {
       expect(novels[0].workId, 'n9012ef');
       expect(novels[1].workId, 'n5678cd');
       expect(novels[2].workId, 'n1234ab');
+    });
+
+    test('なろう同期状態の初期値はfalseであること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(NovelSource.narou, ncode);
+
+      expect(await database.isNarouBookmarkSynced(NovelSource.narou, ncode), false);
+    });
+
+    test('markNarouBookmarkSyncedでなろう同期状態がtrueになること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(NovelSource.narou, ncode);
+
+      await database.markNarouBookmarkSynced(NovelSource.narou, ncode);
+
+      expect(await database.isNarouBookmarkSynced(NovelSource.narou, ncode), true);
+    });
+
+    test('ライブラリ未登録の小説はなろう同期状態がfalseであること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+
+      expect(await database.isNarouBookmarkSynced(NovelSource.narou, ncode), false);
+    });
+
+    test('markNarouBookmarkSyncedでuseridFavncode・tokenも保存できること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(NovelSource.narou, ncode);
+
+      await database.markNarouBookmarkSynced(
+        NovelSource.narou,
+        ncode,
+        useridFavncode: '1119968_3231307',
+        favToken: '3d05fae7f1247fa4a905e99f1ff1773d',
+      );
+
+      final favToken = await database.getNarouFavToken(NovelSource.narou, ncode);
+      expect(favToken, isNotNull);
+      expect(favToken!.useridFavncode, '1119968_3231307');
+      expect(favToken.token, '3d05fae7f1247fa4a905e99f1ff1773d');
+    });
+
+    test('useridFavncode・tokenを指定しない場合はgetNarouFavTokenがnullを返すこと', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(NovelSource.narou, ncode);
+
+      await database.markNarouBookmarkSynced(NovelSource.narou, ncode);
+
+      expect(await database.getNarouFavToken(NovelSource.narou, ncode), isNull);
+    });
+
+    test('ライブラリ未登録の小説はgetNarouFavTokenがnullを返すこと', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+
+      expect(await database.getNarouFavToken(NovelSource.narou, ncode), isNull);
+    });
+
+    test('閲覧履歴が無い場合はlastViewedAtがnullであること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(NovelSource.narou, ncode);
+
+      final entries = await database.watchLibraryNovels().first;
+      expect(entries.length, 1);
+      expect(entries.first.lastViewedAt, isNull);
+    });
+
+    test('閲覧履歴があればwatchLibraryNovelsがlastViewedAtを含めて返すこと', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+      await database.addToLibrary(NovelSource.narou, ncode);
+
+      // addToHistoryはviewedAtを常に現在時刻で記録する
+      final beforeAdd = DateTime.now().millisecondsSinceEpoch;
+      await database.addToHistory(
+        ReadingHistoryCompanion(
+          source: const Value(NovelSource.narou),
+          workId: Value(ncode),
+          lastEpisodeId: const Value(3),
+        ),
+      );
+
+      final entries = await database.watchLibraryNovels().first;
+      expect(entries.length, 1);
+      expect(entries.first.lastViewedAt, isNotNull);
+      expect(entries.first.lastViewedAt, greaterThanOrEqualTo(beforeAdd));
     });
 
     test('重複追加は無視されること', () async {

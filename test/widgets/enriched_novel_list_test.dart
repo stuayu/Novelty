@@ -6,12 +6,23 @@ import 'package:mockito/mockito.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/domain/novel_enrichment.dart';
 import 'package:novelty/models/novel_info.dart';
+import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/api_service.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/widgets/enriched_novel_list.dart';
 import 'package:novelty/widgets/novel_list_tile.dart';
 
 import 'enriched_novel_list_test.mocks.dart';
+
+/// テスト用のフェイクAuthRepository。
+///
+/// 実機のsecure storageプラグインに触れると、ウィジェットテスト環境では
+/// プラットフォームチャンネルの応答が返らずハングするため、
+/// 常に「未ログイン」を即座に返すフェイクに差し替える。
+class _FakeAuthRepository extends AuthRepository {
+  @override
+  Future<String?> buildCookieHeader() async => null;
+}
 
 @GenerateMocks([AppDatabase, ApiService])
 void main() {
@@ -85,6 +96,8 @@ void main() {
       overrides: [
         appDatabaseProvider.overrideWithValue(mockDb),
         apiServiceProvider.overrideWithValue(mockApiService),
+        // 実機のsecure storageに触れないようフェイクに差し替える
+        authRepositoryProvider.overrideWithValue(_FakeAuthRepository()),
         // InvalidateされるProviderたちをダミーでオーバーライド
         libraryNovelsProvider.overrideWith((ref) => Stream.value([])),
       ],

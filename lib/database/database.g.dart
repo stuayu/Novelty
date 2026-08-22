@@ -2147,6 +2147,432 @@ class LibraryEntriesCompanion extends drift.UpdateCompanion<LibraryEntry> {
   }
 }
 
+class $NarouSyncEntriesTable extends NarouSyncEntries
+    with drift.TableInfo<$NarouSyncEntriesTable, NarouSyncEntry> {
+  @override
+  final drift.GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NarouSyncEntriesTable(this.attachedDatabase, [this._alias]);
+  @override
+  late final drift.GeneratedColumnWithTypeConverter<NovelSource, String>
+  source = drift.GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  ).withConverter<NovelSource>($NarouSyncEntriesTable.$convertersource);
+  static const drift.VerificationMeta _workIdMeta =
+      const drift.VerificationMeta('workId');
+  @override
+  late final drift.GeneratedColumn<String> workId =
+      drift.GeneratedColumn<String>(
+        'work_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const drift.VerificationMeta _narouBookmarkSyncedAtMeta =
+      const drift.VerificationMeta('narouBookmarkSyncedAt');
+  @override
+  late final drift.GeneratedColumn<int> narouBookmarkSyncedAt =
+      drift.GeneratedColumn<int>(
+        'narou_bookmark_synced_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      );
+  static const drift.VerificationMeta _narouUseridFavncodeMeta =
+      const drift.VerificationMeta('narouUseridFavncode');
+  @override
+  late final drift.GeneratedColumn<String> narouUseridFavncode =
+      drift.GeneratedColumn<String>(
+        'narou_userid_favncode',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const drift.VerificationMeta _narouFavTokenMeta =
+      const drift.VerificationMeta('narouFavToken');
+  @override
+  late final drift.GeneratedColumn<String> narouFavToken =
+      drift.GeneratedColumn<String>(
+        'narou_fav_token',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  @override
+  List<drift.GeneratedColumn> get $columns => [
+    source,
+    workId,
+    narouBookmarkSyncedAt,
+    narouUseridFavncode,
+    narouFavToken,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'narou_sync_entries';
+  @override
+  drift.VerificationContext validateIntegrity(
+    drift.Insertable<NarouSyncEntry> instance, {
+    bool isInserting = false,
+  }) {
+    final context = drift.VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('work_id')) {
+      context.handle(
+        _workIdMeta,
+        workId.isAcceptableOrUnknown(data['work_id']!, _workIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_workIdMeta);
+    }
+    if (data.containsKey('narou_bookmark_synced_at')) {
+      context.handle(
+        _narouBookmarkSyncedAtMeta,
+        narouBookmarkSyncedAt.isAcceptableOrUnknown(
+          data['narou_bookmark_synced_at']!,
+          _narouBookmarkSyncedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('narou_userid_favncode')) {
+      context.handle(
+        _narouUseridFavncodeMeta,
+        narouUseridFavncode.isAcceptableOrUnknown(
+          data['narou_userid_favncode']!,
+          _narouUseridFavncodeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('narou_fav_token')) {
+      context.handle(
+        _narouFavTokenMeta,
+        narouFavToken.isAcceptableOrUnknown(
+          data['narou_fav_token']!,
+          _narouFavTokenMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<drift.GeneratedColumn> get $primaryKey => {source, workId};
+  @override
+  NarouSyncEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NarouSyncEntry(
+      source: $NarouSyncEntriesTable.$convertersource.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}source'],
+        )!,
+      ),
+      workId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}work_id'],
+      )!,
+      narouBookmarkSyncedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}narou_bookmark_synced_at'],
+      ),
+      narouUseridFavncode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}narou_userid_favncode'],
+      ),
+      narouFavToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}narou_fav_token'],
+      ),
+    );
+  }
+
+  @override
+  $NarouSyncEntriesTable createAlias(String alias) {
+    return $NarouSyncEntriesTable(attachedDatabase, alias);
+  }
+
+  static drift.TypeConverter<NovelSource, String> $convertersource =
+      const NovelSourceConverter();
+}
+
+class NarouSyncEntry extends drift.DataClass
+    implements drift.Insertable<NarouSyncEntry> {
+  /// 提供サイト（プロバイダ）。常に[NovelSource.narou]。
+  final NovelSource source;
+
+  /// 小説の作品ID（なろうのNコード。参照整合性はアプリ層で担保）
+  final String workId;
+
+  /// なろう本家へのブックマーク登録が成功した日時（UNIXミリ秒）。
+  /// nullの場合はなろう側への同期が未完了・未確認であることを示す。
+  final int? narouBookmarkSyncedAt;
+
+  /// なろう本家のブックマークID（"{userid}_{favncode}"形式）。
+  /// しおり更新(ichiupdateajax)のURL構築に使用する。
+  final String? narouUseridFavncode;
+
+  /// なろう本家のブックマーク操作用トークン（addajax登録時に発行される）。
+  /// しおり更新(ichiupdateajax)のtokenパラメータとして再利用する。
+  final String? narouFavToken;
+  const NarouSyncEntry({
+    required this.source,
+    required this.workId,
+    this.narouBookmarkSyncedAt,
+    this.narouUseridFavncode,
+    this.narouFavToken,
+  });
+  @override
+  Map<String, drift.Expression> toColumns(bool nullToAbsent) {
+    final map = <String, drift.Expression>{};
+    {
+      map['source'] = drift.Variable<String>(
+        $NarouSyncEntriesTable.$convertersource.toSql(source),
+      );
+    }
+    map['work_id'] = drift.Variable<String>(workId);
+    if (!nullToAbsent || narouBookmarkSyncedAt != null) {
+      map['narou_bookmark_synced_at'] = drift.Variable<int>(
+        narouBookmarkSyncedAt,
+      );
+    }
+    if (!nullToAbsent || narouUseridFavncode != null) {
+      map['narou_userid_favncode'] = drift.Variable<String>(
+        narouUseridFavncode,
+      );
+    }
+    if (!nullToAbsent || narouFavToken != null) {
+      map['narou_fav_token'] = drift.Variable<String>(narouFavToken);
+    }
+    return map;
+  }
+
+  NarouSyncEntriesCompanion toCompanion(bool nullToAbsent) {
+    return NarouSyncEntriesCompanion(
+      source: drift.Value(source),
+      workId: drift.Value(workId),
+      narouBookmarkSyncedAt: narouBookmarkSyncedAt == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(narouBookmarkSyncedAt),
+      narouUseridFavncode: narouUseridFavncode == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(narouUseridFavncode),
+      narouFavToken: narouFavToken == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(narouFavToken),
+    );
+  }
+
+  factory NarouSyncEntry.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= drift.driftRuntimeOptions.defaultSerializer;
+    return NarouSyncEntry(
+      source: serializer.fromJson<NovelSource>(json['source']),
+      workId: serializer.fromJson<String>(json['workId']),
+      narouBookmarkSyncedAt: serializer.fromJson<int?>(
+        json['narouBookmarkSyncedAt'],
+      ),
+      narouUseridFavncode: serializer.fromJson<String?>(
+        json['narouUseridFavncode'],
+      ),
+      narouFavToken: serializer.fromJson<String?>(json['narouFavToken']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= drift.driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'source': serializer.toJson<NovelSource>(source),
+      'workId': serializer.toJson<String>(workId),
+      'narouBookmarkSyncedAt': serializer.toJson<int?>(narouBookmarkSyncedAt),
+      'narouUseridFavncode': serializer.toJson<String?>(narouUseridFavncode),
+      'narouFavToken': serializer.toJson<String?>(narouFavToken),
+    };
+  }
+
+  NarouSyncEntry copyWith({
+    NovelSource? source,
+    String? workId,
+    drift.Value<int?> narouBookmarkSyncedAt = const drift.Value.absent(),
+    drift.Value<String?> narouUseridFavncode = const drift.Value.absent(),
+    drift.Value<String?> narouFavToken = const drift.Value.absent(),
+  }) => NarouSyncEntry(
+    source: source ?? this.source,
+    workId: workId ?? this.workId,
+    narouBookmarkSyncedAt: narouBookmarkSyncedAt.present
+        ? narouBookmarkSyncedAt.value
+        : this.narouBookmarkSyncedAt,
+    narouUseridFavncode: narouUseridFavncode.present
+        ? narouUseridFavncode.value
+        : this.narouUseridFavncode,
+    narouFavToken: narouFavToken.present
+        ? narouFavToken.value
+        : this.narouFavToken,
+  );
+  NarouSyncEntry copyWithCompanion(NarouSyncEntriesCompanion data) {
+    return NarouSyncEntry(
+      source: data.source.present ? data.source.value : this.source,
+      workId: data.workId.present ? data.workId.value : this.workId,
+      narouBookmarkSyncedAt: data.narouBookmarkSyncedAt.present
+          ? data.narouBookmarkSyncedAt.value
+          : this.narouBookmarkSyncedAt,
+      narouUseridFavncode: data.narouUseridFavncode.present
+          ? data.narouUseridFavncode.value
+          : this.narouUseridFavncode,
+      narouFavToken: data.narouFavToken.present
+          ? data.narouFavToken.value
+          : this.narouFavToken,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NarouSyncEntry(')
+          ..write('source: $source, ')
+          ..write('workId: $workId, ')
+          ..write('narouBookmarkSyncedAt: $narouBookmarkSyncedAt, ')
+          ..write('narouUseridFavncode: $narouUseridFavncode, ')
+          ..write('narouFavToken: $narouFavToken')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    source,
+    workId,
+    narouBookmarkSyncedAt,
+    narouUseridFavncode,
+    narouFavToken,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NarouSyncEntry &&
+          other.source == this.source &&
+          other.workId == this.workId &&
+          other.narouBookmarkSyncedAt == this.narouBookmarkSyncedAt &&
+          other.narouUseridFavncode == this.narouUseridFavncode &&
+          other.narouFavToken == this.narouFavToken);
+}
+
+class NarouSyncEntriesCompanion extends drift.UpdateCompanion<NarouSyncEntry> {
+  final drift.Value<NovelSource> source;
+  final drift.Value<String> workId;
+  final drift.Value<int?> narouBookmarkSyncedAt;
+  final drift.Value<String?> narouUseridFavncode;
+  final drift.Value<String?> narouFavToken;
+  final drift.Value<int> rowid;
+  const NarouSyncEntriesCompanion({
+    this.source = const drift.Value.absent(),
+    this.workId = const drift.Value.absent(),
+    this.narouBookmarkSyncedAt = const drift.Value.absent(),
+    this.narouUseridFavncode = const drift.Value.absent(),
+    this.narouFavToken = const drift.Value.absent(),
+    this.rowid = const drift.Value.absent(),
+  });
+  NarouSyncEntriesCompanion.insert({
+    required NovelSource source,
+    required String workId,
+    this.narouBookmarkSyncedAt = const drift.Value.absent(),
+    this.narouUseridFavncode = const drift.Value.absent(),
+    this.narouFavToken = const drift.Value.absent(),
+    this.rowid = const drift.Value.absent(),
+  }) : source = drift.Value(source),
+       workId = drift.Value(workId);
+  static drift.Insertable<NarouSyncEntry> custom({
+    drift.Expression<String>? source,
+    drift.Expression<String>? workId,
+    drift.Expression<int>? narouBookmarkSyncedAt,
+    drift.Expression<String>? narouUseridFavncode,
+    drift.Expression<String>? narouFavToken,
+    drift.Expression<int>? rowid,
+  }) {
+    return drift.RawValuesInsertable({
+      if (source != null) 'source': source,
+      if (workId != null) 'work_id': workId,
+      if (narouBookmarkSyncedAt != null)
+        'narou_bookmark_synced_at': narouBookmarkSyncedAt,
+      if (narouUseridFavncode != null)
+        'narou_userid_favncode': narouUseridFavncode,
+      if (narouFavToken != null) 'narou_fav_token': narouFavToken,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NarouSyncEntriesCompanion copyWith({
+    drift.Value<NovelSource>? source,
+    drift.Value<String>? workId,
+    drift.Value<int?>? narouBookmarkSyncedAt,
+    drift.Value<String?>? narouUseridFavncode,
+    drift.Value<String?>? narouFavToken,
+    drift.Value<int>? rowid,
+  }) {
+    return NarouSyncEntriesCompanion(
+      source: source ?? this.source,
+      workId: workId ?? this.workId,
+      narouBookmarkSyncedAt:
+          narouBookmarkSyncedAt ?? this.narouBookmarkSyncedAt,
+      narouUseridFavncode: narouUseridFavncode ?? this.narouUseridFavncode,
+      narouFavToken: narouFavToken ?? this.narouFavToken,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, drift.Expression> toColumns(bool nullToAbsent) {
+    final map = <String, drift.Expression>{};
+    if (source.present) {
+      map['source'] = drift.Variable<String>(
+        $NarouSyncEntriesTable.$convertersource.toSql(source.value),
+      );
+    }
+    if (workId.present) {
+      map['work_id'] = drift.Variable<String>(workId.value);
+    }
+    if (narouBookmarkSyncedAt.present) {
+      map['narou_bookmark_synced_at'] = drift.Variable<int>(
+        narouBookmarkSyncedAt.value,
+      );
+    }
+    if (narouUseridFavncode.present) {
+      map['narou_userid_favncode'] = drift.Variable<String>(
+        narouUseridFavncode.value,
+      );
+    }
+    if (narouFavToken.present) {
+      map['narou_fav_token'] = drift.Variable<String>(narouFavToken.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = drift.Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NarouSyncEntriesCompanion(')
+          ..write('source: $source, ')
+          ..write('workId: $workId, ')
+          ..write('narouBookmarkSyncedAt: $narouBookmarkSyncedAt, ')
+          ..write('narouUseridFavncode: $narouUseridFavncode, ')
+          ..write('narouFavToken: $narouFavToken, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $ReadingHistoryTable extends ReadingHistory
     with drift.TableInfo<$ReadingHistoryTable, ReadingHistoryData> {
   @override
@@ -3518,6 +3944,9 @@ abstract class _$AppDatabase extends drift.GeneratedDatabase {
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $NovelsTable novels = $NovelsTable(this);
   late final $LibraryEntriesTable libraryEntries = $LibraryEntriesTable(this);
+  late final $NarouSyncEntriesTable narouSyncEntries = $NarouSyncEntriesTable(
+    this,
+  );
   late final $ReadingHistoryTable readingHistory = $ReadingHistoryTable(this);
   late final $EpisodeListEntriesTable episodeListEntries =
       $EpisodeListEntriesTable(this);
@@ -3531,6 +3960,7 @@ abstract class _$AppDatabase extends drift.GeneratedDatabase {
   List<drift.DatabaseSchemaEntity> get allSchemaEntities => [
     novels,
     libraryEntries,
+    narouSyncEntries,
     readingHistory,
     episodeListEntries,
     episodeContents,
@@ -4463,6 +4893,229 @@ typedef $$LibraryEntriesTableProcessedTableManager =
       LibraryEntry,
       drift.PrefetchHooks Function()
     >;
+typedef $$NarouSyncEntriesTableCreateCompanionBuilder =
+    NarouSyncEntriesCompanion Function({
+      required NovelSource source,
+      required String workId,
+      drift.Value<int?> narouBookmarkSyncedAt,
+      drift.Value<String?> narouUseridFavncode,
+      drift.Value<String?> narouFavToken,
+      drift.Value<int> rowid,
+    });
+typedef $$NarouSyncEntriesTableUpdateCompanionBuilder =
+    NarouSyncEntriesCompanion Function({
+      drift.Value<NovelSource> source,
+      drift.Value<String> workId,
+      drift.Value<int?> narouBookmarkSyncedAt,
+      drift.Value<String?> narouUseridFavncode,
+      drift.Value<String?> narouFavToken,
+      drift.Value<int> rowid,
+    });
+
+class $$NarouSyncEntriesTableFilterComposer
+    extends drift.Composer<_$AppDatabase, $NarouSyncEntriesTable> {
+  $$NarouSyncEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  drift.ColumnWithTypeConverterFilters<NovelSource, NovelSource, String>
+  get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => drift.ColumnWithTypeConverterFilters(column),
+  );
+
+  drift.ColumnFilters<String> get workId => $composableBuilder(
+    column: $table.workId,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<int> get narouBookmarkSyncedAt => $composableBuilder(
+    column: $table.narouBookmarkSyncedAt,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<String> get narouUseridFavncode => $composableBuilder(
+    column: $table.narouUseridFavncode,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<String> get narouFavToken => $composableBuilder(
+    column: $table.narouFavToken,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+}
+
+class $$NarouSyncEntriesTableOrderingComposer
+    extends drift.Composer<_$AppDatabase, $NarouSyncEntriesTable> {
+  $$NarouSyncEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  drift.ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<String> get workId => $composableBuilder(
+    column: $table.workId,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<int> get narouBookmarkSyncedAt => $composableBuilder(
+    column: $table.narouBookmarkSyncedAt,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<String> get narouUseridFavncode => $composableBuilder(
+    column: $table.narouUseridFavncode,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<String> get narouFavToken => $composableBuilder(
+    column: $table.narouFavToken,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+}
+
+class $$NarouSyncEntriesTableAnnotationComposer
+    extends drift.Composer<_$AppDatabase, $NarouSyncEntriesTable> {
+  $$NarouSyncEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  drift.GeneratedColumnWithTypeConverter<NovelSource, String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  drift.GeneratedColumn<String> get workId =>
+      $composableBuilder(column: $table.workId, builder: (column) => column);
+
+  drift.GeneratedColumn<int> get narouBookmarkSyncedAt => $composableBuilder(
+    column: $table.narouBookmarkSyncedAt,
+    builder: (column) => column,
+  );
+
+  drift.GeneratedColumn<String> get narouUseridFavncode => $composableBuilder(
+    column: $table.narouUseridFavncode,
+    builder: (column) => column,
+  );
+
+  drift.GeneratedColumn<String> get narouFavToken => $composableBuilder(
+    column: $table.narouFavToken,
+    builder: (column) => column,
+  );
+}
+
+class $$NarouSyncEntriesTableTableManager
+    extends
+        drift.RootTableManager<
+          _$AppDatabase,
+          $NarouSyncEntriesTable,
+          NarouSyncEntry,
+          $$NarouSyncEntriesTableFilterComposer,
+          $$NarouSyncEntriesTableOrderingComposer,
+          $$NarouSyncEntriesTableAnnotationComposer,
+          $$NarouSyncEntriesTableCreateCompanionBuilder,
+          $$NarouSyncEntriesTableUpdateCompanionBuilder,
+          (
+            NarouSyncEntry,
+            drift.BaseReferences<
+              _$AppDatabase,
+              $NarouSyncEntriesTable,
+              NarouSyncEntry
+            >,
+          ),
+          NarouSyncEntry,
+          drift.PrefetchHooks Function()
+        > {
+  $$NarouSyncEntriesTableTableManager(
+    _$AppDatabase db,
+    $NarouSyncEntriesTable table,
+  ) : super(
+        drift.TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NarouSyncEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NarouSyncEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NarouSyncEntriesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                drift.Value<NovelSource> source = const drift.Value.absent(),
+                drift.Value<String> workId = const drift.Value.absent(),
+                drift.Value<int?> narouBookmarkSyncedAt =
+                    const drift.Value.absent(),
+                drift.Value<String?> narouUseridFavncode =
+                    const drift.Value.absent(),
+                drift.Value<String?> narouFavToken = const drift.Value.absent(),
+                drift.Value<int> rowid = const drift.Value.absent(),
+              }) => NarouSyncEntriesCompanion(
+                source: source,
+                workId: workId,
+                narouBookmarkSyncedAt: narouBookmarkSyncedAt,
+                narouUseridFavncode: narouUseridFavncode,
+                narouFavToken: narouFavToken,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required NovelSource source,
+                required String workId,
+                drift.Value<int?> narouBookmarkSyncedAt =
+                    const drift.Value.absent(),
+                drift.Value<String?> narouUseridFavncode =
+                    const drift.Value.absent(),
+                drift.Value<String?> narouFavToken = const drift.Value.absent(),
+                drift.Value<int> rowid = const drift.Value.absent(),
+              }) => NarouSyncEntriesCompanion.insert(
+                source: source,
+                workId: workId,
+                narouBookmarkSyncedAt: narouBookmarkSyncedAt,
+                narouUseridFavncode: narouUseridFavncode,
+                narouFavToken: narouFavToken,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (e.readTable(table), drift.BaseReferences(db, table, e)),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NarouSyncEntriesTableProcessedTableManager =
+    drift.ProcessedTableManager<
+      _$AppDatabase,
+      $NarouSyncEntriesTable,
+      NarouSyncEntry,
+      $$NarouSyncEntriesTableFilterComposer,
+      $$NarouSyncEntriesTableOrderingComposer,
+      $$NarouSyncEntriesTableAnnotationComposer,
+      $$NarouSyncEntriesTableCreateCompanionBuilder,
+      $$NarouSyncEntriesTableUpdateCompanionBuilder,
+      (
+        NarouSyncEntry,
+        drift.BaseReferences<
+          _$AppDatabase,
+          $NarouSyncEntriesTable,
+          NarouSyncEntry
+        >,
+      ),
+      NarouSyncEntry,
+      drift.PrefetchHooks Function()
+    >;
 typedef $$ReadingHistoryTableCreateCompanionBuilder =
     ReadingHistoryCompanion Function({
       required NovelSource source,
@@ -5201,6 +5854,8 @@ class $AppDatabaseManager {
       $$NovelsTableTableManager(_db, _db.novels);
   $$LibraryEntriesTableTableManager get libraryEntries =>
       $$LibraryEntriesTableTableManager(_db, _db.libraryEntries);
+  $$NarouSyncEntriesTableTableManager get narouSyncEntries =>
+      $$NarouSyncEntriesTableTableManager(_db, _db.narouSyncEntries);
   $$ReadingHistoryTableTableManager get readingHistory =>
       $$ReadingHistoryTableTableManager(_db, _db.readingHistory);
   $$EpisodeListEntriesTableTableManager get episodeListEntries =>

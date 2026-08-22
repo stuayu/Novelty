@@ -303,6 +303,52 @@ void main() {
       expect(settings.isRubyEnabled, isTrue);
       expect(settings.lineHeight, equals(1.3));
     });
+
+    test(
+      '未設定時はlibraryMetadataRefreshIntervalMinutesがデフォルト値(180)であること',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+
+        final settings = await container.read(settingsProvider.future);
+
+        expect(
+          settings.libraryMetadataRefreshIntervalMinutes,
+          equals(defaultLibraryMetadataRefreshIntervalMinutes),
+        );
+      },
+    );
+
+    test('保存済みのlibraryMetadataRefreshIntervalMinutesを読み込めること', () async {
+      SharedPreferences.setMockInitialValues({
+        'library_metadata_refresh_interval_minutes': 60,
+      });
+
+      final settings = await container.read(settingsProvider.future);
+
+      expect(settings.libraryMetadataRefreshIntervalMinutes, equals(60));
+    });
+
+    test('setLibraryMetadataRefreshIntervalMinutesで値を更新できること', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      await container.read(settingsProvider.future);
+
+      final settingsNotifier = container.read(settingsProvider.notifier);
+      await settingsNotifier.setLibraryMetadataRefreshIntervalMinutes(60);
+
+      final asyncValue = container.read(settingsProvider);
+      expect(asyncValue.hasValue, isTrue);
+      expect(
+        asyncValue.value!.libraryMetadataRefreshIntervalMinutes,
+        equals(60),
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getInt('library_metadata_refresh_interval_minutes'),
+        equals(60),
+      );
+    });
   });
 
   group('AppSettings', () {
@@ -320,6 +366,10 @@ void main() {
       expect(settings.fontSize, equals(16.0));
       expect(settings.isVertical, isFalse);
       expect(settings.isRubyEnabled, isTrue);
+      expect(
+        settings.libraryMetadataRefreshIntervalMinutes,
+        equals(defaultLibraryMetadataRefreshIntervalMinutes),
+      );
     });
 
     test('should create copy with updated values', () {

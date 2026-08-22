@@ -75,6 +75,11 @@ RouteBase get $appShellRouteData => StatefulShellRouteData.$route(
               hasOverriddenOnExit: false,
               factory: $DownloadsRoute._fromState,
             ),
+            GoRouteData.$route(
+              path: 'login',
+              hasOverriddenOnExit: false,
+              factory: $LoginRoute._fromState,
+            ),
           ],
         ),
       ],
@@ -256,6 +261,26 @@ mixin $DownloadsRoute on GoRouteData {
 
   @override
   String get location => GoRouteData.$location('/more/downloads');
+
+  @override
+  void go(BuildContext context) => context.go(location);
+
+  @override
+  Future<T?> push<T>(BuildContext context) => context.push<T>(location);
+
+  @override
+  void pushReplacement(BuildContext context) =>
+      context.pushReplacement(location);
+
+  @override
+  void replace(BuildContext context) => context.replace(location);
+}
+
+mixin $LoginRoute on GoRouteData {
+  static LoginRoute _fromState(GoRouterState state) => const LoginRoute();
+
+  @override
+  String get location => GoRouteData.$location('/more/login');
 
   @override
   void go(BuildContext context) => context.go(location);

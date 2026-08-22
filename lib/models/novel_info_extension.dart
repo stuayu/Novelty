@@ -20,12 +20,9 @@ extension NovelInfoFromDb on db.Novel {
       genreId: genreId,
       generalAllNo: generalAllNo,
       keyword: keyword,
-      // DB定義はIntColumnだが、NovelInfoはString期待。
-      // 現状の実装(toDbCompanion)ではint.tryParseしており、
-      // 日付文字列がパースできずnullになっている可能性が高いが、
-      // 値が入っている場合は文字列として返す。
-      generalFirstup: generalFirstup?.toString(),
-      generalLastup: generalLastup?.toString(),
+      // DBではソート可能な14桁整数、モデルではAPIと同じ日時文字列で扱う。
+      generalFirstup: sortableIntToNarouDateTime(generalFirstup),
+      generalLastup: sortableIntToNarouDateTime(generalLastup),
 
       globalPoint: globalPoint,
 

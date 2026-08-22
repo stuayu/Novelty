@@ -296,7 +296,7 @@ final class LibraryStatusProvider
   }
 }
 
-String _$libraryStatusHash() => r'7789ad4534cb893cc9fbcfd86a8d471524effc49';
+String _$libraryStatusHash() => r'564ab9285712d6b2d98a4f54372e0f49fc4d7b93';
 
 /// 小説のライブラリ状態を管理するプロバイダー。
 
@@ -717,3 +717,72 @@ final class LastReadEpisodeFamily extends $Family
   @override
   String toString() => r'lastReadEpisodeProvider';
 }
+
+/// アプリ起動中、ライブラリ小説の最新話掲載日などのメタデータを
+/// バックグラウンドで定期的に再取得するプロバイダー。
+///
+/// ライブラリ画面が開かれたタイミングで初回実行し、以降は設定画面で
+/// 指定された間隔（[AppSettings.libraryMetadataRefreshIntervalMinutes]、
+/// デフォルト[defaultLibraryMetadataRefreshIntervalMinutes]分）で再実行し
+/// 続ける。これにより、`general_lastup`基準のソート・フィルタが実際の
+/// 最新話掲載状況を反映できるようにする。
+///
+/// 間隔設定が変更されると本プロバイダーが再構築され、新しい間隔で
+/// タイマーが再設定される。
+
+@ProviderFor(libraryMetadataRefresher)
+final libraryMetadataRefresherProvider = LibraryMetadataRefresherProvider._();
+
+/// アプリ起動中、ライブラリ小説の最新話掲載日などのメタデータを
+/// バックグラウンドで定期的に再取得するプロバイダー。
+///
+/// ライブラリ画面が開かれたタイミングで初回実行し、以降は設定画面で
+/// 指定された間隔（[AppSettings.libraryMetadataRefreshIntervalMinutes]、
+/// デフォルト[defaultLibraryMetadataRefreshIntervalMinutes]分）で再実行し
+/// 続ける。これにより、`general_lastup`基準のソート・フィルタが実際の
+/// 最新話掲載状況を反映できるようにする。
+///
+/// 間隔設定が変更されると本プロバイダーが再構築され、新しい間隔で
+/// タイマーが再設定される。
+
+final class LibraryMetadataRefresherProvider
+    extends $FunctionalProvider<AsyncValue<void>, void, FutureOr<void>>
+    with $FutureModifier<void>, $FutureProvider<void> {
+  /// アプリ起動中、ライブラリ小説の最新話掲載日などのメタデータを
+  /// バックグラウンドで定期的に再取得するプロバイダー。
+  ///
+  /// ライブラリ画面が開かれたタイミングで初回実行し、以降は設定画面で
+  /// 指定された間隔（[AppSettings.libraryMetadataRefreshIntervalMinutes]、
+  /// デフォルト[defaultLibraryMetadataRefreshIntervalMinutes]分）で再実行し
+  /// 続ける。これにより、`general_lastup`基準のソート・フィルタが実際の
+  /// 最新話掲載状況を反映できるようにする。
+  ///
+  /// 間隔設定が変更されると本プロバイダーが再構築され、新しい間隔で
+  /// タイマーが再設定される。
+  LibraryMetadataRefresherProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'libraryMetadataRefresherProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$libraryMetadataRefresherHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<void> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<void> create(Ref ref) {
+    return libraryMetadataRefresher(ref);
+  }
+}
+
+String _$libraryMetadataRefresherHash() =>
+    r'1c0812d47f9f14c85fb19e6c8b041b11242712a6';

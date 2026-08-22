@@ -132,7 +132,7 @@ class _DataStoragePageState extends ConsumerState<DataStoragePage> {
           ),
         ),
         settingsAsync.when(
-          data: (settings) => const SizedBox.shrink(),
+          data: _buildLibraryMetadataRefreshIntervalTile,
           loading: () => const ListTile(
             title: Text('読み込み中...'),
             leading: CircularProgressIndicator(),
@@ -148,6 +148,70 @@ class _DataStoragePageState extends ConsumerState<DataStoragePage> {
         ),
       ],
     );
+  }
+
+  /// ライブラリ小説のメタデータ再取得間隔を選択するListTileを構築
+  static const _libraryMetadataRefreshIntervalOptions = <int>[
+    30,
+    60,
+    180,
+    360,
+    720,
+    1440,
+  ];
+
+  Widget _buildLibraryMetadataRefreshIntervalTile(AppSettings settings) {
+    // 選択肢に無い値が保存されていても表示が壊れないようにする
+    final currentValue =
+        _libraryMetadataRefreshIntervalOptions.contains(
+          settings.libraryMetadataRefreshIntervalMinutes,
+        )
+        ? settings.libraryMetadataRefreshIntervalMinutes
+        : defaultLibraryMetadataRefreshIntervalMinutes;
+
+    return ListTile(
+      leading: const Icon(Icons.sync),
+      title: const Text('ライブラリの自動更新間隔'),
+      subtitle: DropdownButton<int>(
+        value: currentValue,
+        isExpanded: true,
+        underline: const SizedBox(),
+        items: _libraryMetadataRefreshIntervalOptions
+            .map(
+              (minutes) => DropdownMenuItem(
+                value: minutes,
+                child: Text(_formatIntervalLabel(minutes)),
+              ),
+            )
+            .toList(),
+        onChanged: (value) async {
+          if (value == null) return;
+          try {
+            await ref
+                .read(settingsProvider.notifier)
+                .setLibraryMetadataRefreshIntervalMinutes(value);
+          } on Exception catch (e, stackTrace) {
+            debugPrint('Failed to save refresh interval: $e\n$stackTrace');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('自動更新間隔の保存に失敗しました'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+        },
+      ),
+    );
+  }
+
+  String _formatIntervalLabel(int minutes) {
+    if (minutes < 60) {
+      return '$minutes分ごと';
+    }
+    final hours = minutes ~/ 60;
+    return '$hours時間ごと';
   }
 
   /// キャッシュを削除

@@ -7,6 +7,7 @@ import 'package:novelty/screens/download_manager_page.dart';
 import 'package:novelty/screens/explore_page.dart';
 import 'package:novelty/screens/history_page.dart';
 import 'package:novelty/screens/library_page.dart';
+import 'package:novelty/screens/login_page.dart';
 import 'package:novelty/screens/more_page.dart';
 import 'package:novelty/screens/novel_detail_page.dart';
 import 'package:novelty/screens/novel_page.dart';
@@ -67,6 +68,7 @@ final router = GoRouter(
             TypedGoRoute<DataStorageRoute>(path: 'data-storage'),
             TypedGoRoute<AboutRoute>(path: 'about'),
             TypedGoRoute<DownloadsRoute>(path: 'downloads'),
+            TypedGoRoute<LoginRoute>(path: 'login'),
           ],
         ),
       ],
@@ -212,6 +214,17 @@ class DownloadsRoute extends GoRouteData with $DownloadsRoute {
   @override
   Widget build(BuildContext context, GoRouterState state) {
     return const DownloadManagerPage();
+  }
+}
+
+/// なろうアカウントログイン画面のルート。
+class LoginRoute extends GoRouteData with $LoginRoute {
+  /// コンストラクタ。
+  const LoginRoute();
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return const LoginPage();
   }
 }
 

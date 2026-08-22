@@ -6,6 +6,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/novel_repository.dart';
+import 'package:novelty/services/narou_sync_service.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/settings_provider.dart';
 import 'package:novelty/widgets/gesture_shield.dart';
@@ -227,6 +228,15 @@ class NovelPage extends HookConsumerWidget {
             lastEpisode: episode,
           ),
     );
+    // ログイン済みかつライブラリ登録済み、かつなろうの小説の場合のみ、
+    // なろうのしおりも更新する（カクヨム等は対象外）。
+    if (source == NovelSource.narou) {
+      unawaited(
+        ref
+            .read(narouSyncServiceProvider)
+            .setShioriIfLoggedIn(ncode: workId, episode: episode),
+      );
+    }
   }
 
   /// PageViewのアイテム数を決定する。

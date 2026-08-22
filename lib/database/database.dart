@@ -319,6 +319,67 @@ class Novels extends Table {
   Set<Column> get primaryKey => {source, workId};
 }
 
+/// ライブラリの小説と、ライブラリへの追加日時を組み合わせたデータ。
+///
+/// [Novels]テーブルには追加日時の情報が無いため、
+/// [AppDatabase.watchLibraryNovels]の結果として利用する。
+@immutable
+class LibraryNovelEntry {
+  /// コンストラクタ。
+  const LibraryNovelEntry({
+    required this.novel,
+    required this.addedAt,
+    this.lastViewedAt,
+  });
+
+  /// 小説データ。
+  final Novel novel;
+
+  /// ライブラリに追加された日時（UNIXミリ秒）。
+  final int addedAt;
+
+  /// アプリの閲覧履歴での最終閲覧日時（UNIXミリ秒）。
+  ///
+  /// 一度も読んでいない場合は`null`。
+  final int? lastViewedAt;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LibraryNovelEntry &&
+          runtimeType == other.runtimeType &&
+          novel == other.novel &&
+          addedAt == other.addedAt &&
+          lastViewedAt == other.lastViewedAt;
+
+  @override
+  int get hashCode => Object.hash(novel, addedAt, lastViewedAt);
+}
+
+/// しおり更新(`ichiupdateajax`)に必要な、なろう本家のトークン情報。
+@immutable
+class NarouFavToken {
+  /// コンストラクタ。
+  const NarouFavToken({required this.useridFavncode, required this.token});
+
+  /// なろう本家のブックマークID（"{userid}_{favncode}"形式）。
+  final String useridFavncode;
+
+  /// なろう本家のブックマーク操作用トークン。
+  final String token;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NarouFavToken &&
+          runtimeType == other.runtimeType &&
+          useridFavncode == other.useridFavncode &&
+          token == other.token;
+
+  @override
+  int get hashCode => Object.hash(useridFavncode, token);
+}
+
 /// ライブラリ登録情報を格納するテーブル（正規化済み）
 class LibraryEntries extends Table {
   /// 提供サイト（プロバイダ）
@@ -330,6 +391,34 @@ class LibraryEntries extends Table {
   /// ライブラリに追加された日時
   /// UNIXタイムスタンプ形式で保存される
   IntColumn get addedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {source, workId};
+}
+
+/// なろう本家へのブックマーク同期情報を格納するテーブル（正規化済み）
+///
+/// [Novels] / [LibraryEntries] とは別テーブルとして分離することで、
+/// なろう固有の同期情報が他プロバイダ（カクヨム等）のテーブルを
+/// 汚さないようにする。`source` が `NovelSource.narou` の行のみが対象。
+class NarouSyncEntries extends Table {
+  /// 提供サイト（プロバイダ）。常に[NovelSource.narou]。
+  TextColumn get source => text().map(const NovelSourceConverter())();
+
+  /// 小説の作品ID（なろうのNコード。参照整合性はアプリ層で担保）
+  TextColumn get workId => text()();
+
+  /// なろう本家へのブックマーク登録が成功した日時（UNIXミリ秒）。
+  /// nullの場合はなろう側への同期が未完了・未確認であることを示す。
+  IntColumn get narouBookmarkSyncedAt => integer().nullable()();
+
+  /// なろう本家のブックマークID（"{userid}_{favncode}"形式）。
+  /// しおり更新(ichiupdateajax)のURL構築に使用する。
+  TextColumn get narouUseridFavncode => text().nullable()();
+
+  /// なろう本家のブックマーク操作用トークン（addajax登録時に発行される）。
+  /// しおり更新(ichiupdateajax)のtokenパラメータとして再利用する。
+  TextColumn get narouFavToken => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {source, workId};
@@ -461,6 +550,7 @@ class EpisodeData {
   tables: [
     Novels,
     LibraryEntries,
+    NarouSyncEntries,
     ReadingHistory,
     EpisodeListEntries,
     EpisodeContents,
@@ -478,7 +568,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   /// 現在のデータベーススキーマバージョン
-  static const int currentSchemaVersion = 19;
+  static const int currentSchemaVersion = 20;
 
   @override
   int get schemaVersion => currentSchemaVersion;
@@ -717,6 +807,12 @@ class AppDatabase extends _$AppDatabase {
             // index 用コードを削除する。
             // DROP 後に VACUUM を実行し、物理ファイルのサイズも回収する。
             await _migrateToV19();
+          }
+
+          if (from < 20) {
+            // v20: なろう本家ブックマーク同期用の情報を、既存テーブルを汚さず
+            // 専用テーブル（narou_sync_entries）に分離して追加する。
+            await _migrateToV20();
           }
         } on MigrationException {
           rethrow;
@@ -1061,6 +1157,22 @@ class AppDatabase extends _$AppDatabase {
     await customStatement('VACUUM');
   }
 
+  Future<void> _migrateToV20() async {
+    // なろう本家ブックマーク同期用の情報を、既存テーブル（library_entries等）
+    // を汚さず専用テーブルとして新設する。以前のバージョンではこの情報は
+    // どこにも保存されていなかったため、データ移行は不要。
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS narou_sync_entries (
+        source TEXT NOT NULL,
+        work_id TEXT NOT NULL,
+        narou_bookmark_synced_at INTEGER,
+        narou_userid_favncode TEXT,
+        narou_fav_token TEXT,
+        PRIMARY KEY (source, work_id)
+      )
+    ''');
+  }
+
   /// 小説情報の取得
   Future<Novel?> getNovel(NovelSource source, String workId) {
     return (select(novels)..where(
@@ -1120,6 +1232,17 @@ class AppDatabase extends _$AppDatabase {
         .replaceAll('_', r'\_');
   }
 
+  /// Novelsテーブルに小説が存在しない場合のみ最小限のレコードを挿入する。
+  ///
+  /// LibraryEntriesはNovelsへの外部キーを持つため、
+  /// addToLibraryの前にこのメソッドを呼ぶ必要がある。
+  Future<void> ensureNovelExists(NovelSource source, String workId) {
+    return into(novels).insert(
+      NovelsCompanion(source: Value(source), workId: Value(workId)),
+      mode: InsertMode.insertOrIgnore,
+    );
+  }
+
   /// ライブラリに小説を追加
   Future<int> addToLibrary(NovelSource source, String workId) {
     return into(libraryEntries).insert(
@@ -1155,17 +1278,35 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// ライブラリの小説リストを監視（JOIN）
-  Stream<List<Novel>> watchLibraryNovels() {
+  ///
+  /// 追加日時（[LibraryNovelEntry.addedAt]）・アプリ内の最終閲覧日時
+  /// （[LibraryNovelEntry.lastViewedAt]）でのソートをアプリ側で行えるよう、
+  /// [Novel]と併せて返す。閲覧履歴が無い小説は[LibraryNovelEntry.lastViewedAt]が
+  /// `null`になる。
+  Stream<List<LibraryNovelEntry>> watchLibraryNovels() {
     final query = select(libraryEntries).join([
       innerJoin(
         novels,
         novels.source.equalsExp(libraryEntries.source) &
             novels.workId.equalsExp(libraryEntries.workId),
       ),
+      leftOuterJoin(
+        readingHistory,
+        readingHistory.source.equalsExp(libraryEntries.source) &
+            readingHistory.workId.equalsExp(libraryEntries.workId),
+      ),
     ])..orderBy([OrderingTerm.desc(libraryEntries.addedAt)]);
 
     return query.watch().map(
-      (rows) => rows.map((row) => row.readTable(novels)).toList(),
+      (rows) => rows
+          .map(
+            (row) => LibraryNovelEntry(
+              novel: row.readTable(novels),
+              addedAt: row.readTable(libraryEntries).addedAt,
+              lastViewedAt: row.readTableOrNull(readingHistory)?.viewedAt,
+            ),
+          )
+          .toList(),
     );
   }
 
@@ -1186,6 +1327,79 @@ class AppDatabase extends _$AppDatabase {
         )..where((t) => t.source.equalsValue(source) & t.workId.equals(workId)))
         .watchSingleOrNull()
         .map((entry) => entry != null);
+  }
+
+  /// なろう本家へのブックマーク登録が完了したことを記録する。
+  ///
+  /// [useridFavncode]・[favToken]を指定した場合、しおり更新
+  /// (`ichiupdateajax`)に必要な情報として併せて保存する。
+  ///
+  /// なろう本家との同期情報は[NarouSyncEntries]（専用テーブル）に保存し、
+  /// [LibraryEntries]等の共通テーブルはなろう固有の情報で汚さない。
+  /// 呼び出し元は[NovelSource.narou]の小説に対してのみ呼ぶこと。
+  Future<void> markNarouBookmarkSynced(
+    NovelSource source,
+    String workId, {
+    String? useridFavncode,
+    String? favToken,
+  }) async {
+    await into(narouSyncEntries).insertOnConflictUpdate(
+      NarouSyncEntriesCompanion(
+        source: Value(source),
+        workId: Value(workId),
+        narouBookmarkSyncedAt: Value(DateTime.now().millisecondsSinceEpoch),
+        narouUseridFavncode: useridFavncode != null
+            ? Value(useridFavncode)
+            : const Value.absent(),
+        narouFavToken: favToken != null
+            ? Value(favToken)
+            : const Value.absent(),
+      ),
+    );
+  }
+
+  /// しおり更新(`ichiupdateajax`)に必要なトークン情報を取得する。
+  ///
+  /// [markNarouBookmarkSynced]で保存されていない場合はnullを返す。
+  Future<NarouFavToken?> getNarouFavToken(
+    NovelSource source,
+    String workId,
+  ) async {
+    final result =
+        await (select(narouSyncEntries)..where(
+              (t) => t.source.equalsValue(source) & t.workId.equals(workId),
+            ))
+            .getSingleOrNull();
+    final useridFavncode = result?.narouUseridFavncode;
+    final token = result?.narouFavToken;
+    if (useridFavncode == null || token == null) return null;
+    return NarouFavToken(useridFavncode: useridFavncode, token: token);
+  }
+
+  /// なろう本家へのブックマーク登録が完了しているかを確認する。
+  Future<bool> isNarouBookmarkSynced(NovelSource source, String workId) async {
+    final result =
+        await (select(narouSyncEntries)..where(
+              (t) =>
+                  t.source.equalsValue(source) &
+                  t.workId.equals(workId) &
+                  t.narouBookmarkSyncedAt.isNotNull(),
+            ))
+            .getSingleOrNull();
+    return result != null;
+  }
+
+  /// なろう本家へのブックマーク解除が完了したことを記録する。
+  ///
+  /// 同期用の情報（トークン等）を削除し、未同期状態に戻す。
+  Future<void> clearNarouBookmarkSynced(
+    NovelSource source,
+    String workId,
+  ) async {
+    await (delete(narouSyncEntries)..where(
+          (t) => t.source.equalsValue(source) & t.workId.equals(workId),
+        ))
+        .go();
   }
 
   /// 小説情報の保存
@@ -1360,6 +1574,17 @@ class AppDatabase extends _$AppDatabase {
   /// 履歴の全削除
   Future<int> clearHistory() {
     return delete(readingHistory).go();
+  }
+
+  /// 特定小説の読書履歴を1件取得する。
+  Future<ReadingHistoryData?> getReadingHistoryEntry(
+    NovelSource source,
+    String workId,
+  ) {
+    return (select(readingHistory)..where(
+          (t) => t.source.equalsValue(source) & t.workId.equals(workId),
+        ))
+        .getSingleOrNull();
   }
 
   /// エピソード情報（目次）の保存

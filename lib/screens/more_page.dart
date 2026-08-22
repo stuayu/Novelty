@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/router/router.dart';
 import 'package:novelty/utils/settings_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -46,6 +47,8 @@ class _MorePageState extends ConsumerState<MorePage> {
           SliverList(
             delegate: SliverChildListDelegate([
               _buildQuickActions(settingsAsync),
+              const Divider(),
+              _buildAccountSection(),
               const Divider(),
               _buildFeaturesSection(),
               const Divider(),
@@ -100,6 +103,72 @@ class _MorePageState extends ConsumerState<MorePage> {
           error: (err, stack) => ListTile(title: Text('Error: $err')),
         ),
       ],
+    );
+  }
+
+  Widget _buildAccountSection() {
+    final authAsync = ref.watch(authProvider);
+    return authAsync.when(
+      data: (user) {
+        if (user == null) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _sectionHeader('なろうアカウント'),
+              ListTile(
+                leading: const Icon(Icons.login),
+                title: const Text('ログイン'),
+                subtitle:
+                    const Text('ブックマーク同期・しおり連携が利用できます'),
+                onTap: () => const LoginRoute().push<void>(context),
+              ),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _sectionHeader('なろうアカウント'),
+            ListTile(
+              leading: const Icon(Icons.account_circle),
+              title: Text(user.username),
+              subtitle: Text(user.narouid),
+            ),
+            ListTile(
+              leading: const Icon(Icons.sync),
+              title: const Text('ブックマークを同期'),
+              onTap: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                final count = await ref
+                    .read(authProvider.notifier)
+                    .syncBookmarks();
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('$count 件のブックマークを同期しました'),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('ログアウト'),
+              onTap: () async {
+                await ref.read(authProvider.notifier).logout();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('ログアウトしました')),
+                  );
+                }
+              },
+            ),
+          ],
+        );
+      },
+      loading: () => const ListTile(
+        leading: CircularProgressIndicator(),
+        title: Text('読み込み中...'),
+      ),
+      error: (e, _) => ListTile(title: Text('エラー: $e')),
     );
   }
 

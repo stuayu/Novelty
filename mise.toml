@@ -39,9 +39,10 @@ description = "コードの静的解析とフォーマットをチェックし�
 run = "dart analyze && dart format --dry-run ."
 
 [tasks.build]
-description = "リリース用APK (分割) と App Bundleをビルドします"
+description = "iOS と Android（リリース用APK分割とApp Bundle）をビルドします"
 depends = ["setup"]
 run = """
+flutter build ios --release
 flutter build apk --release --split-per-abi
 flutter build appbundle --release
 """

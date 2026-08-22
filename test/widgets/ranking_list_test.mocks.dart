@@ -64,6 +64,19 @@ class MockApiService extends _i1.Mock implements _i5.ApiService {
           as _i6.Future<Map<String, _i2.NovelInfo>>);
 
   @override
+  _i6.Future<_i2.NovelInfo> fetchNovelInfoFromHtml(String? ncode) =>
+      (super.noSuchMethod(
+            Invocation.method(#fetchNovelInfoFromHtml, [ncode]),
+            returnValue: _i6.Future<_i2.NovelInfo>.value(
+              _FakeNovelInfo_0(
+                this,
+                Invocation.method(#fetchNovelInfoFromHtml, [ncode]),
+              ),
+            ),
+          )
+          as _i6.Future<_i2.NovelInfo>);
+
+  @override
   _i6.Future<_i2.NovelInfo> fetchBasicNovelInfo(String? ncode) =>
       (super.noSuchMethod(
             Invocation.method(#fetchBasicNovelInfo, [ncode]),

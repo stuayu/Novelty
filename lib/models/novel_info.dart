@@ -11,6 +11,26 @@ import 'package:novelty/utils/ncode_utils.dart';
 part 'novel_info.freezed.dart';
 part 'novel_info.g.dart';
 
+/// なろうAPIの日時文字列を、大小比較可能な14桁整数へ変換する。
+///
+/// 例: `2026-07-12 23:45:01` → `20260712234501`
+int? narouDateTimeToSortableInt(String? value) {
+  if (value == null || value.isEmpty) return null;
+  final digits = value.replaceAll(RegExp(r'\D'), '');
+  if (digits.length < 14) return null;
+  return int.tryParse(digits.substring(0, 14));
+}
+
+/// 14桁の掲載日時を、なろうAPIと同じ日時文字列へ復元する。
+String? sortableIntToNarouDateTime(int? value) {
+  if (value == null) return null;
+  final digits = value.toString().padLeft(14, '0');
+  if (digits.length != 14) return null;
+  return '${digits.substring(0, 4)}-${digits.substring(4, 6)}-'
+      '${digits.substring(6, 8)} ${digits.substring(8, 10)}:'
+      '${digits.substring(10, 12)}:${digits.substring(12, 14)}';
+}
+
 /// 小説の作品情報を表すクラス。
 ///
 /// なろう小説APIのレスポンスや、なろう小説のHTMLからパースした情報を格納する。
@@ -205,8 +225,8 @@ extension NovelInfoEx on NovelInfo {
       genreId: Value(genreId),
       generalAllNo: Value(generalAllNo),
       keyword: Value(keyword),
-      generalFirstup: Value(int.tryParse(generalFirstup ?? '')),
-      generalLastup: Value(int.tryParse(generalLastup ?? '')),
+      generalFirstup: Value(narouDateTimeToSortableInt(generalFirstup)),
+      generalLastup: Value(narouDateTimeToSortableInt(generalLastup)),
       globalPoint: Value(globalPoint),
       reviewCount: Value(reviewCnt),
       rateCount: Value(allHyokaCnt),

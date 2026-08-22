@@ -45,8 +45,8 @@ Future<void> closeAppDatabaseSafely(AppDatabase db) {
 }
 
 @riverpod
-/// ライブラリに登録されている小説のリストを監視するプロバイダー。
-Stream<List<dynamic>> libraryNovels(Ref ref) {
+/// ライブラリに登録されている小説のリスト（追加日時付き）を監視するプロバイダー。
+Stream<List<LibraryNovelEntry>> libraryNovels(Ref ref) {
   final db = ref.watch(appDatabaseProvider);
   return db.watchLibraryNovels();
 }

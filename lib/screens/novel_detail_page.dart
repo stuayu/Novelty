@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/models/download_result.dart';
 import 'package:novelty/models/episode.dart';
+import 'package:novelty/models/library_toggle_result.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/novel_repository.dart';
 import 'package:novelty/router/router.dart';
@@ -429,14 +430,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                           ? FilledButton.tonalIcon(
                               onPressed: () {
                                 unawaited(
-                                  ref
-                                      .read(
-                                        libraryStatusProvider(
-                                          widget.source,
-                                          widget.workId,
-                                        ).notifier,
-                                      )
-                                      .toggle(novelInfo),
+                                  _toggleLibrary(context, ref, novelInfo),
                                 );
                               },
                               icon: const Icon(Icons.favorite),
@@ -450,14 +444,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                           : FilledButton.icon(
                               onPressed: () {
                                 unawaited(
-                                  ref
-                                      .read(
-                                        libraryStatusProvider(
-                                          widget.source,
-                                          widget.workId,
-                                        ).notifier,
-                                      )
-                                      .toggle(novelInfo),
+                                  _toggleLibrary(context, ref, novelInfo),
                                 );
                               },
                               icon: const Icon(Icons.favorite_border),
@@ -701,6 +688,41 @@ void showOfflineDisabledSnackBar(BuildContext context) {
   );
 }
 
+/// ライブラリ登録状態をトグルし、なろう側の同期に失敗した場合は通知する。
+Future<void> _toggleLibrary(
+  BuildContext context,
+  WidgetRef ref,
+  NovelInfo novelInfo,
+) async {
+  final workId = novelInfo.workId ?? novelInfo.ncode!;
+  final result = await ref
+      .read(libraryStatusProvider(novelInfo.source, workId).notifier)
+      .toggle(novelInfo);
+
+  if (!context.mounted) return;
+
+  result.whenOrNull(
+    added: (narouSyncFailed) {
+      if (narouSyncFailed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('なろうへのブックマーク登録に失敗しました'),
+          ),
+        );
+      }
+    },
+    removed: (narouSyncFailed) {
+      if (narouSyncFailed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('なろうのブックマーク解除に失敗しました'),
+          ),
+        );
+      }
+    },
+  );
+}
+
 Future<void> _handleDownload(
   BuildContext context,
   WidgetRef ref,
@@ -721,16 +743,7 @@ Future<void> _handleDownload(
             action: SnackBarAction(
               label: '追加',
               onPressed: () {
-                unawaited(
-                  ref
-                      .read(
-                        libraryStatusProvider(
-                          novelInfo.source,
-                          novelInfo.workId ?? novelInfo.ncode!,
-                        ).notifier,
-                      )
-                      .toggle(novelInfo),
-                );
+                unawaited(_toggleLibrary(context, ref, novelInfo));
               },
             ),
           ),

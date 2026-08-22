@@ -9,10 +9,12 @@ import 'package:novelty/database/database.dart';
 import 'package:novelty/models/download_progress.dart';
 import 'package:novelty/models/download_result.dart';
 import 'package:novelty/models/episode.dart';
+import 'package:novelty/models/library_toggle_result.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_info_extension.dart';
 import 'package:novelty/providers/network_fallback_event_provider.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/services/narou_sync_service.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -73,6 +75,9 @@ class NovelRepository {
   final Map<String, StreamController<DownloadProgress>> _progressControllers =
       {};
 
+  /// [refreshStaleLibraryMetadata]の多重実行防止フラグ。
+  bool _metadataRefreshInProgress = false;
+
   /// リソースをクリーンアップする
   void dispose() {
     for (final controller in _progressControllers.values) {
@@ -117,6 +122,33 @@ class NovelRepository {
     // LibraryEntriesテーブルに追加
     await _db.addToLibrary(source, workId);
 
+    // 一覧・ランキング画面から追加した場合も、詳細画面と同様に
+    // ログイン済みであればなろう本家へブックマークを同期する。
+    // なろう以外のソース（カクヨム等）は同期対象外。
+    if (source == NovelSource.narou) {
+      try {
+        final syncResult = await ref
+            .read(narouSyncServiceProvider)
+            .addBookmarkToNarou(workId);
+        if (syncResult.outcome == NarouBookmarkSyncOutcome.success) {
+          await _db.markNarouBookmarkSynced(
+            source,
+            workId,
+            useridFavncode: syncResult.useridFavncode,
+            favToken: syncResult.token,
+          );
+        } else if (syncResult.outcome == NarouBookmarkSyncOutcome.failed) {
+          debugPrint(
+            '[NarouSync] addNovelToLibrary($workId): '
+            'なろうへのブックマーク登録に失敗しました',
+          );
+        }
+      } on Exception catch (e) {
+        // ローカルへの追加は完了しているため、同期失敗で取り消さない。
+        debugPrint('[NarouSync] addNovelToLibrary($workId): 同期例外: $e');
+      }
+    }
+
     // Providersを無効化してUIを更新
     ref.invalidate(libraryNovelsProvider);
 
@@ -124,11 +156,148 @@ class NovelRepository {
   }
 
   /// 小説をライブラリから削除する。
+  ///
+  /// [source]が[NovelSource.narou]の場合、なろう本家側のブックマーク解除も
+  /// ベストエフォートで行う（失敗してもローカル削除自体には影響させない）。
   Future<void> removeFromLibrary(NovelSource source, String workId) async {
+    if (source == NovelSource.narou) {
+      try {
+        final outcome = await ref
+            .read(narouSyncServiceProvider)
+            .removeBookmarkFromNarou(workId);
+        if (outcome == NarouBookmarkSyncOutcome.failed) {
+          debugPrint(
+            '[NarouSync] removeFromLibrary($workId): '
+            'なろう側の解除に失敗したためローカル削除を中止します',
+          );
+          return;
+        }
+        if (outcome != NarouBookmarkSyncOutcome.notLoggedIn) {
+          debugPrint(
+            '[NarouSync] removeFromLibrary($workId): '
+            'removeBookmarkFromNarou結果=$outcome',
+          );
+        }
+      } on Exception catch (e) {
+        debugPrint(
+          '[NarouSync] removeFromLibrary($workId): '
+          'removeBookmarkFromNarouで予期しない例外: $e',
+        );
+        return;
+      }
+    }
+
     await _db.removeFromLibrary(source, workId);
 
     // Providersを無効化してUIを更新
     ref.invalidate(libraryNovelsProvider);
+  }
+
+  /// ライブラリ小説のうち、メタデータの鮮度が古い小説をAPIから再取得する。
+  ///
+  /// `general_lastup`（最新話掲載日）などのメタデータは、ライブラリに
+  /// 追加した時点のスナップショットのままでは更新を検知できない。
+  /// [staleAfter]より前に取得した小説（`cached_at`基準）のみを対象に
+  /// 再取得することで、無駄なAPIリクエストを避けつつ最新化する。
+  ///
+  /// `watchLibraryNovels`はDBの変更を監視しているため、更新結果は
+  /// 自動的にライブラリ画面へ反映される（明示的なinvalidateは不要）。
+  Future<void> refreshStaleLibraryMetadata({
+    Duration staleAfter = const Duration(hours: 6),
+  }) async {
+    if (_metadataRefreshInProgress) return;
+    _metadataRefreshInProgress = true;
+
+    try {
+      // メタデータの自動再取得は現状なろうAPIのみ対応のため、
+      // なろうソースの小説に限定する（カクヨム等は対象外）。
+      final libraryNovels = (await _db.getLibraryNovels())
+          .where((novel) => novel.source == NovelSource.narou)
+          .toList();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final staleMs = staleAfter.inMilliseconds;
+
+      final staleNcodes = libraryNovels
+          .where((novel) {
+            final cachedAt = novel.cachedAt;
+            final metadataMissing =
+                novel.title == null ||
+                novel.generalAllNo == null ||
+                novel.generalLastup == null;
+            return metadataMissing ||
+                cachedAt == null ||
+                now - cachedAt > staleMs;
+          })
+          .map((novel) => novel.workId)
+          .toList();
+
+      if (staleNcodes.isEmpty) return;
+
+      final novelMap = await apiService.fetchMultipleNovelsInfo(staleNcodes);
+      for (final info in novelMap.values) {
+        if (info.ncode != null) {
+          final existing = libraryNovels
+              .where((novel) => novel.workId == info.ncode)
+              .firstOrNull;
+          final merged = existing == null
+              ? info
+              : _mergeMetadata(existing.toModel(), info);
+          await _db.insertNovel(merged.toDbCompanion());
+        }
+      }
+      debugPrint(
+        '[LibraryMetadataRefresh] ${novelMap.length}/${staleNcodes.length}'
+        '件のメタデータを再取得しました',
+      );
+      if (novelMap.length != staleNcodes.length) {
+        final missing = staleNcodes
+            .where((ncode) => !novelMap.containsKey(ncode))
+            .join(',');
+        debugPrint(
+          '[LibraryMetadataRefresh] APIから取得できなかった作品: $missing',
+        );
+      }
+    } on Exception catch (e) {
+      // 再取得の失敗はサイレントに無視する（次回の定期実行に委ねる）
+      debugPrint('[LibraryMetadataRefresh] 再取得に失敗しました: $e');
+    } finally {
+      _metadataRefreshInProgress = false;
+    }
+  }
+
+  NovelInfo _mergeMetadata(NovelInfo stored, NovelInfo fresh) {
+    return fresh.copyWith(
+      title: fresh.title ?? stored.title,
+      writer: fresh.writer ?? stored.writer,
+      userId: fresh.userId ?? stored.userId,
+      story: fresh.story ?? stored.story,
+      novelType: fresh.novelType ?? stored.novelType,
+      end: fresh.end ?? stored.end,
+      generalAllNo: fresh.generalAllNo ?? stored.generalAllNo,
+      genreId: fresh.genreId ?? stored.genreId,
+      keyword: fresh.keyword ?? stored.keyword,
+      generalFirstup: fresh.generalFirstup ?? stored.generalFirstup,
+      generalLastup: fresh.generalLastup ?? stored.generalLastup,
+      globalPoint: fresh.globalPoint ?? stored.globalPoint,
+      dailyPoint: fresh.dailyPoint ?? stored.dailyPoint,
+      weeklyPoint: fresh.weeklyPoint ?? stored.weeklyPoint,
+      monthlyPoint: fresh.monthlyPoint ?? stored.monthlyPoint,
+      quarterPoint: fresh.quarterPoint ?? stored.quarterPoint,
+      yearlyPoint: fresh.yearlyPoint ?? stored.yearlyPoint,
+      favNovelCnt: fresh.favNovelCnt ?? stored.favNovelCnt,
+      impressionCnt: fresh.impressionCnt ?? stored.impressionCnt,
+      reviewCnt: fresh.reviewCnt ?? stored.reviewCnt,
+      allPoint: fresh.allPoint ?? stored.allPoint,
+      allHyokaCnt: fresh.allHyokaCnt ?? stored.allHyokaCnt,
+      novelupdatedAt: fresh.novelupdatedAt ?? stored.novelupdatedAt,
+      updatedAt: fresh.updatedAt ?? stored.updatedAt,
+      isr15: fresh.isr15 ?? stored.isr15,
+      isbl: fresh.isbl ?? stored.isbl,
+      isgl: fresh.isgl ?? stored.isgl,
+      iszankoku: fresh.iszankoku ?? stored.iszankoku,
+      istensei: fresh.istensei ?? stored.istensei,
+      istenni: fresh.istenni ?? stored.istenni,
+    );
   }
 
   /// 小説を閲覧履歴に追加する。
@@ -853,31 +1022,89 @@ class LibraryStatus extends _$LibraryStatus {
   }
 
   /// ライブラリの状態をトグルするメソッド。
-  Future<void> toggle(NovelInfo novelInfo) async {
+  Future<LibraryToggleResult> toggle(NovelInfo novelInfo) async {
     final db = ref.read(appDatabaseProvider);
     final isInLibrary = state.value ?? false;
     final newStatus = !isInLibrary;
 
     state = const AsyncValue.loading();
     try {
+      final workId = novelInfo.workId ?? novelInfo.ncode!;
+      final isNarou = novelInfo.source == NovelSource.narou;
+
       if (newStatus) {
         // 事前にNovelsテーブルに小説情報が存在することを保証する必要がある。
         // 通常はfetchNovelInfoによって挿入済み。
         await db.insertNovel(novelInfo.toDbCompanion());
-        await db.addToLibrary(
-          novelInfo.source,
-          novelInfo.workId ?? novelInfo.ncode!,
-        );
-      } else {
-        await db.removeFromLibrary(
-          novelInfo.source,
-          novelInfo.workId ?? novelInfo.ncode!,
-        );
-      }
+        await db.addToLibrary(novelInfo.source, workId);
 
-      ref.invalidate(libraryNovelsProvider);
+        // ログイン済みかつなろうの小説の場合のみ、なろうにもブックマーク登録する。
+        // なろう側の同期で予期しない例外が発生しても、ローカルへの
+        // 追加自体は既に成功しているため、ここで独立してcatchする。
+        var narouSyncFailed = false;
+        if (isNarou) {
+          try {
+            final syncResult = await ref
+                .read(narouSyncServiceProvider)
+                .addBookmarkToNarou(workId);
+            debugPrint(
+              '[NarouSync] toggle($workId): '
+              'addBookmarkToNarou結果=${syncResult.outcome}',
+            );
+            if (syncResult.outcome == NarouBookmarkSyncOutcome.success) {
+              await db.markNarouBookmarkSynced(
+                novelInfo.source,
+                workId,
+                useridFavncode: syncResult.useridFavncode,
+                favToken: syncResult.token,
+              );
+            }
+            narouSyncFailed =
+                syncResult.outcome == NarouBookmarkSyncOutcome.failed;
+          } on Exception catch (e) {
+            debugPrint('[NarouSync] toggle($workId): addBookmarkToNarouで予期しない例外: $e');
+            narouSyncFailed = true;
+          }
+        }
+
+        ref.invalidate(libraryNovelsProvider);
+        return LibraryToggleResult.added(narouSyncFailed: narouSyncFailed);
+      } else {
+        var narouSyncFailed = false;
+        if (isNarou) {
+          try {
+            final outcome = await ref
+                .read(narouSyncServiceProvider)
+                .removeBookmarkFromNarou(workId);
+            if (outcome != NarouBookmarkSyncOutcome.notLoggedIn) {
+              debugPrint(
+                '[NarouSync] toggle($workId): '
+                'removeBookmarkFromNarou結果=$outcome',
+              );
+            }
+            narouSyncFailed = outcome == NarouBookmarkSyncOutcome.failed;
+          } on Exception catch (e) {
+            debugPrint(
+              '[NarouSync] toggle($workId): '
+              'removeBookmarkFromNarouで予期しない例外: $e',
+            );
+            narouSyncFailed = true;
+          }
+
+          // なろう側の解除に失敗した場合はローカル登録を残し、再試行可能にする。
+          if (narouSyncFailed) {
+            return const LibraryToggleResult.removed(narouSyncFailed: true);
+          }
+        }
+
+        await db.removeFromLibrary(novelInfo.source, workId);
+
+        ref.invalidate(libraryNovelsProvider);
+        return LibraryToggleResult.removed(narouSyncFailed: narouSyncFailed);
+      }
     } on Exception catch (e, st) {
       state = AsyncValue.error(e, st);
+      return const LibraryToggleResult.error();
     }
   }
 }
@@ -969,4 +1196,32 @@ Stream<List<Episode>> episodeList(
 Stream<int?> lastReadEpisode(Ref ref, NovelSource source, String workId) {
   final repository = ref.watch(novelRepositoryProvider);
   return repository.watchLastReadEpisode(source, workId);
+}
+
+@Riverpod(keepAlive: true)
+/// アプリ起動中、ライブラリ小説の最新話掲載日などのメタデータを
+/// バックグラウンドで定期的に再取得するプロバイダー。
+///
+/// ライブラリ画面が開かれたタイミングで初回実行し、以降は設定画面で
+/// 指定された間隔（[AppSettings.libraryMetadataRefreshIntervalMinutes]、
+/// デフォルト[defaultLibraryMetadataRefreshIntervalMinutes]分）で再実行し
+/// 続ける。これにより、`general_lastup`基準のソート・フィルタが実際の
+/// 最新話掲載状況を反映できるようにする。
+///
+/// 間隔設定が変更されると本プロバイダーが再構築され、新しい間隔で
+/// タイマーが再設定される。
+Future<void> libraryMetadataRefresher(Ref ref) async {
+  final repository = ref.watch(novelRepositoryProvider);
+  final settings = await ref.watch(settingsProvider.future);
+  final interval = Duration(
+    minutes: settings.libraryMetadataRefreshIntervalMinutes,
+  );
+
+  Future<void> refresh() =>
+      repository.refreshStaleLibraryMetadata(staleAfter: interval);
+
+  // 初回更新を待つことで、画面表示直後からDBへ確実に反映する。
+  await refresh();
+  final timer = Timer.periodic(interval, (_) => unawaited(refresh()));
+  ref.onDispose(timer.cancel);
 }
