@@ -60,6 +60,7 @@ class KakuyomuFollowedWorksParser {
       if (href == null) continue;
       final uri = Uri.tryParse(href);
       if (uri == null) continue;
+      if (uri.hasAuthority && uri.host != 'kakuyomu.jp') continue;
       final match = _workPathPattern.firstMatch(uri.path);
       if (match != null) return match.group(1);
     }
