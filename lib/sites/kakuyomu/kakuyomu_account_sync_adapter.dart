@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/kakuyomu_work_follow_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_followed_works_parser.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -36,9 +37,7 @@ typedef KakuyomuFollowedWorksPageFetcher =
       String cookieHeader,
     );
 
-/// Phase 3 のカクヨム読み取り同期に使用する専用Provider。
-///
-/// リモート書き込みが完成するPhase 4までは共通AccountSyncRegistryへ登録しない。
+/// カクヨム同期アダプターのProvider。
 final kakuyomuAccountSyncAdapterProvider = Provider<KakuyomuAccountSyncAdapter>(
   (ref) => KakuyomuAccountSyncAdapter(
     sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
@@ -47,9 +46,6 @@ final kakuyomuAccountSyncAdapterProvider = Provider<KakuyomuAccountSyncAdapter>(
 );
 
 /// カクヨムのアカウント同期アダプター。
-///
-/// Phase 3 ではカクヨム → Novelty のフォロー作品取り込みだけを提供する。
-/// リモートへの追加・削除、読書位置送信は後続Phaseで実装する。
 class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
   /// コンストラクタ。
   KakuyomuAccountSyncAdapter({
@@ -58,17 +54,24 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     Dio? dio,
     KakuyomuFollowedWorksParser? parser,
     KakuyomuFollowedWorksPageFetcher? pageFetcher,
+    KakuyomuWorkFollowOperator? followOperator,
   }) : _sessionRepository = sessionRepository,
        _db = db,
        _dio = dio ?? Dio(),
        _parser = parser ?? KakuyomuFollowedWorksParser(),
-       _pageFetcher = pageFetcher;
+       _pageFetcher = pageFetcher,
+       _followOperator =
+           followOperator ??
+           KakuyomuWorkFollowService(
+             sessionRepository: sessionRepository,
+           ).setFollowing;
 
   final KakuyomuSessionRepository _sessionRepository;
   final AppDatabase _db;
   final Dio _dio;
   final KakuyomuFollowedWorksParser _parser;
   final KakuyomuFollowedWorksPageFetcher? _pageFetcher;
+  final KakuyomuWorkFollowOperator _followOperator;
 
   @override
   NovelSource get source => NovelSource.kakuyomu;
@@ -163,13 +166,13 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
   }
 
   @override
-  Future<AccountSyncOutcome> addToRemoteLibrary(String workId) async {
-    return AccountSyncOutcome.failed;
+  Future<AccountSyncOutcome> addToRemoteLibrary(String workId) {
+    return _followOperator(workId, true);
   }
 
   @override
-  Future<AccountSyncOutcome> removeFromRemoteLibrary(String workId) async {
-    return AccountSyncOutcome.failed;
+  Future<AccountSyncOutcome> removeFromRemoteLibrary(String workId) {
+    return _followOperator(workId, false);
   }
 
   @override
