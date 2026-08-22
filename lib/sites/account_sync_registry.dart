@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/services/narou_sync_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/sites/narou/narou_account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
 
@@ -15,5 +16,6 @@ final accountSyncRegistryProvider = Provider<Map<NovelSource, AccountSyncAdapter
       syncService: ref.watch(narouSyncServiceProvider),
       db: ref.watch(appDatabaseProvider),
     ),
+    NovelSource.kakuyomu: ref.watch(kakuyomuAccountSyncAdapterProvider),
   },
 );
