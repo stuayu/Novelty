@@ -14,6 +14,19 @@ class KakuyomuSessionCookie {
     this.isHttpOnly,
   });
 
+  /// JSON 保存用 Map から復元する。
+  factory KakuyomuSessionCookie.fromJson(Map<String, Object?> json) {
+    return KakuyomuSessionCookie(
+      name: json['name']! as String,
+      value: json['value']! as String,
+      domain: json['domain']! as String,
+      path: json['path']! as String,
+      expiresDate: json['expiresDate'] as int?,
+      isSecure: json['isSecure'] as bool?,
+      isHttpOnly: json['isHttpOnly'] as bool?,
+    );
+  }
+
   /// Cookie 名。
   final String name;
 
@@ -59,17 +72,4 @@ class KakuyomuSessionCookie {
     'isSecure': isSecure,
     'isHttpOnly': isHttpOnly,
   };
-
-  /// JSON 保存用 Map から復元する。
-  factory KakuyomuSessionCookie.fromJson(Map<String, Object?> json) {
-    return KakuyomuSessionCookie(
-      name: json['name']! as String,
-      value: json['value']! as String,
-      domain: json['domain']! as String,
-      path: json['path']! as String,
-      expiresDate: json['expiresDate'] as int?,
-      isSecure: json['isSecure'] as bool?,
-      isHttpOnly: json['isHttpOnly'] as bool?,
-    );
-  }
 }
