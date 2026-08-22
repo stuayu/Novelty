@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Probe Kakuyomu GraphQL and current work bundle
+      - name: Probe Kakuyomu current bundles
         shell: bash
         run: |
           python3 - <<'PY'
@@ -30,147 +30,134 @@ jobs:
           from datetime import datetime, timezone
           from pathlib import Path
 
-          endpoint = 'https://kakuyomu.jp/graphql?opname=NoveltyIntrospection'
-          work_url = 'https://kakuyomu.jp/works/2912051601045930861'
-          headers = {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-              'X-Requested-With': 'XMLHttpRequest',
-          }
-
-          def type_name(node):
-              if not isinstance(node, dict):
-                  return None
-              kind = node.get('kind')
-              name = node.get('name')
-              if kind == 'NON_NULL':
-                  return f'{type_name(node.get("ofType"))}!'
-              if kind == 'LIST':
-                  return f'[{type_name(node.get("ofType"))}]'
-              return name or kind
+          pages = [
+              'https://kakuyomu.jp/works/2912051601045930861',
+              'https://kakuyomu.jp/works/2912051601045930861/episodes/2912051601046590969',
+          ]
+          ua = (
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+              'AppleWebKit/537.36 (KHTML, like Gecko) '
+              'Chrome/143.0.0.0 Safari/537.36'
+          )
+          target_tokens = (
+              'ReadingHistory',
+              'visitorReadingHistory',
+              'readingHistory',
+              'readAt',
+              'unreadEpisodeCount',
+              'DeleteReadingHistory',
+              'FollowWork',
+              'UnfollowWorks',
+              'WorkFollowing',
+              'Label',
+          )
 
           result = {
               'capturedAt': datetime.now(timezone.utc).isoformat(),
-              'endpoint': endpoint,
-              'workUrl': work_url,
-              'introspection': {},
-              'bundleEvidence': [],
+              'pages': pages,
+              'bundles': [],
+              'operations': [],
           }
+          seen_bundles = set()
+          seen_operations = set()
 
-          query = '''query NoveltyIntrospection {
-            __schema {
-              mutationType {
-                fields(includeDeprecated: true) {
-                  name
-                  args {
-                    name
-                    type {
-                      kind
-                      name
-                      ofType {
-                        kind
-                        name
-                        ofType {
-                          kind
-                          name
-                          ofType { kind name }
-                        }
-                      }
-                    }
-                  }
-                  type {
-                    kind
-                    name
-                    ofType { kind name }
-                  }
-                }
-              }
-            }
-          }'''
-          payload = json.dumps({
-              'operationName': 'NoveltyIntrospection',
-              'variables': {},
-              'query': query,
-          }).encode()
-
-          try:
-              req = urllib.request.Request(endpoint, data=payload, headers=headers, method='POST')
-              with urllib.request.urlopen(req, timeout=30) as response:
-                  body = response.read().decode('utf-8', errors='replace')
-                  result['introspection']['status'] = response.status
-                  parsed = json.loads(body)
-                  mutation_fields = (((parsed.get('data') or {}).get('__schema') or {}).get('mutationType') or {}).get('fields')
-                  if isinstance(mutation_fields, list):
-                      interesting = []
-                      for field in mutation_fields:
-                          name = str(field.get('name') or '')
-                          lowered = name.lower()
-                          if any(token in lowered for token in ('follow', 'work', 'reading', 'history', 'label')):
-                              interesting.append({
-                                  'name': name,
-                                  'args': [
-                                      {'name': arg.get('name'), 'type': type_name(arg.get('type'))}
-                                      for arg in field.get('args') or []
-                                  ],
-                                  'returnType': type_name(field.get('type')),
-                              })
-                      result['introspection']['interestingMutationFields'] = interesting
-                  else:
-                      result['introspection']['body'] = parsed
-          except Exception as exc:
-              result['introspection']['error'] = repr(exc)
-
-          try:
-              request = urllib.request.Request(work_url, headers={'User-Agent': headers['User-Agent']})
+          def fetch(url):
+              request = urllib.request.Request(url, headers={'User-Agent': ua})
               with urllib.request.urlopen(request, timeout=30) as response:
-                  page = response.read().decode('utf-8', errors='replace')
-              script_srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page)
-              keywords = [
-                  'WorkFollowing', 'visitorWorkFollowing',
-                  'FollowWork', 'UnfollowWork', 'followWork', 'unfollowWork',
-                  'workFollowing', 'followingWork', 'Antenna',
-                  'ReadingHistory', 'readingHistory',
-              ]
+                  return response.read().decode('utf-8', errors='replace')
+
+          for page_url in pages:
+              try:
+                  page = fetch(page_url)
+              except Exception as exc:
+                  result.setdefault('pageErrors', []).append({
+                      'url': page_url,
+                      'error': repr(exc),
+                  })
+                  continue
+
+              script_srcs = re.findall(
+                  r'<script[^>]+src=["\']([^"\']+)["\']',
+                  page,
+              )
               for src in script_srcs:
-                  absolute = urllib.parse.urljoin(work_url, html.unescape(src))
-                  if urllib.parse.urlparse(absolute).netloc != 'kakuyomu.jp':
+                  absolute = urllib.parse.urljoin(page_url, html.unescape(src))
+                  parsed_url = urllib.parse.urlparse(absolute)
+                  if parsed_url.netloc != 'kakuyomu.jp':
                       continue
                   if '/_next/static/' not in absolute:
                       continue
+                  if absolute in seen_bundles:
+                      continue
+                  seen_bundles.add(absolute)
+
                   try:
-                      req = urllib.request.Request(absolute, headers={'User-Agent': headers['User-Agent']})
-                      with urllib.request.urlopen(req, timeout=30) as response:
-                          text = response.read().decode('utf-8', errors='replace')
-                  except Exception:
+                      text = fetch(absolute)
+                  except Exception as exc:
+                      result.setdefault('bundleErrors', []).append({
+                          'url': absolute,
+                          'error': repr(exc),
+                      })
                       continue
 
-                  matches = []
-                  for keyword in keywords:
-                      index = text.find(keyword)
-                      if index < 0:
-                          continue
-                      left = max(0, index - 550)
-                      right = min(len(text), index + len(keyword) + 900)
-                      matches.append({
-                          'keyword': keyword,
-                          'snippet': text[left:right],
-                      })
-                      if len(matches) >= 12:
-                          break
-                  if matches:
-                      result['bundleEvidence'].append({
+                  decoded = (
+                      text.replace('\\\\n', '\n')
+                          .replace('\\n', '\n')
+                          .replace('\\"', '"')
+                  )
+                  contexts = []
+                  for token in target_tokens:
+                      start = 0
+                      count = 0
+                      while count < 4:
+                          index = decoded.find(token, start)
+                          if index < 0:
+                              break
+                          left = max(0, index - 1000)
+                          right = min(len(decoded), index + len(token) + 1800)
+                          contexts.append({
+                              'token': token,
+                              'snippet': decoded[left:right],
+                          })
+                          start = index + len(token)
+                          count += 1
+
+                  if contexts:
+                      result['bundles'].append({
                           'url': absolute,
-                          'matches': matches,
+                          'contexts': contexts,
                       })
-                  if len(result['bundleEvidence']) >= 8:
-                      break
-          except Exception as exc:
-              result['bundlePageError'] = repr(exc)
+
+                  # Textual GraphQL documents are embedded in the current Next.js
+                  # bundles. Capture operation blocks that mention account sync data.
+                  for match in re.finditer(
+                      r'(?P<kind>mutation|query)\s+'
+                      r'(?P<name>[A-Za-z_][A-Za-z0-9_]*)',
+                      decoded,
+                  ):
+                      name = match.group('name')
+                      key = (match.group('kind'), name)
+                      if key in seen_operations:
+                          continue
+                      left = max(0, match.start() - 200)
+                      right = min(len(decoded), match.start() + 5000)
+                      snippet = decoded[left:right]
+                      if not any(token.lower() in snippet.lower() for token in target_tokens):
+                          continue
+                      seen_operations.add(key)
+                      result['operations'].append({
+                          'kind': match.group('kind'),
+                          'name': name,
+                          'bundle': absolute,
+                          'snippet': snippet,
+                      })
 
           output = Path('docs/novelty/kakuyomu_api_probe_result.json')
           output.parent.mkdir(parents=True, exist_ok=True)
-          output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          output.write_text(
+              json.dumps(result, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
           PY
 
       - name: Commit probe result to research branch
@@ -182,5 +169,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨムAPIプローブ結果を保存"
+          git commit -m "調査: カクヨム読書履歴APIプローブ結果を保存"
           git push origin HEAD:${{ github.head_ref }}
