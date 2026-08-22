@@ -4,6 +4,7 @@ import 'package:novelty/database/database.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
 import 'package:novelty/services/kakuyomu_follow_service.dart';
+import 'package:novelty/services/kakuyomu_reading_progress_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_followed_works_parser.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
@@ -51,15 +52,31 @@ typedef KakuyomuFollowedWorksPageFetcher =
 typedef KakuyomuRemoteFollowOperation =
     Future<AccountSyncOutcome> Function(String workId);
 
+/// ローカル話数から目次キャッシュの公式episode URLを解決するコールバック。
+typedef KakuyomuEpisodeUrlResolver =
+    Future<String?> Function(String workId, int episode);
+
+/// リモート読書位置操作をテスト時に差し替えるためのコールバック。
+typedef KakuyomuRemoteReadingProgressOperation =
+    Future<bool> Function({
+      required String workId,
+      required String episodeId,
+      required String position,
+    });
+
 /// カクヨム同期アダプターのProvider。
 final kakuyomuAccountSyncAdapterProvider = Provider<KakuyomuAccountSyncAdapter>(
   (ref) {
     final followService = ref.watch(kakuyomuFollowServiceProvider);
+    final readingProgressService = ref.watch(
+      kakuyomuReadingProgressServiceProvider,
+    );
     return KakuyomuAccountSyncAdapter(
       sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
       db: ref.watch(appDatabaseProvider),
       followWork: followService.followWork,
       unfollowWork: followService.unfollowWork,
+      pushReadingProgress: readingProgressService.record,
     );
   },
 );
@@ -68,6 +85,7 @@ final kakuyomuAccountSyncAdapterProvider = Provider<KakuyomuAccountSyncAdapter>(
 ///
 /// フォロー一覧の取り込みは認証済みHTMLをDioで取得し、追加・解除は
 /// 現行カクヨムWeb版のGraphQL mutationをDioで直接呼び出す。
+/// 読書位置は現行episode viewerが利用するhistory HTTP endpointへ同期する。
 class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
   /// コンストラクタ。
   KakuyomuAccountSyncAdapter({
@@ -78,6 +96,8 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     KakuyomuFollowedWorksPageFetcher? pageFetcher,
     KakuyomuRemoteFollowOperation? followWork,
     KakuyomuRemoteFollowOperation? unfollowWork,
+    KakuyomuEpisodeUrlResolver? episodeUrlResolver,
+    KakuyomuRemoteReadingProgressOperation? pushReadingProgress,
     KakuyomuRateLimiter? rateLimiter,
   }) : _sessionRepository = sessionRepository,
        _db = db,
@@ -86,6 +106,8 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
        _pageFetcher = pageFetcher,
        _followWork = followWork,
        _unfollowWork = unfollowWork,
+       _episodeUrlResolver = episodeUrlResolver,
+       _pushReadingProgress = pushReadingProgress,
        _rateLimiter = rateLimiter ?? KakuyomuRateLimiter();
 
   final KakuyomuSessionRepository _sessionRepository;
@@ -95,6 +117,8 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
   final KakuyomuFollowedWorksPageFetcher? _pageFetcher;
   final KakuyomuRemoteFollowOperation? _followWork;
   final KakuyomuRemoteFollowOperation? _unfollowWork;
+  final KakuyomuEpisodeUrlResolver? _episodeUrlResolver;
+  final KakuyomuRemoteReadingProgressOperation? _pushReadingProgress;
   final KakuyomuRateLimiter _rateLimiter;
 
   @override
@@ -217,8 +241,38 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
   Future<bool> pushReadingProgress({
     required String workId,
     required int episode,
+    String? position,
   }) async {
-    // Phase 5でRecordReadingHistoryを接続する。
-    return false;
+    // 初回表示時など詳細位置が無い場合は、カクヨム側の既存 #pN を
+    // :root で巻き戻さないためremoteへ何も送らない。
+    if (position == null) return false;
+
+    final resolver = _episodeUrlResolver;
+    final episodeUrl = resolver != null
+        ? await resolver(workId, episode)
+        : await _db.getEpisodeUrl(source, workId, episode);
+    if (episodeUrl == null || episodeUrl.isEmpty) return false;
+
+    final uri = Uri.tryParse(episodeUrl);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host != 'kakuyomu.jp' ||
+        uri.pathSegments.length != 4 ||
+        uri.pathSegments[0] != 'works' ||
+        uri.pathSegments[1] != workId ||
+        uri.pathSegments[2] != 'episodes') {
+      return false;
+    }
+
+    final remoteEpisodeId = uri.pathSegments[3];
+    if (!RegExp(r'^\d+$').hasMatch(remoteEpisodeId)) return false;
+
+    final operation = _pushReadingProgress;
+    if (operation == null) return false;
+    return operation(
+      workId: workId,
+      episodeId: remoteEpisodeId,
+      position: position,
+    );
   }
 }
