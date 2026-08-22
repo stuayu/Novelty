@@ -27,17 +27,41 @@ void main() {
       expect(kakuyomuDashboardIndicatesLoggedIn(html), isFalse);
     });
 
-    test('ログイン導線が無いダッシュボードはtrue', () {
+    test('data-is-guest=0のログイン済みページはtrue', () {
       const html = '''
-<html>
-  <body>
-    <nav><a href="/my">ダッシュボード</a></nav>
+<html data-is-guest="0">
+  <body id="page-my">
+    <header class="test-header isSignedInUser"></header>
     <main><h1>ダッシュボード</h1></main>
   </body>
 </html>
 ''';
 
       expect(kakuyomuDashboardIndicatesLoggedIn(html), isTrue);
+    });
+
+    test('isSignedInUserマーカーだけでもログイン済みと判定する', () {
+      const html = '''
+<html>
+  <body id="page-my">
+    <header class="test-header isSignedInUser"></header>
+  </body>
+</html>
+''';
+
+      expect(kakuyomuDashboardIndicatesLoggedIn(html), isTrue);
+    });
+
+    test('ログイン導線が無いだけの汎用200ページはfalse', () {
+      const html = '''
+<html>
+  <body>
+    <main><h1>一時的なエラーページ</h1></main>
+  </body>
+</html>
+''';
+
+      expect(kakuyomuDashboardIndicatesLoggedIn(html), isFalse);
     });
 
     test('空HTMLはfalse', () {
