@@ -1,9 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/services/kakuyomu_auth_service.dart';
 import 'package:novelty/services/kakuyomu_web_cookie_service.dart';
+import 'package:novelty/utils/kakuyomu_webview_support.dart';
 
 const _kakuyomuLoginUrl = 'https://kakuyomu.jp/auth/login';
 
@@ -22,21 +22,10 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
   bool _isCompleted = false;
   String? _errorMessage;
 
-  bool get _isSupportedPlatform {
-    if (kIsWeb) return false;
-    return switch (defaultTargetPlatform) {
-      TargetPlatform.android ||
-      TargetPlatform.iOS ||
-      TargetPlatform.macOS ||
-      TargetPlatform.windows => true,
-      TargetPlatform.linux || TargetPlatform.fuchsia => false,
-    };
-  }
-
   @override
   void initState() {
     super.initState();
-    if (_isSupportedPlatform) {
+    if (isKakuyomuWebViewSupported) {
       _prepareSession();
     } else {
       _isPreparing = false;
@@ -100,7 +89,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_isSupportedPlatform) {
+    if (!isKakuyomuWebViewSupported) {
       return Scaffold(
         appBar: AppBar(title: const Text('カクヨムアカウント')),
         body: const Center(
