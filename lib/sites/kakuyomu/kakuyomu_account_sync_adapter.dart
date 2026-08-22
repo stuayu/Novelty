@@ -243,9 +243,9 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     required int episode,
     String? position,
   }) async {
-    // 初回表示時など詳細位置が無い場合は、カクヨム側の既存 #pN を
-    // :root で巻き戻さないためremoteへ何も送らない。
-    if (position == null) return false;
+    // Novelty は現在エピソードを先頭から開くため、詳細段落位置が無い場合は
+    // 現行カクヨムviewerが同じ状態で使う :root を送る。
+    final remotePosition = position ?? ':root';
 
     final resolver = _episodeUrlResolver;
     final episodeUrl = resolver != null
@@ -272,7 +272,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     return operation(
       workId: workId,
       episodeId: remoteEpisodeId,
-      position: position,
+      position: remotePosition,
     );
   }
 }
