@@ -8,11 +8,15 @@ class KakuyomuFollowedWorksPage {
   /// コンストラクタ。
   const KakuyomuFollowedWorksPage({
     required this.entries,
+    required this.isGuestPage,
     this.nextPageUrl,
   });
 
   /// このページに含まれる作品。
   final List<RemoteLibraryEntry> entries;
+
+  /// 未ログイン向けのguestページか。
+  final bool isGuestPage;
 
   /// 次ページURL。最終ページではnull。
   final Uri? nextPageUrl;
@@ -26,6 +30,12 @@ class KakuyomuFollowedWorksParser {
   /// 一覧ページの作品タイトル。
   static const _titleSelector = 'h4.widget-antennaList-title';
 
+  /// 一覧ページの作者名。
+  static const _authorSelector = 'p.widget-antennaList-author';
+
+  /// 未ログイン時のフォロー一覧ページ。
+  static const _guestBodySelector = 'body#page-my-antenna-worksGuest';
+
   static final RegExp _workPathPattern = RegExp(r'^/works/([0-9]+)(?:/|$)');
 
   /// HTMLを解析する。
@@ -38,18 +48,21 @@ class KakuyomuFollowedWorksParser {
       if (workId == null) continue;
 
       final title = _normalizedText(item.querySelector(_titleSelector));
+      final writer = _normalizedText(item.querySelector(_authorSelector));
       entriesById.putIfAbsent(
         workId,
         () => RemoteLibraryEntry(
           source: NovelSource.kakuyomu,
           workId: workId,
           title: title,
+          writer: writer,
         ),
       );
     }
 
     return KakuyomuFollowedWorksPage(
       entries: entriesById.values.toList(growable: false),
+      isGuestPage: document.querySelector(_guestBodySelector) != null,
       nextPageUrl: _findNextPage(document, baseUri),
     );
   }
