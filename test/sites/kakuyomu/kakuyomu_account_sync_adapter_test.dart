@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
 
@@ -20,7 +21,7 @@ void main() {
   String fixture(String name) =>
       File('test/fixtures/kakuyomu/$name').readAsStringSync();
 
-  group('KakuyomuAccountSyncAdapter.pullLibrary', () {
+  group('KakuyomuAccountSyncAdapter', () {
     late AppDatabase db;
 
     setUp(() {
@@ -119,6 +120,40 @@ void main() {
       expect(stored?.writer, '既存作者');
       expect(stored?.story, '既存あらすじ');
       expect(stored?.generalAllNo, 100);
+    });
+
+    test('addToRemoteLibraryはネイティブfollow操作へ委譲する', () async {
+      String? capturedWorkId;
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        db: db,
+        followWork: (workId) async {
+          capturedWorkId = workId;
+          return AccountSyncOutcome.success;
+        },
+      );
+
+      final result = await adapter.addToRemoteLibrary('123456789');
+
+      expect(result, AccountSyncOutcome.success);
+      expect(capturedWorkId, '123456789');
+    });
+
+    test('removeFromRemoteLibraryはネイティブunfollow操作へ委譲する', () async {
+      String? capturedWorkId;
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        db: db,
+        unfollowWork: (workId) async {
+          capturedWorkId = workId;
+          return AccountSyncOutcome.notLoggedIn;
+        },
+      );
+
+      final result = await adapter.removeFromRemoteLibrary('123456789');
+
+      expect(result, AccountSyncOutcome.notLoggedIn);
+      expect(capturedWorkId, '123456789');
     });
   });
 }
