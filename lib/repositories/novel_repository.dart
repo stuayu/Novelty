@@ -14,7 +14,8 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_info_extension.dart';
 import 'package:novelty/providers/network_fallback_event_provider.dart';
 import 'package:novelty/services/api_service.dart';
-import 'package:novelty/services/narou_sync_service.dart';
+import 'package:novelty/sites/account_sync_adapter.dart';
+import 'package:novelty/sites/account_sync_registry.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -122,30 +123,22 @@ class NovelRepository {
     // LibraryEntriesテーブルに追加
     await _db.addToLibrary(source, workId);
 
-    // 一覧・ランキング画面から追加した場合も、詳細画面と同様に
-    // ログイン済みであればなろう本家へブックマークを同期する。
-    // なろう以外のソース（カクヨム等）は同期対象外。
-    if (source == NovelSource.narou) {
+    // サイトがアカウント同期に対応している場合だけ、リモートにも追加する。
+    // リモート同期失敗でローカル追加を取り消さない。
+    final adapter = ref.read(accountSyncRegistryProvider)[source];
+    if (adapter != null) {
       try {
-        final syncResult = await ref
-            .read(narouSyncServiceProvider)
-            .addBookmarkToNarou(workId);
-        if (syncResult.outcome == NarouBookmarkSyncOutcome.success) {
-          await _db.markNarouBookmarkSynced(
-            source,
-            workId,
-            useridFavncode: syncResult.useridFavncode,
-            favToken: syncResult.token,
-          );
-        } else if (syncResult.outcome == NarouBookmarkSyncOutcome.failed) {
+        final outcome = await adapter.addToRemoteLibrary(workId);
+        if (outcome == AccountSyncOutcome.failed) {
           debugPrint(
-            '[NarouSync] addNovelToLibrary($workId): '
-            'なろうへのブックマーク登録に失敗しました',
+            '[AccountSync] addNovelToLibrary($workId): '
+            '${source.label}へのライブラリ同期に失敗しました',
           );
         }
       } on Exception catch (e) {
-        // ローカルへの追加は完了しているため、同期失敗で取り消さない。
-        debugPrint('[NarouSync] addNovelToLibrary($workId): 同期例外: $e');
+        debugPrint(
+          '[AccountSync] addNovelToLibrary($workId): 同期例外: $e',
+        );
       }
     }
 
@@ -157,31 +150,30 @@ class NovelRepository {
 
   /// 小説をライブラリから削除する。
   ///
-  /// [source]が[NovelSource.narou]の場合、なろう本家側のブックマーク解除も
-  /// ベストエフォートで行う（失敗してもローカル削除自体には影響させない）。
+  /// サイトがアカウント同期に対応している場合、リモート側の登録解除も行う。
+  /// リモート解除が明示的に失敗した場合は、再試行できるようローカル登録を残す。
   Future<void> removeFromLibrary(NovelSource source, String workId) async {
-    if (source == NovelSource.narou) {
+    final adapter = ref.read(accountSyncRegistryProvider)[source];
+    if (adapter != null) {
       try {
-        final outcome = await ref
-            .read(narouSyncServiceProvider)
-            .removeBookmarkFromNarou(workId);
-        if (outcome == NarouBookmarkSyncOutcome.failed) {
+        final outcome = await adapter.removeFromRemoteLibrary(workId);
+        if (outcome == AccountSyncOutcome.failed) {
           debugPrint(
-            '[NarouSync] removeFromLibrary($workId): '
-            'なろう側の解除に失敗したためローカル削除を中止します',
+            '[AccountSync] removeFromLibrary($workId): '
+            '${source.label}側の解除に失敗したためローカル削除を中止します',
           );
           return;
         }
-        if (outcome != NarouBookmarkSyncOutcome.notLoggedIn) {
+        if (outcome != AccountSyncOutcome.notLoggedIn) {
           debugPrint(
-            '[NarouSync] removeFromLibrary($workId): '
-            'removeBookmarkFromNarou結果=$outcome',
+            '[AccountSync] removeFromLibrary($workId): '
+            'removeFromRemoteLibrary結果=$outcome',
           );
         }
       } on Exception catch (e) {
         debugPrint(
-          '[NarouSync] removeFromLibrary($workId): '
-          'removeBookmarkFromNarouで予期しない例外: $e',
+          '[AccountSync] removeFromLibrary($workId): '
+          'removeFromRemoteLibraryで予期しない例外: $e',
         );
         return;
       }
@@ -1030,7 +1022,7 @@ class LibraryStatus extends _$LibraryStatus {
     state = const AsyncValue.loading();
     try {
       final workId = novelInfo.workId ?? novelInfo.ncode!;
-      final isNarou = novelInfo.source == NovelSource.narou;
+      final adapter = ref.read(accountSyncRegistryProvider)[novelInfo.source];
 
       if (newStatus) {
         // 事前にNovelsテーブルに小説情報が存在することを保証する必要がある。
@@ -1038,61 +1030,49 @@ class LibraryStatus extends _$LibraryStatus {
         await db.insertNovel(novelInfo.toDbCompanion());
         await db.addToLibrary(novelInfo.source, workId);
 
-        // ログイン済みかつなろうの小説の場合のみ、なろうにもブックマーク登録する。
-        // なろう側の同期で予期しない例外が発生しても、ローカルへの
-        // 追加自体は既に成功しているため、ここで独立してcatchする。
-        var narouSyncFailed = false;
-        if (isNarou) {
+        // リモート同期で予期しない例外が発生しても、ローカル追加は維持する。
+        var syncFailed = false;
+        if (adapter != null) {
           try {
-            final syncResult = await ref
-                .read(narouSyncServiceProvider)
-                .addBookmarkToNarou(workId);
+            final outcome = await adapter.addToRemoteLibrary(workId);
             debugPrint(
-              '[NarouSync] toggle($workId): '
-              'addBookmarkToNarou結果=${syncResult.outcome}',
+              '[AccountSync] toggle($workId): '
+              'addToRemoteLibrary結果=$outcome',
             );
-            if (syncResult.outcome == NarouBookmarkSyncOutcome.success) {
-              await db.markNarouBookmarkSynced(
-                novelInfo.source,
-                workId,
-                useridFavncode: syncResult.useridFavncode,
-                favToken: syncResult.token,
-              );
-            }
-            narouSyncFailed =
-                syncResult.outcome == NarouBookmarkSyncOutcome.failed;
+            syncFailed = outcome == AccountSyncOutcome.failed;
           } on Exception catch (e) {
-            debugPrint('[NarouSync] toggle($workId): addBookmarkToNarouで予期しない例外: $e');
-            narouSyncFailed = true;
+            debugPrint(
+              '[AccountSync] toggle($workId): '
+              'addToRemoteLibraryで予期しない例外: $e',
+            );
+            syncFailed = true;
           }
         }
 
         ref.invalidate(libraryNovelsProvider);
-        return LibraryToggleResult.added(narouSyncFailed: narouSyncFailed);
+        return LibraryToggleResult.added(narouSyncFailed: syncFailed);
       } else {
-        var narouSyncFailed = false;
-        if (isNarou) {
+        var syncFailed = false;
+        if (adapter != null) {
           try {
-            final outcome = await ref
-                .read(narouSyncServiceProvider)
-                .removeBookmarkFromNarou(workId);
-            if (outcome != NarouBookmarkSyncOutcome.notLoggedIn) {
+            final outcome = await adapter.removeFromRemoteLibrary(workId);
+            if (outcome != AccountSyncOutcome.notLoggedIn) {
               debugPrint(
-                '[NarouSync] toggle($workId): '
-                'removeBookmarkFromNarou結果=$outcome',
+                '[AccountSync] toggle($workId): '
+                'removeFromRemoteLibrary結果=$outcome',
               );
             }
-            narouSyncFailed = outcome == NarouBookmarkSyncOutcome.failed;
+            syncFailed = outcome == AccountSyncOutcome.failed;
           } on Exception catch (e) {
             debugPrint(
-              '[NarouSync] toggle($workId): '
-              'removeBookmarkFromNarouで予期しない例外: $e',
+              '[AccountSync] toggle($workId): '
+              'removeFromRemoteLibraryで予期しない例外: $e',
             );
-            narouSyncFailed = true;
+            syncFailed = true;
           }
 
-          // なろう側の解除に失敗した場合はローカル登録を残し、再試行可能にする。
-          if (narouSyncFailed) {
+          // リモート側の解除に失敗した場合はローカル登録を残し、再試行可能にする。
+          if (syncFailed) {
             return const LibraryToggleResult.removed(narouSyncFailed: true);
           }
         }
@@ -1100,7 +1080,7 @@ class LibraryStatus extends _$LibraryStatus {
         await db.removeFromLibrary(novelInfo.source, workId);
 
         ref.invalidate(libraryNovelsProvider);
-        return LibraryToggleResult.removed(narouSyncFailed: narouSyncFailed);
+        return LibraryToggleResult.removed(narouSyncFailed: syncFailed);
       }
     } on Exception catch (e, st) {
       state = AsyncValue.error(e, st);
