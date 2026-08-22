@@ -9,6 +9,7 @@ import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_followed_works_parser.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/kakuyomu_uri.dart';
 
 const _initialFollowedWorksUrl =
     'https://kakuyomu.jp/my/antenna/works/all?order=last_read_at';
@@ -253,19 +254,11 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
         : await _db.getEpisodeUrl(source, workId, episode);
     if (episodeUrl == null || episodeUrl.isEmpty) return false;
 
-    final uri = Uri.tryParse(episodeUrl);
-    if (uri == null ||
-        uri.scheme != 'https' ||
-        uri.host != 'kakuyomu.jp' ||
-        uri.pathSegments.length != 4 ||
-        uri.pathSegments[0] != 'works' ||
-        uri.pathSegments[1] != workId ||
-        uri.pathSegments[2] != 'episodes') {
-      return false;
-    }
-
-    final remoteEpisodeId = uri.pathSegments[3];
-    if (!RegExp(r'^\d+$').hasMatch(remoteEpisodeId)) return false;
+    final remoteEpisodeId = extractKakuyomuEpisodeId(
+      workId: workId,
+      url: episodeUrl,
+    );
+    if (remoteEpisodeId == null) return false;
 
     final operation = _pushReadingProgress;
     if (operation == null) return false;
