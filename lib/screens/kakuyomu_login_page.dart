@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,7 +29,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
   void initState() {
     super.initState();
     if (isKakuyomuWebViewSupported) {
-      _prepareSession();
+      unawaited(_prepareSession());
     } else {
       _isPreparing = false;
     }
@@ -127,10 +129,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
                     initialUrlRequest: URLRequest(
                       url: WebUri(_kakuyomuLoginUrl),
                     ),
-                    initialSettings: InAppWebViewSettings(
-                      javaScriptEnabled: true,
-                      thirdPartyCookiesEnabled: true,
-                    ),
+                    initialSettings: InAppWebViewSettings(),
                     onLoadStop: (controller, url) async {
                       await _tryCompleteLogin(url);
                     },
