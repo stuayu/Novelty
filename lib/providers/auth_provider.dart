@@ -1,6 +1,7 @@
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/narou_auth_service.dart';
-import 'package:novelty/services/narou_sync_service.dart';
+import 'package:novelty/sites/account_sync_registry.dart';
+import 'package:novelty/sites/novel_source.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'auth_provider.g.dart';
@@ -64,9 +65,9 @@ class Auth extends _$Auth {
           username: result.username!,
         ),
       );
-      // ログイン成功後にブックマークを同期する
-      final syncService = ref.read(narouSyncServiceProvider);
-      await syncService.syncBookmarksFromNarou();
+      // ログイン成功後に、なろうのリモートライブラリを同期する。
+      final adapter = ref.read(accountSyncRegistryProvider)[NovelSource.narou];
+      await adapter?.pullLibrary();
     } else {
       state = const AsyncValue.data(null);
     }
@@ -83,8 +84,7 @@ class Auth extends _$Auth {
 
   /// ブックマークを手動でなろうから同期する。
   Future<int> syncBookmarks() async {
-    final syncService = ref.read(narouSyncServiceProvider);
-    final synced = await syncService.syncBookmarksFromNarou();
-    return synced.length;
+    final adapter = ref.read(accountSyncRegistryProvider)[NovelSource.narou];
+    return adapter?.pullLibrary() ?? 0;
   }
 }
