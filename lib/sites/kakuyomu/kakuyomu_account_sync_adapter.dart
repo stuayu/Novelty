@@ -6,10 +6,20 @@ import 'package:novelty/repositories/kakuyomu_session_repository.dart';
 import 'package:novelty/services/kakuyomu_follow_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_followed_works_parser.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 
 const _initialFollowedWorksUrl =
     'https://kakuyomu.jp/my/antenna/works/all?order=last_read_at';
+
+/// カクヨムの保存済みセッションが失効している場合の例外。
+class KakuyomuSessionExpiredException implements Exception {
+  /// コンストラクタ。
+  const KakuyomuSessionExpiredException();
+
+  @override
+  String toString() => 'KakuyomuSessionExpiredException';
+}
 
 /// フォロー一覧1ページのHTTP取得結果。
 class KakuyomuFollowedWorksHttpResponse {
@@ -68,13 +78,15 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     KakuyomuFollowedWorksPageFetcher? pageFetcher,
     KakuyomuRemoteFollowOperation? followWork,
     KakuyomuRemoteFollowOperation? unfollowWork,
+    KakuyomuRateLimiter? rateLimiter,
   }) : _sessionRepository = sessionRepository,
        _db = db,
        _dio = dio ?? Dio(),
        _parser = parser ?? KakuyomuFollowedWorksParser(),
        _pageFetcher = pageFetcher,
        _followWork = followWork,
-       _unfollowWork = unfollowWork;
+       _unfollowWork = unfollowWork,
+       _rateLimiter = rateLimiter ?? KakuyomuRateLimiter();
 
   final KakuyomuSessionRepository _sessionRepository;
   final AppDatabase _db;
@@ -83,6 +95,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
   final KakuyomuFollowedWorksPageFetcher? _pageFetcher;
   final KakuyomuRemoteFollowOperation? _followWork;
   final KakuyomuRemoteFollowOperation? _unfollowWork;
+  final KakuyomuRateLimiter _rateLimiter;
 
   @override
   NovelSource get source => NovelSource.kakuyomu;
@@ -94,6 +107,8 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     final override = _pageFetcher;
     if (override != null) return override(url, cookieHeader);
 
+    // 実サイトへの連続アクセスは既存のカクヨム取得処理と同じ1秒間隔にする。
+    await _rateLimiter.wait();
     final response = await _dio.get<String>(
       url.toString(),
       options: Options(
@@ -120,7 +135,9 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
   @override
   Future<int> pullLibrary() async {
     final cookieHeader = await _sessionRepository.buildCookieHeader();
-    if (cookieHeader == null || cookieHeader.isEmpty) return 0;
+    if (cookieHeader == null || cookieHeader.isEmpty) {
+      throw const KakuyomuSessionExpiredException();
+    }
 
     final seenPageUrls = <Uri>{};
     final seenWorkIds = <String>{};
@@ -138,13 +155,17 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
       final finalUri = response.realUri;
       if (finalUri.path.startsWith('/auth/login') ||
           finalUri.path == '/login') {
-        break;
+        throw const KakuyomuSessionExpiredException();
       }
 
       final body = response.body;
       if (body == null || body.isEmpty) break;
 
       final parsed = _parser.parse(body, baseUri: finalUri);
+      if (parsed.isGuestPage) {
+        throw const KakuyomuSessionExpiredException();
+      }
+
       for (final entry in parsed.entries) {
         if (!seenWorkIds.add(entry.workId)) continue;
 
