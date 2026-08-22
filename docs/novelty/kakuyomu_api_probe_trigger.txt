@@ -1,1 +1,1 @@
-2026-08-22 PR5 position callsite synchronize
+2026-08-22 position callsite full first-party rerun
