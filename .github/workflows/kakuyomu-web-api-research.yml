@@ -1,0 +1,152 @@
+name: Kakuyomu Web API Research
+
+on:
+  push:
+    paths:
+      - .github/workflows/kakuyomu-web-api-research.yml
+
+permissions:
+  contents: write
+
+jobs:
+  inspect-web-bundles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Fetch current Kakuyomu work page and JS bundles
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          import urllib.request
+          import urllib.parse
+
+          PAGE = 'https://kakuyomu.jp/works/16818023211929539879'
+          UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/143.0.0.0 Safari/537.36'
+
+          class Scripts(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.srcs = []
+              def handle_starttag(self, tag, attrs):
+                  if tag != 'script':
+                      return
+                  d = dict(attrs)
+                  src = d.get('src')
+                  if src:
+                      self.srcs.append(src)
+
+          def get(url):
+              req = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept': '*/*'})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return r.read()
+
+          html = get(PAGE).decode('utf-8', 'replace')
+          parser = Scripts()
+          parser.feed(html)
+          out = Path('/tmp/kakuyomu-web')
+          out.mkdir(parents=True, exist_ok=True)
+          (out / 'page.html').write_text(html, encoding='utf-8')
+
+          urls = []
+          for src in parser.srcs:
+              url = urllib.parse.urljoin(PAGE, src)
+              if '/_next/static/' not in url:
+                  continue
+              urls.append(url)
+          for i, url in enumerate(dict.fromkeys(urls)):
+              try:
+                  data = get(url)
+              except Exception as e:
+                  print(f'WARN fetch {url}: {e}')
+                  continue
+              (out / f'bundle-{i:03}.js').write_bytes(data)
+              print(f'{i:03} {len(data):9} {url}')
+          PY
+
+      - name: Extract sanitized API and operation structure
+        run: |
+          set -euo pipefail
+          mkdir -p docs/novelty
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('/tmp/kakuyomu-web')
+          texts = []
+          for p in root.glob('bundle-*.js'):
+              try:
+                  texts.append((p.name, p.read_text('utf-8', errors='ignore')))
+              except OSError:
+                  pass
+
+          endpoints = set()
+          operations = set()
+          signatures = set()
+          identifiers = set()
+          relevant_bundles = set()
+
+          endpoint_re = re.compile(r'(?:(?:https://kakuyomu\.jp)?/(?:api|graphql)[A-Za-z0-9_./?=&:%{}+-]{0,220})')
+          op_re = re.compile(r'\b(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^)]{0,500}\))?\s*\{')
+          root_field_re = re.compile(r'\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^{}]{0,500}\))?\s*\{')
+          ident_re = re.compile(
+              r'\b[A-Za-z_][A-Za-z0-9_]{0,100}'
+              r'(?:Follow|follow|Unfollow|unfollow|Following|following|'
+              r'Antenna|antenna|ReadingHistory|readingHistory|LastRead|lastRead)'
+              r'[A-Za-z0-9_]{0,100}\b'
+          )
+
+          for name, text in texts:
+              if not re.search(r'follow|Follow|graphql|/api/|antenna|readingHistory|ReadingHistory', text):
+                  continue
+              relevant_bundles.add(name)
+              for x in endpoint_re.findall(text):
+                  endpoints.add(x)
+              for m in op_re.finditer(text):
+                  kind, op_name, vars_part = m.groups()
+                  operations.add(f'{kind} {op_name}{vars_part or ""}')
+                  tail = text[m.end()-1:m.end()+1200]
+                  rm = root_field_re.search(tail)
+                  if rm:
+                      signatures.add(f'{kind} {op_name} -> {rm.group(1)}')
+              for x in ident_re.findall(text):
+                  identifiers.add(x)
+
+          out = Path('docs/novelty/kakuyomu_web_api_static_research.txt')
+          with out.open('w', encoding='utf-8') as f:
+              f.write('Temporary static-analysis result from current public Kakuyomu Next.js bundles.\n')
+              f.write('Only endpoint literals, GraphQL signatures, and follow/history identifiers are retained.\n\n')
+              f.write('=== Relevant bundles ===\n')
+              for x in sorted(relevant_bundles):
+                  f.write(x + '\n')
+              f.write('\n=== Endpoint literals ===\n')
+              for x in sorted(endpoints):
+                  f.write(x + '\n')
+              f.write('\n=== GraphQL operation declarations ===\n')
+              for x in sorted(operations):
+                  f.write(x + '\n')
+              f.write('\n=== GraphQL operation -> root field ===\n')
+              for x in sorted(signatures):
+                  f.write(x + '\n')
+              f.write('\n=== Follow / history identifiers ===\n')
+              for x in sorted(identifiers):
+                  f.write(x + '\n')
+          PY
+          cat docs/novelty/kakuyomu_web_api_static_research.txt
+
+      - name: Commit sanitized research result
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/novelty/kakuyomu_web_api_static_research.txt
+          if git diff --cached --quiet; then
+            echo 'No research result changes.'
+            exit 0
+          fi
+          git commit -m 'chore: カクヨムWeb API解析結果を一時保存'
+          git push origin HEAD:develop
