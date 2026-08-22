@@ -35,8 +35,7 @@ jobs:
               def handle_starttag(self, tag, attrs):
                   if tag != 'script':
                       return
-                  d = dict(attrs)
-                  src = d.get('src')
+                  src = dict(attrs).get('src')
                   if src:
                       self.srcs.append(src)
 
@@ -50,15 +49,10 @@ jobs:
           parser.feed(html)
           out = Path('/tmp/kakuyomu-web')
           out.mkdir(parents=True, exist_ok=True)
-          (out / 'page.html').write_text(html, encoding='utf-8')
-
-          urls = []
-          for src in parser.srcs:
+          for i, src in enumerate(dict.fromkeys(parser.srcs)):
               url = urllib.parse.urljoin(PAGE, src)
               if '/_next/static/' not in url:
                   continue
-              urls.append(url)
-          for i, url in enumerate(dict.fromkeys(urls)):
               try:
                   data = get(url)
               except Exception as e:
@@ -104,8 +98,7 @@ jobs:
               if not re.search(r'follow|Follow|graphql|/api/|antenna|readingHistory|ReadingHistory', text):
                   continue
               relevant_bundles.add(name)
-              for x in endpoint_re.findall(text):
-                  endpoints.add(x)
+              endpoints.update(endpoint_re.findall(text))
               for m in op_re.finditer(text):
                   kind, op_name, vars_part = m.groups()
                   operations.add(f'{kind} {op_name}{vars_part or ""}')
@@ -113,40 +106,103 @@ jobs:
                   rm = root_field_re.search(tail)
                   if rm:
                       signatures.add(f'{kind} {op_name} -> {rm.group(1)}')
-              for x in ident_re.findall(text):
-                  identifiers.add(x)
+              identifiers.update(ident_re.findall(text))
 
           out = Path('docs/novelty/kakuyomu_web_api_static_research.txt')
           with out.open('w', encoding='utf-8') as f:
               f.write('Temporary static-analysis result from current public Kakuyomu Next.js bundles.\n')
               f.write('Only endpoint literals, GraphQL signatures, and follow/history identifiers are retained.\n\n')
               f.write('=== Relevant bundles ===\n')
-              for x in sorted(relevant_bundles):
-                  f.write(x + '\n')
+              for x in sorted(relevant_bundles): f.write(x + '\n')
               f.write('\n=== Endpoint literals ===\n')
-              for x in sorted(endpoints):
-                  f.write(x + '\n')
+              for x in sorted(endpoints): f.write(x + '\n')
               f.write('\n=== GraphQL operation declarations ===\n')
-              for x in sorted(operations):
-                  f.write(x + '\n')
+              for x in sorted(operations): f.write(x + '\n')
               f.write('\n=== GraphQL operation -> root field ===\n')
-              for x in sorted(signatures):
-                  f.write(x + '\n')
+              for x in sorted(signatures): f.write(x + '\n')
               f.write('\n=== Follow / history identifiers ===\n')
-              for x in sorted(identifiers):
-                  f.write(x + '\n')
+              for x in sorted(identifiers): f.write(x + '\n')
           PY
-          cat docs/novelty/kakuyomu_web_api_static_research.txt
 
-      - name: Commit sanitized research result
+      - name: Introspect relevant GraphQL input types
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import urllib.request
+
+          endpoint = 'https://kakuyomu.jp/graphql'
+          query = r'''
+          query NoveltyApiResearch {
+            followWorkInput: __type(name: "FollowWorkInput") {
+              inputFields { name type { kind name ofType { kind name ofType { kind name } } } }
+            }
+            followWorksInput: __type(name: "FollowWorksInput") {
+              inputFields { name type { kind name ofType { kind name ofType { kind name } } } }
+            }
+            unfollowWorksInput: __type(name: "UnfollowWorksInput") {
+              inputFields { name type { kind name ofType { kind name ofType { kind name } } } }
+            }
+            recordReadingHistoryInput: __type(name: "RecordReadingHistoryInput") {
+              inputFields { name type { kind name ofType { kind name ofType { kind name } } } }
+            }
+            incrementReadCountInput: __type(name: "IncrementReadCountInput") {
+              inputFields { name type { kind name ofType { kind name ofType { kind name } } } }
+            }
+            mutationType: __type(name: "Mutation") {
+              fields {
+                name
+                args { name type { kind name ofType { kind name ofType { kind name } } } }
+                type { kind name ofType { kind name } }
+              }
+            }
+          }
+          '''
+          body = json.dumps({'operationName': 'NoveltyApiResearch', 'variables': {}, 'query': query}).encode()
+          req = urllib.request.Request(
+              endpoint,
+              data=body,
+              headers={
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/143.0.0.0 Safari/537.36',
+                  'Accept': 'application/json',
+                  'Content-Type': 'application/json',
+              },
+              method='POST',
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              result = json.load(r)
+
+          data = result.get('data') or {}
+          interesting = {'followWork', 'followWorks', 'unfollowWorks', 'recordReadingHistory', 'incrementReadCount'}
+          mutation = data.get('mutationType') or {}
+          mutation['fields'] = [f for f in mutation.get('fields') or [] if f.get('name') in interesting]
+
+          sanitized = {
+              'followWorkInput': data.get('followWorkInput'),
+              'followWorksInput': data.get('followWorksInput'),
+              'unfollowWorksInput': data.get('unfollowWorksInput'),
+              'recordReadingHistoryInput': data.get('recordReadingHistoryInput'),
+              'incrementReadCountInput': data.get('incrementReadCountInput'),
+              'mutationType': mutation,
+              'errors': result.get('errors'),
+          }
+          path = Path('docs/novelty/kakuyomu_graphql_schema_research.json')
+          path.write_text(json.dumps(sanitized, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print(path.read_text(encoding='utf-8'))
+          PY
+
+      - name: Commit sanitized research results
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/novelty/kakuyomu_web_api_static_research.txt
+          git add \
+            docs/novelty/kakuyomu_web_api_static_research.txt \
+            docs/novelty/kakuyomu_graphql_schema_research.json
           if git diff --cached --quiet; then
             echo 'No research result changes.'
             exit 0
           fi
-          git commit -m 'chore: カクヨムWeb API解析結果を一時保存'
+          git commit -m 'chore: カクヨムGraphQLスキーマ解析結果を一時保存'
           git push origin HEAD:develop
