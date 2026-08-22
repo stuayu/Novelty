@@ -1,8 +1,9 @@
 name: Kakuyomu API Probe
 
 on:
-  pull_request:
-    branches: [develop]
+  push:
+    branches:
+      - research/kakuyomu-position-probe-20260822
     paths:
       - docs/novelty/kakuyomu_api_probe_trigger.txt
       - .github/workflows/kakuyomu-api-probe.yml
@@ -16,28 +17,22 @@ jobs:
     steps:
       - name: Checkout research branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.head_ref }}
 
-      - name: Probe reading history position call site
+      - name: Probe Kakuyomu viewer history implementation
         shell: bash
         run: |
           python3 - <<'PY'
           import html
-          import json
           import re
-          import urllib.error
           import urllib.parse
           import urllib.request
           from datetime import datetime, timezone
           from pathlib import Path
 
-          work_url = 'https://kakuyomu.jp/works/2912051601045930861'
           episode_url = (
               'https://kakuyomu.jp/works/2912051601045930861/'
               'episodes/2912051601046590969'
           )
-          pages = [work_url, episode_url]
           ua = (
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
               'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -49,146 +44,109 @@ jobs:
               with urllib.request.urlopen(request, timeout=30) as response:
                   return response.read().decode('utf-8', errors='replace')
 
-          sources = {}
-          inline_sources = {}
+          page = fetch(episode_url)
+          script_sources = {}
           allowed_hosts = {'kakuyomu.jp', 'cdn-static.kakuyomu.jp'}
-          for page_url in pages:
-              page = fetch(page_url)
-              inline_sources[page_url] = '\n'.join(
-                  re.findall(
-                      r'<script(?![^>]+src=)[^>]*>(.*?)</script>',
-                      page,
-                      flags=re.IGNORECASE | re.DOTALL,
-                  )
-              )
-              for src in re.findall(
-                  r'<script[^>]+src=["\']([^"\']+)["\']',
-                  page,
-                  flags=re.IGNORECASE,
-              ):
-                  absolute = urllib.parse.urljoin(page_url, html.unescape(src))
-                  parsed = urllib.parse.urlparse(absolute)
-                  if parsed.netloc not in allowed_hosts:
-                      continue
-                  if absolute not in sources:
-                      try:
-                          sources[absolute] = fetch(absolute)
-                      except Exception as exc:
-                          sources[absolute] = f'FETCH_ERROR: {exc!r}'
+          for src in re.findall(
+              r'<script[^>]+src=["\']([^"\']+)["\']',
+              page,
+              flags=re.IGNORECASE,
+          ):
+              absolute = urllib.parse.urljoin(episode_url, html.unescape(src))
+              parsed = urllib.parse.urlparse(absolute)
+              if parsed.netloc not in allowed_hosts:
+                  continue
+              try:
+                  script_sources[absolute] = fetch(absolute)
+              except Exception as exc:
+                  script_sources[absolute] = f'FETCH_ERROR: {exc!r}'
 
-          all_sources = dict(sources)
-          for page_url, source in inline_sources.items():
-              all_sources[f'inline:{page_url}'] = source
+          inline = '\n'.join(
+              re.findall(
+                  r'<script(?![^>]+src=)[^>]*>(.*?)</script>',
+                  page,
+                  flags=re.IGNORECASE | re.DOTALL,
+              )
+          )
+          sources = {f'html:{episode_url}': page, f'inline:{episode_url}': inline}
+          sources.update(script_sources)
 
           lines = [
               f'capturedAt={datetime.now(timezone.utc).isoformat()}',
-              f'scriptCount={len(sources)}',
-              f'inlineSourceCount={len(inline_sources)}',
+              f'episodeUrl={episode_url}',
+              f'scriptCount={len(script_sources)}',
               '',
-              '=== script URLs ===',
-              *sorted(sources.keys()),
+              '=== first-party script URLs ===',
+              *sorted(script_sources.keys()),
               '',
-              '=== RecordReadingHistory / position evidence ===',
           ]
 
-          evidence_count = 0
           tokens = (
-              'RecordReadingHistory',
-              'recordReadingHistory',
-              'RecordReadingHistoryInput',
               'data-viewer-history-path',
               'viewer-history',
-              'readingHistory',
-              'episodeId',
+              'historyPath',
+              '/history',
+              'reading_quantity',
               'position',
+              'scrollTop',
+              'getBoundingClientRect',
+              'XMLHttpRequest',
+              '$.ajax',
+              'fetch(',
+              'method:',
+              'type:',
           )
-          for url, source in all_sources.items():
+          emitted = 0
+          for source_url, source in sources.items():
               if source.startswith('FETCH_ERROR:'):
+                  lines.extend([f'=== fetch error ===', source_url, source, ''])
                   continue
               lowered = source.lower()
-              if not any(token.lower() in lowered for token in tokens):
-                  continue
               for token in tokens:
                   start = 0
                   occurrences = 0
-                  while occurrences < 16:
-                      index = lowered.find(token.lower(), start)
+                  needle = token.lower()
+                  while occurrences < 20:
+                      index = lowered.find(needle, start)
                       if index < 0:
                           break
                       occurrences += 1
-                      left = max(0, index - 4500)
-                      right = min(len(source), index + len(token) + 7500)
+                      left = max(0, index - 5000)
+                      right = min(len(source), index + len(token) + 9000)
                       snippet = source[left:right]
-                      if token.lower() in {'episodeid', 'position'}:
-                          nearby = snippet.lower()
-                          if not any(word in nearby for word in ('reading', 'history', 'viewer')):
+                      nearby = snippet.lower()
+                      if token in ('position', 'scrollTop', 'getBoundingClientRect', 'method:', 'type:'):
+                          if not any(
+                              marker in nearby
+                              for marker in (
+                                  'history',
+                                  'viewer',
+                                  'episode',
+                                  'reading',
+                              )
+                          ):
                               start = index + len(token)
                               continue
                       lines.extend([
-                          f'--- token={token} ---',
-                          f'source={url}',
+                          f'=== token={token} #{occurrences} ===',
+                          f'source={source_url}',
                           snippet,
                           '',
                       ])
-                      evidence_count += 1
+                      emitted += 1
                       start = index + len(token)
-                      if evidence_count >= 120:
+                      if emitted >= 160:
                           break
-                  if evidence_count >= 120:
+                  if emitted >= 160:
                       break
-              if evidence_count >= 120:
+              if emitted >= 160:
                   break
 
-          mutation = '''mutation RecordReadingHistory($input: RecordReadingHistoryInput!) {
-            recordReadingHistory(input: $input) {
-              clientMutationId
-              __typename
-            }
-          }'''
-
-          def validate_input(input_value, label):
-              payload = json.dumps({
-                  'operationName': 'RecordReadingHistory',
-                  'variables': {'input': input_value},
-                  'query': mutation,
-              }).encode('utf-8')
-              request = urllib.request.Request(
-                  'https://kakuyomu.jp/graphql?opname=RecordReadingHistory',
-                  data=payload,
-                  headers={
-                      'Accept': 'application/json',
-                      'Content-Type': 'application/json',
-                      'Origin': 'https://kakuyomu.jp',
-                      'Referer': episode_url,
-                      'User-Agent': ua,
-                      'X-Requested-With': 'XMLHttpRequest',
-                  },
-                  method='POST',
-              )
-              lines.append(f'=== server validation: {label} ===')
-              try:
-                  with urllib.request.urlopen(request, timeout=30) as response:
-                      lines.append(f'status={response.status}')
-                      lines.append(response.read().decode('utf-8', errors='replace'))
-              except urllib.error.HTTPError as exc:
-                  lines.append(f'status={exc.code}')
-                  lines.append(exc.read().decode('utf-8', errors='replace'))
-              except Exception as exc:
-                  lines.append(f'error={exc!r}')
-
-          validate_input({}, 'empty input')
-          for value in ('', '0', 'p1', '#p1', 'top'):
-              validate_input(
-                  {'episodeId': '2912051601046590969', 'position': value},
-                  f'position={value!r}',
-              )
-
           output = Path('docs/novelty/kakuyomu_reading_callsite_summary.txt')
-          output.parent.mkdir(parents=True, exist_ok=True)
           output.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
 
-      - name: Commit probe result to research branch
+      - name: Commit probe result
         shell: bash
         run: |
           git config user.name github-actions[bot]
@@ -197,5 +155,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "調査: カクヨム読書位置position根拠を保存"
-          git push origin HEAD:${{ github.head_ref }}
+          git commit -m "調査: カクヨムviewer履歴送信実装を保存"
+          git push origin HEAD:research/kakuyomu-position-probe-20260822
