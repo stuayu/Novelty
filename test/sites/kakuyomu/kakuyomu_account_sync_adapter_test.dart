@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/database/database.dart';
+import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/kakuyomu_reading_progress_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -143,12 +145,11 @@ void main() {
       final adapter = KakuyomuAccountSyncAdapter(
         sessionRepository: _FakeSessionRepository('session=test'),
         db: db,
-        pageFetcher: (url, cookie) async =>
-            KakuyomuFollowedWorksHttpResponse(
-              statusCode: 200,
-              realUri: url,
-              body: html,
-            ),
+        pageFetcher: (url, cookie) async => KakuyomuFollowedWorksHttpResponse(
+          statusCode: 200,
+          realUri: url,
+          body: html,
+        ),
       );
 
       await adapter.pullLibrary();
@@ -157,6 +158,47 @@ void main() {
       expect(stored?.writer, '既存作者');
       expect(stored?.story, '既存あらすじ');
       expect(stored?.generalAllNo, 100);
+    });
+
+    test('サイト側の最終読書エピソードをローカル履歴へmergeする', () async {
+      final html = fixture('followed_works_page.html').replaceFirst(
+        '<a href="/my/antenna/works/all?page=2&amp;order=last_read_at">\n'
+            '      <i class="icon-next-large"></i>\n'
+            '    </a>',
+        '',
+      );
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        db: db,
+        pageFetcher: (url, cookie) async => KakuyomuFollowedWorksHttpResponse(
+          statusCode: 200,
+          realUri: url,
+          body: html,
+        ),
+        fetchRemoteReadingState: (workId) async => KakuyomuRemoteReadingState(
+          isAvailable: true,
+          episodeId: workId == '1177354054880000001'
+              ? '1177354054881000001'
+              : null,
+        ),
+        episodeListResolver: (workId) async => [
+          Episode(
+            source: NovelSource.kakuyomu,
+            index: 1,
+            url:
+                'https://kakuyomu.jp/works/$workId/episodes/'
+                '1177354054881000001',
+          ),
+        ],
+      );
+
+      await adapter.pullLibrary();
+
+      final history = await db.getHistory();
+      final first = history.singleWhere(
+        (entry) => entry.workId == '1177354054880000001',
+      );
+      expect(first.lastEpisode, 1);
     });
 
     test('addToRemoteLibraryはネイティブfollow操作へ委譲する', () async {

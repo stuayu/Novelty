@@ -435,7 +435,7 @@ void main() {
         isA<MigrationException>().having(
           (e) => e.toVersion,
           'toVersion',
-          20,
+          21,
         ),
       ),
     );
@@ -468,7 +468,7 @@ void main() {
     final versionResult = await db
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(versionResult.read<int>('user_version'), 20);
+    expect(versionResult.read<int>('user_version'), 21);
 
     // novelsに非公開フラグが追加されていること
     final novel = await db.getNovel(NovelSource.narou, 'n1234ab');

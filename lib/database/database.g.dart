@@ -73,6 +73,17 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
         type: DriftSqlType.string,
         requiredDuringInsert: false,
       );
+  static const drift.VerificationMeta _catchphraseMeta =
+      const drift.VerificationMeta('catchphrase');
+  @override
+  late final drift.GeneratedColumn<String> catchphrase =
+      drift.GeneratedColumn<String>(
+        'catchphrase',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const drift.VerificationMeta _novelTypeMeta =
       const drift.VerificationMeta('novelType');
   @override
@@ -234,6 +245,17 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
         type: DriftSqlType.int,
         requiredDuringInsert: false,
       );
+  static const drift.VerificationMeta _followCountMeta =
+      const drift.VerificationMeta('followCount');
+  @override
+  late final drift.GeneratedColumn<int> followCount =
+      drift.GeneratedColumn<int>(
+        'follow_count',
+        aliasedName,
+        true,
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      );
   static const drift.VerificationMeta _rateCountMeta =
       const drift.VerificationMeta('rateCount');
   @override
@@ -329,6 +351,17 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
         type: DriftSqlType.int,
         requiredDuringInsert: false,
       );
+  static const drift.VerificationMeta _totalCharacterCountMeta =
+      const drift.VerificationMeta('totalCharacterCount');
+  @override
+  late final drift.GeneratedColumn<int> totalCharacterCount =
+      drift.GeneratedColumn<int>(
+        'total_character_count',
+        aliasedName,
+        true,
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      );
   static const drift.VerificationMeta _novelUpdatedAtMeta =
       const drift.VerificationMeta('novelUpdatedAt');
   @override
@@ -373,6 +406,7 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
     writer,
     userId,
     story,
+    catchphrase,
     novelType,
     end,
     genreId,
@@ -388,6 +422,7 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
     globalPoint,
     fav,
     reviewCount,
+    followCount,
     rateCount,
     allPoint,
     pointCount,
@@ -397,6 +432,7 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
     quarterPoint,
     yearlyPoint,
     generalAllNo,
+    totalCharacterCount,
     novelUpdatedAt,
     cachedAt,
     isPrivate,
@@ -443,6 +479,15 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
       context.handle(
         _storyMeta,
         story.isAcceptableOrUnknown(data['story']!, _storyMeta),
+      );
+    }
+    if (data.containsKey('catchphrase')) {
+      context.handle(
+        _catchphraseMeta,
+        catchphrase.isAcceptableOrUnknown(
+          data['catchphrase']!,
+          _catchphraseMeta,
+        ),
       );
     }
     if (data.containsKey('novel_type')) {
@@ -547,6 +592,15 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
         ),
       );
     }
+    if (data.containsKey('follow_count')) {
+      context.handle(
+        _followCountMeta,
+        followCount.isAcceptableOrUnknown(
+          data['follow_count']!,
+          _followCountMeta,
+        ),
+      );
+    }
     if (data.containsKey('rate_count')) {
       context.handle(
         _rateCountMeta,
@@ -616,6 +670,15 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
         ),
       );
     }
+    if (data.containsKey('total_character_count')) {
+      context.handle(
+        _totalCharacterCountMeta,
+        totalCharacterCount.isAcceptableOrUnknown(
+          data['total_character_count']!,
+          _totalCharacterCountMeta,
+        ),
+      );
+    }
     if (data.containsKey('novel_updated_at')) {
       context.handle(
         _novelUpdatedAtMeta,
@@ -671,6 +734,10 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
       story: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}story'],
+      ),
+      catchphrase: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}catchphrase'],
       ),
       novelType: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
@@ -732,6 +799,10 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
         DriftSqlType.int,
         data['${effectivePrefix}review_count'],
       ),
+      followCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}follow_count'],
+      ),
       rateCount: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}rate_count'],
@@ -767,6 +838,10 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
       generalAllNo: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}general_all_no'],
+      ),
+      totalCharacterCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}total_character_count'],
       ),
       novelUpdatedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -810,6 +885,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
 
   /// 小説のあらすじ
   final String? story;
+
+  /// キャッチコピー
+  final String? catchphrase;
 
   /// 小説の種別
   /// 0: 短編 1: 連載中
@@ -861,6 +939,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
   /// レビュー数
   final int? reviewCount;
 
+  /// フォロー数
+  final int? followCount;
+
   /// レビューの平均評価(?)
   final int? rateCount;
 
@@ -888,6 +969,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
   /// 連載小説のエピソード数 短編は常に1
   final int? generalAllNo;
 
+  /// 総文字数
+  final int? totalCharacterCount;
+
   /// 作品の更新日時
   final String? novelUpdatedAt;
 
@@ -904,6 +988,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     this.writer,
     this.userId,
     this.story,
+    this.catchphrase,
     this.novelType,
     this.end,
     this.genreId,
@@ -919,6 +1004,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     this.globalPoint,
     this.fav,
     this.reviewCount,
+    this.followCount,
     this.rateCount,
     this.allPoint,
     this.pointCount,
@@ -928,6 +1014,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     this.quarterPoint,
     this.yearlyPoint,
     this.generalAllNo,
+    this.totalCharacterCount,
     this.novelUpdatedAt,
     this.cachedAt,
     required this.isPrivate,
@@ -952,6 +1039,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     }
     if (!nullToAbsent || story != null) {
       map['story'] = drift.Variable<String>(story);
+    }
+    if (!nullToAbsent || catchphrase != null) {
+      map['catchphrase'] = drift.Variable<String>(catchphrase);
     }
     if (!nullToAbsent || novelType != null) {
       map['novel_type'] = drift.Variable<int>(novelType);
@@ -998,6 +1088,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     if (!nullToAbsent || reviewCount != null) {
       map['review_count'] = drift.Variable<int>(reviewCount);
     }
+    if (!nullToAbsent || followCount != null) {
+      map['follow_count'] = drift.Variable<int>(followCount);
+    }
     if (!nullToAbsent || rateCount != null) {
       map['rate_count'] = drift.Variable<int>(rateCount);
     }
@@ -1025,6 +1118,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     if (!nullToAbsent || generalAllNo != null) {
       map['general_all_no'] = drift.Variable<int>(generalAllNo);
     }
+    if (!nullToAbsent || totalCharacterCount != null) {
+      map['total_character_count'] = drift.Variable<int>(totalCharacterCount);
+    }
     if (!nullToAbsent || novelUpdatedAt != null) {
       map['novel_updated_at'] = drift.Variable<String>(novelUpdatedAt);
     }
@@ -1051,6 +1147,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       story: story == null && nullToAbsent
           ? const drift.Value.absent()
           : drift.Value(story),
+      catchphrase: catchphrase == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(catchphrase),
       novelType: novelType == null && nullToAbsent
           ? const drift.Value.absent()
           : drift.Value(novelType),
@@ -1096,6 +1195,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       reviewCount: reviewCount == null && nullToAbsent
           ? const drift.Value.absent()
           : drift.Value(reviewCount),
+      followCount: followCount == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(followCount),
       rateCount: rateCount == null && nullToAbsent
           ? const drift.Value.absent()
           : drift.Value(rateCount),
@@ -1123,6 +1225,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       generalAllNo: generalAllNo == null && nullToAbsent
           ? const drift.Value.absent()
           : drift.Value(generalAllNo),
+      totalCharacterCount: totalCharacterCount == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(totalCharacterCount),
       novelUpdatedAt: novelUpdatedAt == null && nullToAbsent
           ? const drift.Value.absent()
           : drift.Value(novelUpdatedAt),
@@ -1145,6 +1250,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       writer: serializer.fromJson<String?>(json['writer']),
       userId: serializer.fromJson<int?>(json['userId']),
       story: serializer.fromJson<String?>(json['story']),
+      catchphrase: serializer.fromJson<String?>(json['catchphrase']),
       novelType: serializer.fromJson<int?>(json['novelType']),
       end: serializer.fromJson<int?>(json['end']),
       genreId: serializer.fromJson<String?>(json['genreId']),
@@ -1160,6 +1266,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       globalPoint: serializer.fromJson<int?>(json['globalPoint']),
       fav: serializer.fromJson<int?>(json['fav']),
       reviewCount: serializer.fromJson<int?>(json['reviewCount']),
+      followCount: serializer.fromJson<int?>(json['followCount']),
       rateCount: serializer.fromJson<int?>(json['rateCount']),
       allPoint: serializer.fromJson<int?>(json['allPoint']),
       pointCount: serializer.fromJson<int?>(json['pointCount']),
@@ -1169,6 +1276,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       quarterPoint: serializer.fromJson<int?>(json['quarterPoint']),
       yearlyPoint: serializer.fromJson<int?>(json['yearlyPoint']),
       generalAllNo: serializer.fromJson<int?>(json['generalAllNo']),
+      totalCharacterCount: serializer.fromJson<int?>(
+        json['totalCharacterCount'],
+      ),
       novelUpdatedAt: serializer.fromJson<String?>(json['novelUpdatedAt']),
       cachedAt: serializer.fromJson<int?>(json['cachedAt']),
       isPrivate: serializer.fromJson<bool>(json['isPrivate']),
@@ -1184,6 +1294,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       'writer': serializer.toJson<String?>(writer),
       'userId': serializer.toJson<int?>(userId),
       'story': serializer.toJson<String?>(story),
+      'catchphrase': serializer.toJson<String?>(catchphrase),
       'novelType': serializer.toJson<int?>(novelType),
       'end': serializer.toJson<int?>(end),
       'genreId': serializer.toJson<String?>(genreId),
@@ -1199,6 +1310,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       'globalPoint': serializer.toJson<int?>(globalPoint),
       'fav': serializer.toJson<int?>(fav),
       'reviewCount': serializer.toJson<int?>(reviewCount),
+      'followCount': serializer.toJson<int?>(followCount),
       'rateCount': serializer.toJson<int?>(rateCount),
       'allPoint': serializer.toJson<int?>(allPoint),
       'pointCount': serializer.toJson<int?>(pointCount),
@@ -1208,6 +1320,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       'quarterPoint': serializer.toJson<int?>(quarterPoint),
       'yearlyPoint': serializer.toJson<int?>(yearlyPoint),
       'generalAllNo': serializer.toJson<int?>(generalAllNo),
+      'totalCharacterCount': serializer.toJson<int?>(totalCharacterCount),
       'novelUpdatedAt': serializer.toJson<String?>(novelUpdatedAt),
       'cachedAt': serializer.toJson<int?>(cachedAt),
       'isPrivate': serializer.toJson<bool>(isPrivate),
@@ -1221,6 +1334,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     drift.Value<String?> writer = const drift.Value.absent(),
     drift.Value<int?> userId = const drift.Value.absent(),
     drift.Value<String?> story = const drift.Value.absent(),
+    drift.Value<String?> catchphrase = const drift.Value.absent(),
     drift.Value<int?> novelType = const drift.Value.absent(),
     drift.Value<int?> end = const drift.Value.absent(),
     drift.Value<String?> genreId = const drift.Value.absent(),
@@ -1236,6 +1350,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     drift.Value<int?> globalPoint = const drift.Value.absent(),
     drift.Value<int?> fav = const drift.Value.absent(),
     drift.Value<int?> reviewCount = const drift.Value.absent(),
+    drift.Value<int?> followCount = const drift.Value.absent(),
     drift.Value<int?> rateCount = const drift.Value.absent(),
     drift.Value<int?> allPoint = const drift.Value.absent(),
     drift.Value<int?> pointCount = const drift.Value.absent(),
@@ -1245,6 +1360,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     drift.Value<int?> quarterPoint = const drift.Value.absent(),
     drift.Value<int?> yearlyPoint = const drift.Value.absent(),
     drift.Value<int?> generalAllNo = const drift.Value.absent(),
+    drift.Value<int?> totalCharacterCount = const drift.Value.absent(),
     drift.Value<String?> novelUpdatedAt = const drift.Value.absent(),
     drift.Value<int?> cachedAt = const drift.Value.absent(),
     bool? isPrivate,
@@ -1255,6 +1371,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     writer: writer.present ? writer.value : this.writer,
     userId: userId.present ? userId.value : this.userId,
     story: story.present ? story.value : this.story,
+    catchphrase: catchphrase.present ? catchphrase.value : this.catchphrase,
     novelType: novelType.present ? novelType.value : this.novelType,
     end: end.present ? end.value : this.end,
     genreId: genreId.present ? genreId.value : this.genreId,
@@ -1274,6 +1391,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     globalPoint: globalPoint.present ? globalPoint.value : this.globalPoint,
     fav: fav.present ? fav.value : this.fav,
     reviewCount: reviewCount.present ? reviewCount.value : this.reviewCount,
+    followCount: followCount.present ? followCount.value : this.followCount,
     rateCount: rateCount.present ? rateCount.value : this.rateCount,
     allPoint: allPoint.present ? allPoint.value : this.allPoint,
     pointCount: pointCount.present ? pointCount.value : this.pointCount,
@@ -1283,6 +1401,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     quarterPoint: quarterPoint.present ? quarterPoint.value : this.quarterPoint,
     yearlyPoint: yearlyPoint.present ? yearlyPoint.value : this.yearlyPoint,
     generalAllNo: generalAllNo.present ? generalAllNo.value : this.generalAllNo,
+    totalCharacterCount: totalCharacterCount.present
+        ? totalCharacterCount.value
+        : this.totalCharacterCount,
     novelUpdatedAt: novelUpdatedAt.present
         ? novelUpdatedAt.value
         : this.novelUpdatedAt,
@@ -1297,6 +1418,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       writer: data.writer.present ? data.writer.value : this.writer,
       userId: data.userId.present ? data.userId.value : this.userId,
       story: data.story.present ? data.story.value : this.story,
+      catchphrase: data.catchphrase.present
+          ? data.catchphrase.value
+          : this.catchphrase,
       novelType: data.novelType.present ? data.novelType.value : this.novelType,
       end: data.end.present ? data.end.value : this.end,
       genreId: data.genreId.present ? data.genreId.value : this.genreId,
@@ -1320,6 +1444,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       reviewCount: data.reviewCount.present
           ? data.reviewCount.value
           : this.reviewCount,
+      followCount: data.followCount.present
+          ? data.followCount.value
+          : this.followCount,
       rateCount: data.rateCount.present ? data.rateCount.value : this.rateCount,
       allPoint: data.allPoint.present ? data.allPoint.value : this.allPoint,
       pointCount: data.pointCount.present
@@ -1343,6 +1470,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       generalAllNo: data.generalAllNo.present
           ? data.generalAllNo.value
           : this.generalAllNo,
+      totalCharacterCount: data.totalCharacterCount.present
+          ? data.totalCharacterCount.value
+          : this.totalCharacterCount,
       novelUpdatedAt: data.novelUpdatedAt.present
           ? data.novelUpdatedAt.value
           : this.novelUpdatedAt,
@@ -1360,6 +1490,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
           ..write('writer: $writer, ')
           ..write('userId: $userId, ')
           ..write('story: $story, ')
+          ..write('catchphrase: $catchphrase, ')
           ..write('novelType: $novelType, ')
           ..write('end: $end, ')
           ..write('genreId: $genreId, ')
@@ -1375,6 +1506,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
           ..write('globalPoint: $globalPoint, ')
           ..write('fav: $fav, ')
           ..write('reviewCount: $reviewCount, ')
+          ..write('followCount: $followCount, ')
           ..write('rateCount: $rateCount, ')
           ..write('allPoint: $allPoint, ')
           ..write('pointCount: $pointCount, ')
@@ -1384,6 +1516,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
           ..write('quarterPoint: $quarterPoint, ')
           ..write('yearlyPoint: $yearlyPoint, ')
           ..write('generalAllNo: $generalAllNo, ')
+          ..write('totalCharacterCount: $totalCharacterCount, ')
           ..write('novelUpdatedAt: $novelUpdatedAt, ')
           ..write('cachedAt: $cachedAt, ')
           ..write('isPrivate: $isPrivate')
@@ -1399,6 +1532,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     writer,
     userId,
     story,
+    catchphrase,
     novelType,
     end,
     genreId,
@@ -1414,6 +1548,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     globalPoint,
     fav,
     reviewCount,
+    followCount,
     rateCount,
     allPoint,
     pointCount,
@@ -1423,6 +1558,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     quarterPoint,
     yearlyPoint,
     generalAllNo,
+    totalCharacterCount,
     novelUpdatedAt,
     cachedAt,
     isPrivate,
@@ -1437,6 +1573,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
           other.writer == this.writer &&
           other.userId == this.userId &&
           other.story == this.story &&
+          other.catchphrase == this.catchphrase &&
           other.novelType == this.novelType &&
           other.end == this.end &&
           other.genreId == this.genreId &&
@@ -1452,6 +1589,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
           other.globalPoint == this.globalPoint &&
           other.fav == this.fav &&
           other.reviewCount == this.reviewCount &&
+          other.followCount == this.followCount &&
           other.rateCount == this.rateCount &&
           other.allPoint == this.allPoint &&
           other.pointCount == this.pointCount &&
@@ -1461,6 +1599,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
           other.quarterPoint == this.quarterPoint &&
           other.yearlyPoint == this.yearlyPoint &&
           other.generalAllNo == this.generalAllNo &&
+          other.totalCharacterCount == this.totalCharacterCount &&
           other.novelUpdatedAt == this.novelUpdatedAt &&
           other.cachedAt == this.cachedAt &&
           other.isPrivate == this.isPrivate);
@@ -1473,6 +1612,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
   final drift.Value<String?> writer;
   final drift.Value<int?> userId;
   final drift.Value<String?> story;
+  final drift.Value<String?> catchphrase;
   final drift.Value<int?> novelType;
   final drift.Value<int?> end;
   final drift.Value<String?> genreId;
@@ -1488,6 +1628,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
   final drift.Value<int?> globalPoint;
   final drift.Value<int?> fav;
   final drift.Value<int?> reviewCount;
+  final drift.Value<int?> followCount;
   final drift.Value<int?> rateCount;
   final drift.Value<int?> allPoint;
   final drift.Value<int?> pointCount;
@@ -1497,6 +1638,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
   final drift.Value<int?> quarterPoint;
   final drift.Value<int?> yearlyPoint;
   final drift.Value<int?> generalAllNo;
+  final drift.Value<int?> totalCharacterCount;
   final drift.Value<String?> novelUpdatedAt;
   final drift.Value<int?> cachedAt;
   final drift.Value<bool> isPrivate;
@@ -1508,6 +1650,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     this.writer = const drift.Value.absent(),
     this.userId = const drift.Value.absent(),
     this.story = const drift.Value.absent(),
+    this.catchphrase = const drift.Value.absent(),
     this.novelType = const drift.Value.absent(),
     this.end = const drift.Value.absent(),
     this.genreId = const drift.Value.absent(),
@@ -1523,6 +1666,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     this.globalPoint = const drift.Value.absent(),
     this.fav = const drift.Value.absent(),
     this.reviewCount = const drift.Value.absent(),
+    this.followCount = const drift.Value.absent(),
     this.rateCount = const drift.Value.absent(),
     this.allPoint = const drift.Value.absent(),
     this.pointCount = const drift.Value.absent(),
@@ -1532,6 +1676,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     this.quarterPoint = const drift.Value.absent(),
     this.yearlyPoint = const drift.Value.absent(),
     this.generalAllNo = const drift.Value.absent(),
+    this.totalCharacterCount = const drift.Value.absent(),
     this.novelUpdatedAt = const drift.Value.absent(),
     this.cachedAt = const drift.Value.absent(),
     this.isPrivate = const drift.Value.absent(),
@@ -1544,6 +1689,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     this.writer = const drift.Value.absent(),
     this.userId = const drift.Value.absent(),
     this.story = const drift.Value.absent(),
+    this.catchphrase = const drift.Value.absent(),
     this.novelType = const drift.Value.absent(),
     this.end = const drift.Value.absent(),
     this.genreId = const drift.Value.absent(),
@@ -1559,6 +1705,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     this.globalPoint = const drift.Value.absent(),
     this.fav = const drift.Value.absent(),
     this.reviewCount = const drift.Value.absent(),
+    this.followCount = const drift.Value.absent(),
     this.rateCount = const drift.Value.absent(),
     this.allPoint = const drift.Value.absent(),
     this.pointCount = const drift.Value.absent(),
@@ -1568,6 +1715,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     this.quarterPoint = const drift.Value.absent(),
     this.yearlyPoint = const drift.Value.absent(),
     this.generalAllNo = const drift.Value.absent(),
+    this.totalCharacterCount = const drift.Value.absent(),
     this.novelUpdatedAt = const drift.Value.absent(),
     this.cachedAt = const drift.Value.absent(),
     this.isPrivate = const drift.Value.absent(),
@@ -1581,6 +1729,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     drift.Expression<String>? writer,
     drift.Expression<int>? userId,
     drift.Expression<String>? story,
+    drift.Expression<String>? catchphrase,
     drift.Expression<int>? novelType,
     drift.Expression<int>? end,
     drift.Expression<String>? genreId,
@@ -1596,6 +1745,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     drift.Expression<int>? globalPoint,
     drift.Expression<int>? fav,
     drift.Expression<int>? reviewCount,
+    drift.Expression<int>? followCount,
     drift.Expression<int>? rateCount,
     drift.Expression<int>? allPoint,
     drift.Expression<int>? pointCount,
@@ -1605,6 +1755,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     drift.Expression<int>? quarterPoint,
     drift.Expression<int>? yearlyPoint,
     drift.Expression<int>? generalAllNo,
+    drift.Expression<int>? totalCharacterCount,
     drift.Expression<String>? novelUpdatedAt,
     drift.Expression<int>? cachedAt,
     drift.Expression<bool>? isPrivate,
@@ -1617,6 +1768,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
       if (writer != null) 'writer': writer,
       if (userId != null) 'user_id': userId,
       if (story != null) 'story': story,
+      if (catchphrase != null) 'catchphrase': catchphrase,
       if (novelType != null) 'novel_type': novelType,
       if (end != null) 'end': end,
       if (genreId != null) 'genre_id': genreId,
@@ -1632,6 +1784,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
       if (globalPoint != null) 'global_point': globalPoint,
       if (fav != null) 'fav': fav,
       if (reviewCount != null) 'review_count': reviewCount,
+      if (followCount != null) 'follow_count': followCount,
       if (rateCount != null) 'rate_count': rateCount,
       if (allPoint != null) 'all_point': allPoint,
       if (pointCount != null) 'point_count': pointCount,
@@ -1641,6 +1794,8 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
       if (quarterPoint != null) 'quarter_point': quarterPoint,
       if (yearlyPoint != null) 'yearly_point': yearlyPoint,
       if (generalAllNo != null) 'general_all_no': generalAllNo,
+      if (totalCharacterCount != null)
+        'total_character_count': totalCharacterCount,
       if (novelUpdatedAt != null) 'novel_updated_at': novelUpdatedAt,
       if (cachedAt != null) 'cached_at': cachedAt,
       if (isPrivate != null) 'is_private': isPrivate,
@@ -1655,6 +1810,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     drift.Value<String?>? writer,
     drift.Value<int?>? userId,
     drift.Value<String?>? story,
+    drift.Value<String?>? catchphrase,
     drift.Value<int?>? novelType,
     drift.Value<int?>? end,
     drift.Value<String?>? genreId,
@@ -1670,6 +1826,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     drift.Value<int?>? globalPoint,
     drift.Value<int?>? fav,
     drift.Value<int?>? reviewCount,
+    drift.Value<int?>? followCount,
     drift.Value<int?>? rateCount,
     drift.Value<int?>? allPoint,
     drift.Value<int?>? pointCount,
@@ -1679,6 +1836,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     drift.Value<int?>? quarterPoint,
     drift.Value<int?>? yearlyPoint,
     drift.Value<int?>? generalAllNo,
+    drift.Value<int?>? totalCharacterCount,
     drift.Value<String?>? novelUpdatedAt,
     drift.Value<int?>? cachedAt,
     drift.Value<bool>? isPrivate,
@@ -1691,6 +1849,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
       writer: writer ?? this.writer,
       userId: userId ?? this.userId,
       story: story ?? this.story,
+      catchphrase: catchphrase ?? this.catchphrase,
       novelType: novelType ?? this.novelType,
       end: end ?? this.end,
       genreId: genreId ?? this.genreId,
@@ -1706,6 +1865,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
       globalPoint: globalPoint ?? this.globalPoint,
       fav: fav ?? this.fav,
       reviewCount: reviewCount ?? this.reviewCount,
+      followCount: followCount ?? this.followCount,
       rateCount: rateCount ?? this.rateCount,
       allPoint: allPoint ?? this.allPoint,
       pointCount: pointCount ?? this.pointCount,
@@ -1715,6 +1875,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
       quarterPoint: quarterPoint ?? this.quarterPoint,
       yearlyPoint: yearlyPoint ?? this.yearlyPoint,
       generalAllNo: generalAllNo ?? this.generalAllNo,
+      totalCharacterCount: totalCharacterCount ?? this.totalCharacterCount,
       novelUpdatedAt: novelUpdatedAt ?? this.novelUpdatedAt,
       cachedAt: cachedAt ?? this.cachedAt,
       isPrivate: isPrivate ?? this.isPrivate,
@@ -1744,6 +1905,9 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     }
     if (story.present) {
       map['story'] = drift.Variable<String>(story.value);
+    }
+    if (catchphrase.present) {
+      map['catchphrase'] = drift.Variable<String>(catchphrase.value);
     }
     if (novelType.present) {
       map['novel_type'] = drift.Variable<int>(novelType.value);
@@ -1790,6 +1954,9 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     if (reviewCount.present) {
       map['review_count'] = drift.Variable<int>(reviewCount.value);
     }
+    if (followCount.present) {
+      map['follow_count'] = drift.Variable<int>(followCount.value);
+    }
     if (rateCount.present) {
       map['rate_count'] = drift.Variable<int>(rateCount.value);
     }
@@ -1817,6 +1984,11 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     if (generalAllNo.present) {
       map['general_all_no'] = drift.Variable<int>(generalAllNo.value);
     }
+    if (totalCharacterCount.present) {
+      map['total_character_count'] = drift.Variable<int>(
+        totalCharacterCount.value,
+      );
+    }
     if (novelUpdatedAt.present) {
       map['novel_updated_at'] = drift.Variable<String>(novelUpdatedAt.value);
     }
@@ -1841,6 +2013,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
           ..write('writer: $writer, ')
           ..write('userId: $userId, ')
           ..write('story: $story, ')
+          ..write('catchphrase: $catchphrase, ')
           ..write('novelType: $novelType, ')
           ..write('end: $end, ')
           ..write('genreId: $genreId, ')
@@ -1856,6 +2029,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
           ..write('globalPoint: $globalPoint, ')
           ..write('fav: $fav, ')
           ..write('reviewCount: $reviewCount, ')
+          ..write('followCount: $followCount, ')
           ..write('rateCount: $rateCount, ')
           ..write('allPoint: $allPoint, ')
           ..write('pointCount: $pointCount, ')
@@ -1865,6 +2039,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
           ..write('quarterPoint: $quarterPoint, ')
           ..write('yearlyPoint: $yearlyPoint, ')
           ..write('generalAllNo: $generalAllNo, ')
+          ..write('totalCharacterCount: $totalCharacterCount, ')
           ..write('novelUpdatedAt: $novelUpdatedAt, ')
           ..write('cachedAt: $cachedAt, ')
           ..write('isPrivate: $isPrivate, ')
@@ -3975,6 +4150,7 @@ typedef $$NovelsTableCreateCompanionBuilder =
       drift.Value<String?> writer,
       drift.Value<int?> userId,
       drift.Value<String?> story,
+      drift.Value<String?> catchphrase,
       drift.Value<int?> novelType,
       drift.Value<int?> end,
       drift.Value<String?> genreId,
@@ -3990,6 +4166,7 @@ typedef $$NovelsTableCreateCompanionBuilder =
       drift.Value<int?> globalPoint,
       drift.Value<int?> fav,
       drift.Value<int?> reviewCount,
+      drift.Value<int?> followCount,
       drift.Value<int?> rateCount,
       drift.Value<int?> allPoint,
       drift.Value<int?> pointCount,
@@ -3999,6 +4176,7 @@ typedef $$NovelsTableCreateCompanionBuilder =
       drift.Value<int?> quarterPoint,
       drift.Value<int?> yearlyPoint,
       drift.Value<int?> generalAllNo,
+      drift.Value<int?> totalCharacterCount,
       drift.Value<String?> novelUpdatedAt,
       drift.Value<int?> cachedAt,
       drift.Value<bool> isPrivate,
@@ -4012,6 +4190,7 @@ typedef $$NovelsTableUpdateCompanionBuilder =
       drift.Value<String?> writer,
       drift.Value<int?> userId,
       drift.Value<String?> story,
+      drift.Value<String?> catchphrase,
       drift.Value<int?> novelType,
       drift.Value<int?> end,
       drift.Value<String?> genreId,
@@ -4027,6 +4206,7 @@ typedef $$NovelsTableUpdateCompanionBuilder =
       drift.Value<int?> globalPoint,
       drift.Value<int?> fav,
       drift.Value<int?> reviewCount,
+      drift.Value<int?> followCount,
       drift.Value<int?> rateCount,
       drift.Value<int?> allPoint,
       drift.Value<int?> pointCount,
@@ -4036,6 +4216,7 @@ typedef $$NovelsTableUpdateCompanionBuilder =
       drift.Value<int?> quarterPoint,
       drift.Value<int?> yearlyPoint,
       drift.Value<int?> generalAllNo,
+      drift.Value<int?> totalCharacterCount,
       drift.Value<String?> novelUpdatedAt,
       drift.Value<int?> cachedAt,
       drift.Value<bool> isPrivate,
@@ -4079,6 +4260,11 @@ class $$NovelsTableFilterComposer
 
   drift.ColumnFilters<String> get story => $composableBuilder(
     column: $table.story,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<String> get catchphrase => $composableBuilder(
+    column: $table.catchphrase,
     builder: (column) => drift.ColumnFilters(column),
   );
 
@@ -4157,6 +4343,11 @@ class $$NovelsTableFilterComposer
     builder: (column) => drift.ColumnFilters(column),
   );
 
+  drift.ColumnFilters<int> get followCount => $composableBuilder(
+    column: $table.followCount,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
   drift.ColumnFilters<int> get rateCount => $composableBuilder(
     column: $table.rateCount,
     builder: (column) => drift.ColumnFilters(column),
@@ -4199,6 +4390,11 @@ class $$NovelsTableFilterComposer
 
   drift.ColumnFilters<int> get generalAllNo => $composableBuilder(
     column: $table.generalAllNo,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<int> get totalCharacterCount => $composableBuilder(
+    column: $table.totalCharacterCount,
     builder: (column) => drift.ColumnFilters(column),
   );
 
@@ -4254,6 +4450,11 @@ class $$NovelsTableOrderingComposer
 
   drift.ColumnOrderings<String> get story => $composableBuilder(
     column: $table.story,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<String> get catchphrase => $composableBuilder(
+    column: $table.catchphrase,
     builder: (column) => drift.ColumnOrderings(column),
   );
 
@@ -4332,6 +4533,11 @@ class $$NovelsTableOrderingComposer
     builder: (column) => drift.ColumnOrderings(column),
   );
 
+  drift.ColumnOrderings<int> get followCount => $composableBuilder(
+    column: $table.followCount,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
   drift.ColumnOrderings<int> get rateCount => $composableBuilder(
     column: $table.rateCount,
     builder: (column) => drift.ColumnOrderings(column),
@@ -4377,6 +4583,11 @@ class $$NovelsTableOrderingComposer
     builder: (column) => drift.ColumnOrderings(column),
   );
 
+  drift.ColumnOrderings<int> get totalCharacterCount => $composableBuilder(
+    column: $table.totalCharacterCount,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
   drift.ColumnOrderings<String> get novelUpdatedAt => $composableBuilder(
     column: $table.novelUpdatedAt,
     builder: (column) => drift.ColumnOrderings(column),
@@ -4419,6 +4630,11 @@ class $$NovelsTableAnnotationComposer
 
   drift.GeneratedColumn<String> get story =>
       $composableBuilder(column: $table.story, builder: (column) => column);
+
+  drift.GeneratedColumn<String> get catchphrase => $composableBuilder(
+    column: $table.catchphrase,
+    builder: (column) => column,
+  );
 
   drift.GeneratedColumn<int> get novelType =>
       $composableBuilder(column: $table.novelType, builder: (column) => column);
@@ -4473,6 +4689,11 @@ class $$NovelsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  drift.GeneratedColumn<int> get followCount => $composableBuilder(
+    column: $table.followCount,
+    builder: (column) => column,
+  );
+
   drift.GeneratedColumn<int> get rateCount =>
       $composableBuilder(column: $table.rateCount, builder: (column) => column);
 
@@ -4511,6 +4732,11 @@ class $$NovelsTableAnnotationComposer
 
   drift.GeneratedColumn<int> get generalAllNo => $composableBuilder(
     column: $table.generalAllNo,
+    builder: (column) => column,
+  );
+
+  drift.GeneratedColumn<int> get totalCharacterCount => $composableBuilder(
+    column: $table.totalCharacterCount,
     builder: (column) => column,
   );
 
@@ -4560,6 +4786,7 @@ class $$NovelsTableTableManager
                 drift.Value<String?> writer = const drift.Value.absent(),
                 drift.Value<int?> userId = const drift.Value.absent(),
                 drift.Value<String?> story = const drift.Value.absent(),
+                drift.Value<String?> catchphrase = const drift.Value.absent(),
                 drift.Value<int?> novelType = const drift.Value.absent(),
                 drift.Value<int?> end = const drift.Value.absent(),
                 drift.Value<String?> genreId = const drift.Value.absent(),
@@ -4575,6 +4802,7 @@ class $$NovelsTableTableManager
                 drift.Value<int?> globalPoint = const drift.Value.absent(),
                 drift.Value<int?> fav = const drift.Value.absent(),
                 drift.Value<int?> reviewCount = const drift.Value.absent(),
+                drift.Value<int?> followCount = const drift.Value.absent(),
                 drift.Value<int?> rateCount = const drift.Value.absent(),
                 drift.Value<int?> allPoint = const drift.Value.absent(),
                 drift.Value<int?> pointCount = const drift.Value.absent(),
@@ -4584,6 +4812,8 @@ class $$NovelsTableTableManager
                 drift.Value<int?> quarterPoint = const drift.Value.absent(),
                 drift.Value<int?> yearlyPoint = const drift.Value.absent(),
                 drift.Value<int?> generalAllNo = const drift.Value.absent(),
+                drift.Value<int?> totalCharacterCount =
+                    const drift.Value.absent(),
                 drift.Value<String?> novelUpdatedAt =
                     const drift.Value.absent(),
                 drift.Value<int?> cachedAt = const drift.Value.absent(),
@@ -4596,6 +4826,7 @@ class $$NovelsTableTableManager
                 writer: writer,
                 userId: userId,
                 story: story,
+                catchphrase: catchphrase,
                 novelType: novelType,
                 end: end,
                 genreId: genreId,
@@ -4611,6 +4842,7 @@ class $$NovelsTableTableManager
                 globalPoint: globalPoint,
                 fav: fav,
                 reviewCount: reviewCount,
+                followCount: followCount,
                 rateCount: rateCount,
                 allPoint: allPoint,
                 pointCount: pointCount,
@@ -4620,6 +4852,7 @@ class $$NovelsTableTableManager
                 quarterPoint: quarterPoint,
                 yearlyPoint: yearlyPoint,
                 generalAllNo: generalAllNo,
+                totalCharacterCount: totalCharacterCount,
                 novelUpdatedAt: novelUpdatedAt,
                 cachedAt: cachedAt,
                 isPrivate: isPrivate,
@@ -4633,6 +4866,7 @@ class $$NovelsTableTableManager
                 drift.Value<String?> writer = const drift.Value.absent(),
                 drift.Value<int?> userId = const drift.Value.absent(),
                 drift.Value<String?> story = const drift.Value.absent(),
+                drift.Value<String?> catchphrase = const drift.Value.absent(),
                 drift.Value<int?> novelType = const drift.Value.absent(),
                 drift.Value<int?> end = const drift.Value.absent(),
                 drift.Value<String?> genreId = const drift.Value.absent(),
@@ -4648,6 +4882,7 @@ class $$NovelsTableTableManager
                 drift.Value<int?> globalPoint = const drift.Value.absent(),
                 drift.Value<int?> fav = const drift.Value.absent(),
                 drift.Value<int?> reviewCount = const drift.Value.absent(),
+                drift.Value<int?> followCount = const drift.Value.absent(),
                 drift.Value<int?> rateCount = const drift.Value.absent(),
                 drift.Value<int?> allPoint = const drift.Value.absent(),
                 drift.Value<int?> pointCount = const drift.Value.absent(),
@@ -4657,6 +4892,8 @@ class $$NovelsTableTableManager
                 drift.Value<int?> quarterPoint = const drift.Value.absent(),
                 drift.Value<int?> yearlyPoint = const drift.Value.absent(),
                 drift.Value<int?> generalAllNo = const drift.Value.absent(),
+                drift.Value<int?> totalCharacterCount =
+                    const drift.Value.absent(),
                 drift.Value<String?> novelUpdatedAt =
                     const drift.Value.absent(),
                 drift.Value<int?> cachedAt = const drift.Value.absent(),
@@ -4669,6 +4906,7 @@ class $$NovelsTableTableManager
                 writer: writer,
                 userId: userId,
                 story: story,
+                catchphrase: catchphrase,
                 novelType: novelType,
                 end: end,
                 genreId: genreId,
@@ -4684,6 +4922,7 @@ class $$NovelsTableTableManager
                 globalPoint: globalPoint,
                 fav: fav,
                 reviewCount: reviewCount,
+                followCount: followCount,
                 rateCount: rateCount,
                 allPoint: allPoint,
                 pointCount: pointCount,
@@ -4693,6 +4932,7 @@ class $$NovelsTableTableManager
                 quarterPoint: quarterPoint,
                 yearlyPoint: yearlyPoint,
                 generalAllNo: generalAllNo,
+                totalCharacterCount: totalCharacterCount,
                 novelUpdatedAt: novelUpdatedAt,
                 cachedAt: cachedAt,
                 isPrivate: isPrivate,

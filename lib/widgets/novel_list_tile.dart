@@ -191,6 +191,28 @@ class NovelListTile extends HookWidget {
                         ),
                         const SizedBox(width: 8),
                       ],
+                      // サイトBadge。新しいサイトはNovelSource.labelをそのまま表示する。
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          item.source.label,
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
                       // Status Badge
                       Container(
                         padding: const EdgeInsets.symmetric(

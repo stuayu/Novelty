@@ -7,6 +7,43 @@ import 'package:novelty/widgets/novel_list_tile.dart';
 
 void main() {
   group('NovelListTile', () {
+    group('source display', () {
+      testWidgets('カクヨム作品にサイトBadgeを表示する', (tester) async {
+        const item = NovelInfo(
+          source: NovelSource.kakuyomu,
+          workId: '16818023211929539879',
+          title: 'カクヨム作品',
+          writer: 'テスト作者',
+          end: 1,
+        );
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: NovelListTile(item: item)),
+          ),
+        );
+
+        expect(find.text('カクヨム'), findsOneWidget);
+      });
+
+      testWidgets('なろう作品にサイトBadgeを表示する', (tester) async {
+        const item = NovelInfo(
+          ncode: 'n1234ab',
+          title: 'なろう作品',
+          writer: 'テスト作者',
+          end: 0,
+        );
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: NovelListTile(item: item)),
+          ),
+        );
+
+        expect(find.text('小説家になろう'), findsOneWidget);
+      });
+    });
+
     group('status display', () {
       testWidgets('should display "完結" badge for novel with end == 0', (
         tester,

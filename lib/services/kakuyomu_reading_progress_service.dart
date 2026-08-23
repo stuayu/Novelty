@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
+import 'package:html/parser.dart' as html_parser;
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -33,10 +36,51 @@ class KakuyomuReadingProgressResponse {
   final int statusCode;
 }
 
+/// カクヨム作品ページから取得したリモート読書位置。
+class KakuyomuRemoteReadingState {
+  /// コンストラクタ。
+  const KakuyomuRemoteReadingState({
+    required this.isAvailable,
+    this.episodeId,
+  });
+
+  /// 認証済み作品ページを取得・解析できたか。
+  final bool isAvailable;
+
+  /// 最後に読んだリモートエピソードID。履歴なしの場合はnull。
+  final String? episodeId;
+}
+
+/// リモート読書位置取得のHTTPレスポンス。
+class KakuyomuRemoteReadingStateHttpResponse {
+  /// コンストラクタ。
+  const KakuyomuRemoteReadingStateHttpResponse({
+    required this.statusCode,
+    required this.realUri,
+    this.body,
+  });
+
+  /// HTTPステータスコード。
+  final int statusCode;
+
+  /// リダイレクト後の最終URL。
+  final Uri realUri;
+
+  /// 作品ページ本文。
+  final String? body;
+}
+
 /// テスト時にviewer履歴HTTP通信を差し替えるためのコールバック。
 typedef KakuyomuReadingProgressTransport =
     Future<KakuyomuReadingProgressResponse> Function(
       KakuyomuReadingProgressRequest request,
+    );
+
+/// リモート読書位置取得をテスト時に差し替えるコールバック。
+typedef KakuyomuRemoteReadingStateFetcher =
+    Future<KakuyomuRemoteReadingStateHttpResponse> Function(
+      Uri url,
+      String cookieHeader,
     );
 
 /// カクヨム読書履歴同期サービスのProvider。
@@ -58,13 +102,16 @@ class KakuyomuReadingProgressService {
     required KakuyomuSessionRepository sessionRepository,
     Dio? dio,
     KakuyomuReadingProgressTransport? transport,
+    KakuyomuRemoteReadingStateFetcher? remoteStateFetcher,
   }) : _sessionRepository = sessionRepository,
        _dio = dio ?? Dio(),
-       _transport = transport;
+       _transport = transport,
+       _remoteStateFetcher = remoteStateFetcher;
 
   final KakuyomuSessionRepository _sessionRepository;
   final Dio _dio;
   final KakuyomuReadingProgressTransport? _transport;
+  final KakuyomuRemoteReadingStateFetcher? _remoteStateFetcher;
 
   /// 指定したremote episodeの読書位置を記録する。
   ///
@@ -106,6 +153,43 @@ class KakuyomuReadingProgressService {
     }
   }
 
+  /// カクヨム作品ページから最後に読んだリモートエピソードを取得する。
+  ///
+  /// 履歴なしは取得成功（[KakuyomuRemoteReadingState.isAvailable]がtrue）とし、
+  /// 認証失敗・通信失敗・解析失敗は取得不能として返す。
+  Future<KakuyomuRemoteReadingState> fetchRemoteState(String workId) async {
+    if (!_numericIdPattern.hasMatch(workId)) {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+
+    final cookieHeader = await _sessionRepository.buildCookieHeader();
+    if (cookieHeader == null || cookieHeader.isEmpty) {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+
+    final url = Uri.https('kakuyomu.jp', '/works/$workId');
+    try {
+      final override = _remoteStateFetcher;
+      final response = override != null
+          ? await override(url, cookieHeader)
+          : await _fetchRemoteState(url, cookieHeader);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return const KakuyomuRemoteReadingState(isAvailable: false);
+      }
+      if (!_isTrustedKakuyomuWorkUri(response.realUri, workId)) {
+        return const KakuyomuRemoteReadingState(isAvailable: false);
+      }
+
+      final body = response.body;
+      if (body == null || body.isEmpty) {
+        return const KakuyomuRemoteReadingState(isAvailable: false);
+      }
+      return _parseRemoteState(body, workId);
+    } on Exception {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+  }
+
   Future<KakuyomuReadingProgressResponse> _post(
     KakuyomuReadingProgressRequest request, {
     required String workId,
@@ -131,5 +215,86 @@ class KakuyomuReadingProgressService {
     return KakuyomuReadingProgressResponse(
       statusCode: response.statusCode ?? 0,
     );
+  }
+
+  Future<KakuyomuRemoteReadingStateHttpResponse> _fetchRemoteState(
+    Uri url,
+    String cookieHeader,
+  ) async {
+    final response = await _dio.get<String>(
+      url.toString(),
+      options: Options(
+        headers: <String, Object>{
+          'Cookie': cookieHeader,
+          'User-Agent': 'Mozilla/5.0',
+        },
+        followRedirects: true,
+        validateStatus: (status) => status != null && status < 600,
+        responseType: ResponseType.plain,
+      ),
+    );
+    return KakuyomuRemoteReadingStateHttpResponse(
+      statusCode: response.statusCode ?? 0,
+      realUri: response.realUri,
+      body: response.data,
+    );
+  }
+
+  KakuyomuRemoteReadingState _parseRemoteState(String body, String workId) {
+    final script = html_parser
+        .parse(body)
+        .querySelector('script#__NEXT_DATA__')
+        ?.text;
+    if (script == null || script.isEmpty) {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+
+    final json = jsonDecode(script);
+    if (json is! Map<String, dynamic>) {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+    final props = json['props'];
+    final pageProps = props is Map<String, dynamic> ? props['pageProps'] : null;
+    final apollo = pageProps is Map<String, dynamic>
+        ? pageProps['__APOLLO_STATE__']
+        : null;
+    if (apollo is! Map<String, dynamic>) {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+
+    final work = apollo['Work:$workId'];
+    if (work is! Map<String, dynamic>) {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+    final history = work['visitorReadingHistory'];
+    if (history == null) {
+      return const KakuyomuRemoteReadingState(isAvailable: true);
+    }
+    if (history is! Map<String, dynamic>) {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+    final historyRef = history['__ref'];
+    final historyEntity = historyRef is String ? apollo[historyRef] : null;
+    if (historyEntity is! Map<String, dynamic>) {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+    final episode = historyEntity['episodeUnion'];
+    final episodeRef = episode is Map<String, dynamic>
+        ? episode['__ref']
+        : null;
+    if (episodeRef is! String || !episodeRef.startsWith('Episode:')) {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+    final episodeId = episodeRef.substring('Episode:'.length);
+    if (!_numericIdPattern.hasMatch(episodeId)) {
+      return const KakuyomuRemoteReadingState(isAvailable: false);
+    }
+    return KakuyomuRemoteReadingState(isAvailable: true, episodeId: episodeId);
+  }
+
+  bool _isTrustedKakuyomuWorkUri(Uri uri, String workId) {
+    return uri.scheme == 'https' &&
+        uri.host == 'kakuyomu.jp' &&
+        uri.path == '/works/$workId';
   }
 }

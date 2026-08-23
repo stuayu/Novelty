@@ -315,6 +315,7 @@ class KakuyomuSite implements NovelSite {
       title: work['title'] as String?,
       writer: writerName as String?,
       story: work['introduction'] as String?,
+      catchphrase: work['catchphrase'] as String?,
       genreId: work['genre'] as String?,
       // なろうのendと同義: 1=連載中, 0=完結
       end: switch (work['serialStatus'] as String?) {
@@ -329,8 +330,10 @@ class KakuyomuSite implements NovelSite {
         _ => 1,
       },
       generalAllNo: publicEpisodeCount,
+      totalCharacterCount: work['totalCharacterCount'] as int?,
       // 総合レビューポイント（★表示に使用）
       allPoint: work['totalReviewPoint'] as int?,
+      followCount: work['totalFollowers'] as int?,
       keyword: (work['tagLabels'] as List<dynamic>?)?.cast<String>().join(' '),
       generalFirstup: work['publishedAt'] as String?,
       generalLastup: work['lastEpisodePublishedAt'] as String?,

@@ -228,6 +228,9 @@ class Novels extends Table {
   /// 小説のあらすじ
   TextColumn get story => text().nullable()();
 
+  /// キャッチコピー
+  TextColumn get catchphrase => text().nullable()();
+
   /// 小説の種別
   /// 0: 短編 1: 連載中
   IntColumn get novelType => integer().nullable()();
@@ -278,6 +281,9 @@ class Novels extends Table {
   /// レビュー数
   IntColumn get reviewCount => integer().nullable()();
 
+  /// フォロー数
+  IntColumn get followCount => integer().nullable()();
+
   /// レビューの平均評価(?)
   IntColumn get rateCount => integer().nullable()();
 
@@ -304,6 +310,9 @@ class Novels extends Table {
 
   /// 連載小説のエピソード数 短編は常に1
   IntColumn get generalAllNo => integer().nullable()();
+
+  /// 総文字数
+  IntColumn get totalCharacterCount => integer().nullable()();
 
   /// 作品の更新日時
   TextColumn get novelUpdatedAt => text().nullable()();
@@ -568,7 +577,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   /// 現在のデータベーススキーマバージョン
-  static const int currentSchemaVersion = 20;
+  static const int currentSchemaVersion = 21;
 
   @override
   int get schemaVersion => currentSchemaVersion;
@@ -813,6 +822,11 @@ class AppDatabase extends _$AppDatabase {
             // v20: なろう本家ブックマーク同期用の情報を、既存テーブルを汚さず
             // 専用テーブル（narou_sync_entries）に分離して追加する。
             await _migrateToV20();
+          }
+
+          if (from < 21) {
+            // v21: サイト共通作品メタデータ（キャッチコピー・文字数・フォロー数）を追加する。
+            await _migrateToV21(m);
           }
         } on MigrationException {
           rethrow;
@@ -1171,6 +1185,12 @@ class AppDatabase extends _$AppDatabase {
         PRIMARY KEY (source, work_id)
       )
     ''');
+  }
+
+  Future<void> _migrateToV21(Migrator m) async {
+    await m.addColumnIfNotExists(novels, novels.catchphrase);
+    await m.addColumnIfNotExists(novels, novels.totalCharacterCount);
+    await m.addColumnIfNotExists(novels, novels.followCount);
   }
 
   /// 小説情報の取得

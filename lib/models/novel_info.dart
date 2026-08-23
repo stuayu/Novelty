@@ -65,6 +65,9 @@ abstract class NovelInfo with _$NovelInfo {
     /// 作品のあらすじ。
     @HtmlEscapeConverter() String? story,
 
+    /// キャッチコピー。
+    @HtmlEscapeConverter() String? catchphrase,
+
     /// 小説タイプ。
     ///
     /// [1] 連載
@@ -81,6 +84,9 @@ abstract class NovelInfo with _$NovelInfo {
     ///
     /// 短編の場合は 1。
     @StringToIntConverter() @JsonKey(name: 'general_all_no') int? generalAllNo,
+
+    /// 総文字数。
+    @StringToIntConverter() int? totalCharacterCount,
 
     /// ジャンル。
     ///
@@ -125,6 +131,9 @@ abstract class NovelInfo with _$NovelInfo {
 
     /// ブックマーク数。
     @StringToIntConverter() @JsonKey(name: 'fav_novel_cnt') int? favNovelCnt,
+
+    /// フォロー数。
+    @StringToIntConverter() int? followCount,
 
     /// 感想数。
     @StringToIntConverter() @JsonKey(name: 'impression_cnt') int? impressionCnt,
@@ -220,15 +229,18 @@ extension NovelInfoEx on NovelInfo {
       writer: Value(writer),
       userId: Value(userId),
       story: Value(story),
+      catchphrase: Value(catchphrase),
       novelType: Value(novelType),
       end: Value(end),
       genreId: Value(genreId),
       generalAllNo: Value(generalAllNo),
+      totalCharacterCount: Value(totalCharacterCount),
       keyword: Value(keyword),
       generalFirstup: Value(narouDateTimeToSortableInt(generalFirstup)),
       generalLastup: Value(narouDateTimeToSortableInt(generalLastup)),
       globalPoint: Value(globalPoint),
       reviewCount: Value(reviewCnt),
+      followCount: Value(followCount),
       rateCount: Value(allHyokaCnt),
       allPoint: Value(allPoint),
       pointCount: Value(impressionCnt),

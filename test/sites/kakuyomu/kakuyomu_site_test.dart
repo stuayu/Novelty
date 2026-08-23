@@ -118,12 +118,18 @@ void main() {
         expect(info.title, '【書籍化】魔術帝の参謀は二度目の破滅を打ち砕く');
         expect(info.writer, 'Sty');
         expect(info.story, startsWith('突出した才を持った六人の帝王'));
+        expect(
+          info.catchphrase,
+          '二度目の機会を得た青年が、幼馴染の破滅を全力で回避する話',
+        );
         expect(info.genreId, 'FANTASY');
         // RUNNING → 連載中
         expect(info.end, 1);
         // エピソード数123 → 連載扱い
         expect(info.novelType, 1);
         expect(info.generalAllNo, 123);
+        expect(info.totalCharacterCount, 359466);
+        expect(info.followCount, 15496);
         expect(info.keyword, contains('剣と魔法'));
         expect(info.generalFirstup, '2024-01-15T12:32:34Z');
         expect(info.generalLastup, '2026-07-13T08:04:50Z');
@@ -146,8 +152,9 @@ void main() {
       test('episode_sidebarの目次から全エピソードを目次順連番で返す', () async {
         final adapter = _FixtureAdapter(<String, String>{
           '/works/$_workId': _fixture('work_page.html'),
-          '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar':
-              _fixture('toc.html'),
+          '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar': _fixture(
+            'toc.html',
+          ),
         });
         final site = _createSite(adapter);
 
@@ -170,8 +177,7 @@ void main() {
 
     group('fetchEpisode', () {
       test('エピソードページから本文とタイトルをパースできる', () async {
-        const episodePath =
-            '/works/$_workId/episodes/$_firstEpisodeId';
+        const episodePath = '/works/$_workId/episodes/$_firstEpisodeId';
         final adapter = _FixtureAdapter(<String, String>{
           episodePath: _fixture('episode_page.html'),
         });
@@ -192,12 +198,12 @@ void main() {
       });
 
       test('url省略時は目次からURLを解決して本文を取得する', () async {
-        const episodePath =
-            '/works/$_workId/episodes/$_firstEpisodeId';
+        const episodePath = '/works/$_workId/episodes/$_firstEpisodeId';
         final adapter = _FixtureAdapter(<String, String>{
           '/works/$_workId': _fixture('work_page.html'),
-          '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar':
-              _fixture('toc.html'),
+          '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar': _fixture(
+            'toc.html',
+          ),
           episodePath: _fixture('episode_page.html'),
         });
         final site = _createSite(adapter);
