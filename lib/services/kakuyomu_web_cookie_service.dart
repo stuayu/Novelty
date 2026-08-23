@@ -5,16 +5,13 @@ import 'package:riverpod/riverpod.dart';
 
 final _kakuyomuWebUri = WebUri('https://kakuyomu.jp/');
 
-/// WebView Cookie と Secure Storage の同期サービス。
 final kakuyomuWebCookieServiceProvider = Provider<KakuyomuWebCookieService>(
   (ref) => KakuyomuWebCookieService(
     sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
   ),
 );
 
-/// カクヨム配下の Cookie だけを WebView と永続ストレージ間で同期する。
 class KakuyomuWebCookieService {
-  /// コンストラクタ。
   KakuyomuWebCookieService({
     required KakuyomuSessionRepository sessionRepository,
     CookieManager? cookieManager,
@@ -24,7 +21,6 @@ class KakuyomuWebCookieService {
   final KakuyomuSessionRepository _sessionRepository;
   final CookieManager _cookieManager;
 
-  /// Secure Storage に保存済みの Cookie を WebView へ復元する。
   Future<void> restoreToWebView() async {
     final cookies = await _sessionRepository.getCookies();
     for (final cookie in cookies) {
@@ -41,9 +37,8 @@ class KakuyomuWebCookieService {
     }
   }
 
-  /// WebView に存在するカクヨム Cookie を Secure Storage へ保存する。
   Future<List<KakuyomuSessionCookie>> captureFromWebView() async {
-    final cookies = await _cookieManager.getAllCookies();
+    final cookies = await _cookieManager.getCookies(url: _kakuyomuWebUri);
     final sessionCookies = cookies
         .map(
           (cookie) => KakuyomuSessionCookie(
@@ -63,9 +58,8 @@ class KakuyomuWebCookieService {
     return sessionCookies;
   }
 
-  /// WebView 内のカクヨム Cookie だけを削除する。
   Future<void> clearWebViewCookies() async {
-    final cookies = await _cookieManager.getAllCookies();
+    final cookies = await _cookieManager.getCookies(url: _kakuyomuWebUri);
     for (final cookie in cookies) {
       final domain = cookie.domain ?? 'kakuyomu.jp';
       final candidate = KakuyomuSessionCookie(
