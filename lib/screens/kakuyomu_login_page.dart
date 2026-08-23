@@ -12,7 +12,6 @@ const _kakuyomuLoginUrl = 'https://kakuyomu.jp/auth/login';
 
 /// カクヨム公式ログイン画面を表示し、ログイン済み Cookie を保存する画面。
 class KakuyomuLoginPage extends ConsumerStatefulWidget {
-  /// コンストラクタ。
   const KakuyomuLoginPage({super.key});
 
   @override
@@ -38,40 +37,29 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
   Future<void> _prepareSession() async {
     try {
       await ref.read(kakuyomuWebCookieServiceProvider).restoreToWebView();
-    } on Exception {
-      // Cookie 復元に失敗しても新規ログインは可能なので画面表示を続行する。
-    }
+    } on Exception {}
 
     if (!mounted) return;
     setState(() => _isPreparing = false);
   }
 
   Future<void> _tryCompleteLogin(WebUri? currentUrl) async {
-    if (_isCheckingLogin || _isCompleted || currentUrl == null) return;
+    if (_isCheckingLogin || _isCompleted) return;
 
-    final uri = Uri.tryParse(currentUrl.toString());
-    if (uri == null || !isTrustedKakuyomuUri(uri)) return;
-
-    // 認証画面の途中ではセッション検証を行わない。
-    if (uri.path.startsWith('/auth/login') || uri.path == '/login') return;
-
-    setState(() {
-      _isCheckingLogin = true;
-      _errorMessage = null;
-    });
+    final webCookieService = ref.read(kakuyomuWebCookieServiceProvider);
 
     try {
-      final webCookieService = ref.read(kakuyomuWebCookieServiceProvider);
+      setState(() {
+        _isCheckingLogin = true;
+        _errorMessage = null;
+      });
+
       final cookies = await webCookieService.captureFromWebView();
-      if (cookies.isEmpty) {
-        return;
-      }
+      if (cookies.isEmpty) return;
 
       final authService = ref.read(kakuyomuAuthServiceProvider);
       final isValid = await authService.isSessionValid();
-      if (!isValid) {
-        return;
-      }
+      if (!isValid) return;
 
       _isCompleted = true;
       ref.invalidate(kakuyomuSessionValidProvider);
@@ -96,13 +84,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
       return Scaffold(
         appBar: AppBar(title: const Text('カクヨムアカウント')),
         body: const Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text(
-              'カクヨムアカウント連携は現在このOSでは利用できません。',
-              textAlign: TextAlign.center,
-            ),
-          ),
+          child: Text('カクヨムアカウント連携は現在このOSでは利用できません。'),
         ),
       );
     }
@@ -114,12 +96,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
           if (_errorMessage != null)
             MaterialBanner(
               content: Text(_errorMessage!),
-              actions: [
-                TextButton(
-                  onPressed: () => setState(() => _errorMessage = null),
-                  child: const Text('閉じる'),
-                ),
-              ],
+              actions: [TextButton(onPressed: () {}, child: const Text('閉じる'))],
             ),
           if (_isCheckingLogin) const LinearProgressIndicator(),
           Expanded(
@@ -131,6 +108,9 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
                     ),
                     initialSettings: InAppWebViewSettings(),
                     onLoadStop: (controller, url) async {
+                      await _tryCompleteLogin(url);
+                    },
+                    onUpdateVisitedHistory: (controller, url, androidIsReload) async {
                       await _tryCompleteLogin(url);
                     },
                   ),
