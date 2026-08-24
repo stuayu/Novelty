@@ -6,6 +6,7 @@ import 'package:novelty/database/database.dart';
 import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:novelty/services/kakuyomu_follow_service.dart';
 import 'package:novelty/services/kakuyomu_reading_progress_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
@@ -123,7 +124,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     KakuyomuRateLimiter? rateLimiter,
   }) : _sessionRepository = sessionRepository,
        _db = db,
-       _dio = dio ?? Dio(),
+       _dio = dio ?? createNoveltyDio(),
        _parser = parser ?? KakuyomuFollowedWorksParser(),
        _pageFetcher = pageFetcher,
        _followWork = followWork,
@@ -166,10 +167,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
       options: Options(
         headers: <String, Object>{
           'Cookie': cookieHeader,
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-              'AppleWebKit/537.36 (KHTML, like Gecko) '
-              'Chrome/143.0.0.0 Safari/537.36',
+          'User-Agent': noveltyUserAgent,
         },
         followRedirects: true,
         validateStatus: (status) => status != null && status < 500,

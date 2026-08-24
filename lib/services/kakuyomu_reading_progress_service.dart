@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:riverpod/riverpod.dart';
 
 final _numericIdPattern = RegExp(r'^\d+$');
@@ -104,7 +105,7 @@ class KakuyomuReadingProgressService {
     KakuyomuReadingProgressTransport? transport,
     KakuyomuRemoteReadingStateFetcher? remoteStateFetcher,
   }) : _sessionRepository = sessionRepository,
-       _dio = dio ?? Dio(),
+       _dio = dio ?? createNoveltyDio(),
        _transport = transport,
        _remoteStateFetcher = remoteStateFetcher;
 
@@ -226,7 +227,7 @@ class KakuyomuReadingProgressService {
       options: Options(
         headers: <String, Object>{
           'Cookie': cookieHeader,
-          'User-Agent': 'Mozilla/5.0',
+          'User-Agent': noveltyUserAgent,
         },
         followRedirects: true,
         validateStatus: (status) => status != null && status < 600,

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_history_parser.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_session_exception.dart';
 import 'package:novelty/utils/kakuyomu_uri.dart';
@@ -44,7 +45,7 @@ class KakuyomuHistoryClient {
     KakuyomuHistoryParser? parser,
     KakuyomuHistoryPageFetcher? pageFetcher,
   }) : _sessionRepository = sessionRepository,
-       _dio = dio ?? Dio(),
+       _dio = dio ?? createNoveltyDio(),
        _parser = parser ?? KakuyomuHistoryParser(),
        _pageFetcher = pageFetcher;
 
@@ -124,7 +125,7 @@ class KakuyomuHistoryClient {
       options: Options(
         headers: <String, Object>{
           'Cookie': cookieHeader,
-          'User-Agent': 'Mozilla/5.0',
+          'User-Agent': noveltyUserAgent,
         },
         followRedirects: true,
         validateStatus: (status) => status != null && status < 600,

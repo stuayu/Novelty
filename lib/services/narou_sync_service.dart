@@ -8,7 +8,7 @@ import 'package:novelty/database/database.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/api_service.dart';
-import 'package:novelty/services/narou_auth_service.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/ncode_utils.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -75,7 +75,7 @@ class NarouSyncService {
     required this.db,
     required this.apiService,
     Dio? dio,
-  }) : _dio = dio ?? Dio();
+  }) : _dio = dio ?? createNoveltyDio();
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
@@ -89,10 +89,8 @@ class NarouSyncService {
   /// なろうへのHTTPリクエストに使用するDioインスタンス。
   final Dio _dio;
 
-  static const _bookmarkListBase =
-      'https://syosetu.com/favnovelmain/list/';
-  static const _updateajaxUrl =
-      'https://syosetu.com/favnovelmain/updateajax/';
+  static const _bookmarkListBase = 'https://syosetu.com/favnovelmain/list/';
+  static const _updateajaxUrl = 'https://syosetu.com/favnovelmain/updateajax/';
 
   // -----------------------------------------------------------------------
   // ブックマーク同期（なろう → ローカル）
@@ -130,8 +128,7 @@ class NarouSyncService {
           ncode,
         );
         final localEpisode = localHistory?.lastEpisodeId;
-        if (localEpisode == null ||
-            entry.shioriEpisode! > localEpisode) {
+        if (localEpisode == null || entry.shioriEpisode! > localEpisode) {
           await db.addToHistory(
             ReadingHistoryCompanion(
               source: drift.Value(NovelSource.narou),
@@ -189,15 +186,13 @@ class NarouSyncService {
     String cookieHeader,
     int page,
   ) async {
-    final url = page == 1
-        ? _bookmarkListBase
-        : '$_bookmarkListBase?p=$page';
+    final url = page == 1 ? _bookmarkListBase : '$_bookmarkListBase?p=$page';
     try {
       final response = await _dio.get<String>(
         url,
         options: Options(
           headers: {
-            'User-Agent': narouUserAgent,
+            'User-Agent': noveltyUserAgent,
             'Cookie': cookieHeader,
           },
           responseType: ResponseType.plain,
@@ -309,7 +304,7 @@ class NarouSyncService {
         },
         options: Options(
           headers: {
-            'User-Agent': narouUserAgent,
+            'User-Agent': noveltyUserAgent,
             'Cookie': cookieHeader,
             'Referer': novelUrl,
           },
@@ -353,13 +348,13 @@ class NarouSyncService {
             'useridfavncode': tokenData.useridfavncode,
             'token': tokenData.token,
             'isnotice': '1', // 更新通知ON
-            'jyokyo': '2',  // 公開
+            'jyokyo': '2', // 公開
             'categoryid': '1',
             'callback': 'result',
           },
           options: Options(
             headers: {
-              'User-Agent': narouUserAgent,
+              'User-Agent': noveltyUserAgent,
               'Cookie': cookieHeader,
               'Referer': novelUrl,
             },
@@ -495,7 +490,7 @@ class NarouSyncService {
         novelUrl,
         options: Options(
           headers: {
-            'User-Agent': narouUserAgent,
+            'User-Agent': noveltyUserAgent,
             'Cookie': cookieHeader,
           },
           responseType: ResponseType.plain,
@@ -538,7 +533,7 @@ class NarouSyncService {
       },
       options: Options(
         headers: {
-          'User-Agent': narouUserAgent,
+          'User-Agent': noveltyUserAgent,
           'Cookie': cookieHeader,
           'Referer': referer,
         },
@@ -555,23 +550,28 @@ class NarouSyncService {
     // JSONP形式 "callback({...})" または JSON形式 "{...}" を処理する
     var json = responseBody.trim();
     // JSONP wrapper を除去
-    final jsonpMatch = RegExp(r'^\w+\((.+)\)\s*$', dotAll: true).firstMatch(json);
+    final jsonpMatch = RegExp(
+      r'^\w+\((.+)\)\s*$',
+      dotAll: true,
+    ).firstMatch(json);
     if (jsonpMatch != null) {
       json = jsonpMatch.group(1)!;
     }
     try {
       // 簡易的なJSONパース（useridfavncode と favnovelmain_addend_token を抽出）
-      final useridfavncodeMatch =
-          RegExp(r'"useridfavncode"\s*:\s*"([^"]+)"').firstMatch(json);
-      final tokenMatch =
-          RegExp(r'"favnovelmain_addend_token"\s*:\s*"([^"]+)"')
-              .firstMatch(json);
+      final useridfavncodeMatch = RegExp(
+        r'"useridfavncode"\s*:\s*"([^"]+)"',
+      ).firstMatch(json);
+      final tokenMatch = RegExp(
+        r'"favnovelmain_addend_token"\s*:\s*"([^"]+)"',
+      ).firstMatch(json);
       // xidfavncode（R18作品の場合）も考慮
-      final xidfavncodeMatch =
-          RegExp(r'"xidfavncode"\s*:\s*"([^"]+)"').firstMatch(json);
+      final xidfavncodeMatch = RegExp(
+        r'"xidfavncode"\s*:\s*"([^"]+)"',
+      ).firstMatch(json);
 
-      final useridfavncode = useridfavncodeMatch?.group(1) ??
-          xidfavncodeMatch?.group(1);
+      final useridfavncode =
+          useridfavncodeMatch?.group(1) ?? xidfavncodeMatch?.group(1);
       final token = tokenMatch?.group(1);
 
       if (useridfavncode == null || token == null) return null;
@@ -630,8 +630,7 @@ class NarouSyncService {
     }
 
     final normalizedNcode = ncode.toNormalizedNcode();
-    final episodeUrl =
-        'https://ncode.syosetu.com/$normalizedNcode/$episode/';
+    final episodeUrl = 'https://ncode.syosetu.com/$normalizedNcode/$episode/';
 
     // しおり用トークンは変化する可能性があるため、閲覧エピソードの
     // HTMLから最新値を取得する。これにより、なろうから同期した既存の
@@ -643,7 +642,7 @@ class NarouSyncService {
         episodeUrl,
         options: Options(
           headers: {
-            'User-Agent': narouUserAgent,
+            'User-Agent': noveltyUserAgent,
             'Cookie': cookieHeader,
           },
           followRedirects: false,
@@ -695,7 +694,7 @@ class NarouSyncService {
         },
         options: Options(
           headers: {
-            'User-Agent': narouUserAgent,
+            'User-Agent': noveltyUserAgent,
             'Cookie': cookieHeader,
             'Referer': episodeUrl,
           },

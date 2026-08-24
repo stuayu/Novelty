@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:riverpod/riverpod.dart';
 
 const _kakuyomuGraphqlEndpoint = 'https://kakuyomu.jp/graphql';
@@ -99,7 +100,7 @@ class KakuyomuGraphqlService {
     Dio? dio,
     KakuyomuGraphqlTransport? transport,
   }) : _sessionRepository = sessionRepository,
-       _dio = dio ?? Dio(),
+       _dio = dio ?? createNoveltyDio(),
        _transport = transport;
 
   final KakuyomuSessionRepository _sessionRepository;
@@ -139,10 +140,7 @@ class KakuyomuGraphqlService {
       'X-Requested-With': 'XMLHttpRequest',
       'Origin': 'https://kakuyomu.jp',
       'Referer': 'https://kakuyomu.jp/',
-      'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-          'AppleWebKit/537.36 (KHTML, like Gecko) '
-          'Chrome/143.0.0.0 Safari/537.36',
+      'User-Agent': noveltyUserAgent,
     };
     if (cookieHeader != null) {
       headers['Cookie'] = cookieHeader;

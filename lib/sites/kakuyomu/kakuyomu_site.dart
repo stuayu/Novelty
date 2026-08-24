@@ -7,6 +7,7 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 
@@ -71,16 +72,11 @@ class KakuyomuSite implements NovelSite {
   ///
   /// [dio] と [rateLimiter] はテスト時に注入できる。
   KakuyomuSite({Dio? dio, KakuyomuRateLimiter? rateLimiter})
-    : _dio = dio ?? Dio(),
+    : _dio = dio ?? createNoveltyDio(),
       _rateLimiter = rateLimiter ?? KakuyomuRateLimiter();
 
   final Dio _dio;
   final KakuyomuRateLimiter _rateLimiter;
-
-  /// カクヨムのUser-Agent。
-  static const String _userAgent =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-      '(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
 
   /// robots.txt（2026-08-02 確認）に基づく取得禁止パスのパターン。
   static final List<RegExp> _disallowedPathPatterns = <RegExp>[
@@ -273,7 +269,7 @@ class KakuyomuSite implements NovelSite {
     final response = await _dio.get<String>(
       url,
       options: Options(
-        headers: <String, String>{'User-Agent': _userAgent},
+        headers: <String, String>{'User-Agent': noveltyUserAgent},
         responseType: ResponseType.plain,
         followRedirects: true,
       ),

@@ -1,18 +1,13 @@
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as parser;
 import 'package:novelty/repositories/auth_repository.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'narou_auth_service.g.dart';
 
 const _loginUrl = 'https://syosetu.com/login/login/';
 const _bookmarkListUrl = 'https://syosetu.com/favnovelmain/list/';
-
-/// なろうへのHTTPリクエストで使用するUser-Agent。
-const narouUserAgent =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-    'AppleWebKit/537.36 (KHTML, like Gecko) '
-    'Chrome/126.0.0.0 Safari/537.36';
 
 @Riverpod(keepAlive: true)
 /// なろう認証サービスのプロバイダー。
@@ -28,10 +23,12 @@ NarouAuthService narouAuthService(Ref ref) {
 /// - 小説API (`api.syosetu.com`)、小説本文取得、検索では認証Cookieを使用しない。
 class NarouAuthService {
   /// コンストラクタ。
-  NarouAuthService({required this.authRepository});
+  NarouAuthService({required this.authRepository, Dio? dio})
+    : _dio = dio ?? createNoveltyDio();
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
+  final Dio _dio;
 
   /// ログインPOSTリクエストを送信し、セッションCookieを取得・保存する。
   ///
@@ -41,15 +38,15 @@ class NarouAuthService {
     required String narouid,
     required String password,
   }) async {
-    final dio = Dio();
     try {
-      final response = await dio.post<String>(
+      final response = await _dio.post<String>(
         _loginUrl,
-        data: 'narouid=${Uri.encodeQueryComponent(narouid)}'
+        data:
+            'narouid=${Uri.encodeQueryComponent(narouid)}'
             '&pass=${Uri.encodeQueryComponent(password)}',
         options: Options(
           headers: {
-            'User-Agent': narouUserAgent,
+            'User-Agent': noveltyUserAgent,
             'Content-Type': 'application/x-www-form-urlencoded',
             'Referer': 'https://syosetu.com/login/input/',
           },
@@ -106,12 +103,11 @@ class NarouAuthService {
     if (cookieHeader == null) return false;
 
     try {
-      final dio = Dio();
-      final response = await dio.get<String>(
+      final response = await _dio.get<String>(
         _bookmarkListUrl,
         options: Options(
           headers: {
-            'User-Agent': narouUserAgent,
+            'User-Agent': noveltyUserAgent,
             'Cookie': cookieHeader,
           },
           followRedirects: false,
@@ -143,12 +139,11 @@ class NarouAuthService {
     required String userl,
   }) async {
     try {
-      final dio = Dio();
-      final response = await dio.get<String>(
+      final response = await _dio.get<String>(
         _bookmarkListUrl,
         options: Options(
           headers: {
-            'User-Agent': narouUserAgent,
+            'User-Agent': noveltyUserAgent,
             'Cookie': 'ks2=$ks2; ses=$ses; userl=$userl',
           },
           responseType: ResponseType.plain,
@@ -189,13 +184,13 @@ class NarouAuthService {
 class NarouLoginResult {
   /// ログイン成功。
   const NarouLoginResult.success({required this.username})
-      : isSuccess = true,
-        error = null;
+    : isSuccess = true,
+      error = null;
 
   /// ログイン失敗。
   const NarouLoginResult.failure(String this.error)
-      : isSuccess = false,
-        username = null;
+    : isSuccess = false,
+      username = null;
 
   /// 成功したか否か。
   final bool isSuccess;
