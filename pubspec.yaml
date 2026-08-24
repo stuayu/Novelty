@@ -20,6 +20,7 @@ environment:
   sdk: ^3.11.3
 workspace:
   - packages/alphapolis_parser
+  - packages/hameln_parser
   - packages/kakuyomu_parser
   - packages/narou_parser
   - packages/novel_parser_core
@@ -49,6 +50,8 @@ dependencies:
   flutter_svg: ^2.3.0
   freezed_annotation: ^3.1.0
   go_router: ^17.3.0
+  hameln_parser:
+    path: packages/hameln_parser
   hooks_riverpod: ^3.3.2
   html: ^0.15.6
   json_annotation: ^4.12.0
