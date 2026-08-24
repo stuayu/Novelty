@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novelty/sites/alphapolis/alphapolis_site.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/narou/narou_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
@@ -19,8 +20,16 @@ void main() {
       );
     });
 
-    test('登録エントリは現時点で2件（narou / kakuyomu）', () {
-      expect(defaultNovelSiteRegistry, hasLength(2));
+    test('alphapolis が登録されており実装は AlphapolisSite', () {
+      expect(defaultNovelSiteRegistry.keys, contains(NovelSource.alphapolis));
+      expect(
+        defaultNovelSiteRegistry[NovelSource.alphapolis],
+        isA<AlphapolisSite>(),
+      );
+    });
+
+    test('登録エントリは3件', () {
+      expect(defaultNovelSiteRegistry, hasLength(3));
     });
 
     test('登録済みエントリのキーと実装の source が一致する', () {

@@ -3,11 +3,11 @@ import 'package:novelty/sites/novel_source.dart';
 
 void main() {
   group('NovelSource', () {
-    test('定義されているサイト種別は narou と kakuyomu の2つ', () {
-      expect(NovelSource.values, hasLength(2));
+    test('定義されているサイト種別は narou・kakuyomu・alphapolis の3つ', () {
+      expect(NovelSource.values, hasLength(3));
       expect(
         NovelSource.values.map((source) => source.name),
-        containsAll(<String>['narou', 'kakuyomu']),
+        containsAll(<String>['narou', 'kakuyomu', 'alphapolis']),
       );
     });
 
@@ -25,6 +25,14 @@ void main() {
       expect(source.dbId, 'kakuyomu');
       expect(source.label, 'カクヨム');
       expect(source.baseUrl, 'https://kakuyomu.jp');
+    });
+
+    test('alphapolis のメタデータが仕様どおり', () {
+      const source = NovelSource.alphapolis;
+
+      expect(source.dbId, 'alphapolis');
+      expect(source.label, 'アルファポリス');
+      expect(source.baseUrl, 'https://www.alphapolis.co.jp');
     });
 
     test('dbId は enum 名と同一', () {

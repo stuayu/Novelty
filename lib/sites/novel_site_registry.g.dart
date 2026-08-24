@@ -67,4 +67,4 @@ final class NovelSiteRegistryProvider
   }
 }
 
-String _$novelSiteRegistryHash() => r'1a7b49b0404465cb5945750af5d07dcf3710d82a';
+String _$novelSiteRegistryHash() => r'f2a76a7d86fd50142b882484401bf963307eb86c';

@@ -53,7 +53,7 @@ final class NovelRepositoryProvider
   }
 }
 
-String _$novelRepositoryHash() => r'2e5398c23a6f338f7d37b8928e2cce71860f7f06';
+String _$novelRepositoryHash() => r'a84d044e834bea822f0576ba6954b47f2eb3240c';
 
 /// 小説の情報を取得し、DBにキャッシュするプロバイダー。
 

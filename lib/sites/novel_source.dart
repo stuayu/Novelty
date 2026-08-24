@@ -7,7 +7,14 @@ enum NovelSource {
   narou('narou', '小説家になろう', 'https://ncode.syosetu.com'),
 
   /// カクヨム。
-  kakuyomu('kakuyomu', 'カクヨム', 'https://kakuyomu.jp');
+  kakuyomu('kakuyomu', 'カクヨム', 'https://kakuyomu.jp'),
+
+  /// アルファポリス。
+  alphapolis(
+    'alphapolis',
+    'アルファポリス',
+    'https://www.alphapolis.co.jp',
+  );
 
   /// コンストラクタ。
   const NovelSource(this.dbId, this.label, this.baseUrl);

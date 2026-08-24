@@ -6,6 +6,7 @@ import 'package:riverpod/riverpod.dart';
 const Map<NovelSource, Duration> siteRequestIntervals = <NovelSource, Duration>{
   NovelSource.narou: Duration(milliseconds: 250),
   NovelSource.kakuyomu: Duration(seconds: 1),
+  NovelSource.alphapolis: Duration(seconds: 1),
 };
 
 final _narouRateLimiterProvider = Provider<RequestRateLimiter>((ref) {
@@ -18,10 +19,17 @@ final _kakuyomuRateLimiterProvider = Provider<RequestRateLimiter>((ref) {
   );
 });
 
+final _alphapolisRateLimiterProvider = Provider<RequestRateLimiter>((ref) {
+  return RequestRateLimiter(
+    interval: siteRequestIntervals[NovelSource.alphapolis]!,
+  );
+});
+
 /// アプリ内でサイトごとに単一のレートリミッターを提供する。
 Provider<RequestRateLimiter> siteRateLimiterProvider(NovelSource source) {
   return switch (source) {
     NovelSource.narou => _narouRateLimiterProvider,
     NovelSource.kakuyomu => _kakuyomuRateLimiterProvider,
+    NovelSource.alphapolis => _alphapolisRateLimiterProvider,
   };
 }

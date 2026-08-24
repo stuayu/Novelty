@@ -96,10 +96,19 @@ void main() {
       siteRateLimiterProvider(NovelSource.kakuyomu),
     );
     final narou = container.read(siteRateLimiterProvider(NovelSource.narou));
+    final alphapolis1 = container.read(
+      siteRateLimiterProvider(NovelSource.alphapolis),
+    );
+    final alphapolis2 = container.read(
+      siteRateLimiterProvider(NovelSource.alphapolis),
+    );
 
     expect(kakuyomu2, same(kakuyomu1));
+    expect(alphapolis2, same(alphapolis1));
     expect(narou, isNot(same(kakuyomu1)));
+    expect(alphapolis1, isNot(same(kakuyomu1)));
     expect(kakuyomu1.interval, const Duration(seconds: 1));
+    expect(alphapolis1.interval, const Duration(seconds: 1));
     expect(narou.interval, const Duration(milliseconds: 250));
   });
 }

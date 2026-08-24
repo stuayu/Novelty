@@ -34,5 +34,22 @@ void main() {
         'https://kakuyomu.jp/works/',
       );
     });
+
+    test('アルファポリスは複合workIdから作品URLを組み立てる', () {
+      expect(
+        buildWorkUrl(
+          NovelSource.alphapolis,
+          workId: '480761512-519070183',
+        ),
+        'https://www.alphapolis.co.jp/novel/480761512/519070183',
+      );
+    });
+
+    test('アルファポリスはworkIdがnullならFormatExceptionを投げる', () {
+      expect(
+        () => buildWorkUrl(NovelSource.alphapolis),
+        throwsA(isA<FormatException>()),
+      );
+    });
   });
 }

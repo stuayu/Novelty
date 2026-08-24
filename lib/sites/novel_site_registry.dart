@@ -1,4 +1,5 @@
 import 'package:novelty/providers/site_rate_limiter_provider.dart';
+import 'package:novelty/sites/alphapolis/alphapolis_site.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/narou/narou_site.dart';
 import 'package:novelty/sites/novel_site.dart';
@@ -14,6 +15,7 @@ final Map<NovelSource, NovelSite> defaultNovelSiteRegistry =
     <NovelSource, NovelSite>{
       NovelSource.narou: const NarouSite(),
       NovelSource.kakuyomu: KakuyomuSite(),
+      NovelSource.alphapolis: AlphapolisSite(),
     };
 
 /// サイト種別とサイト実装の対応を提供するプロバイダ。
@@ -27,6 +29,11 @@ Map<NovelSource, NovelSite> novelSiteRegistry(Ref ref) =>
       NovelSource.kakuyomu: KakuyomuSite(
         rateLimiter: ref.watch(
           siteRateLimiterProvider(NovelSource.kakuyomu),
+        ),
+      ),
+      NovelSource.alphapolis: AlphapolisSite(
+        rateLimiter: ref.watch(
+          siteRateLimiterProvider(NovelSource.alphapolis),
         ),
       ),
     };
