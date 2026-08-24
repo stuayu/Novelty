@@ -1,0 +1,203 @@
+User-Agent:*
+Disallow: /my/
+Disallow: /edit/
+Disallow: /api/
+Disallow: /shop/point/
+
+# Yahoo! (minute)
+User-agent: Slurp
+Crawl-delay: 30
+
+# Microsoft Live Search (sec)
+User-agent: msnbot
+Crawl-delay: 30
+
+User-agent: bingbot
+Crawl-delay: 30
+Disallow: /my/
+Disallow: /edit/
+Disallow: /api/
+Disallow: /shop/point/
+Disallow: /search
+
+# baidu (sec)
+User-agent: baiduspider
+disallow: /
+
+# Naver
+User-Agent: Yetibot
+disallow: /
+
+# AhrefsBot
+User-Agent: AhrefsBot
+disallow: /
+
+# Anewsbot
+User-Agent: Anewsbot
+disallow: /
+
+# Amazon
+User-agent: Amazonbot
+Disallow: /
+
+# apple
+User-agent: Applebot
+Disallow: /
+
+#webmeup BLEX
+User-agent: BLEXBot
+Disallow: /
+
+#Buck    trial
+User-agent: Buck
+Disallow: /
+
+#Clipper
+User-agent: Clipper
+Disallow: /
+
+#Common Crawl
+User-agent: CCBot
+Disallow: /
+
+#Common CriteoBot
+User-agent: CriteoBot/0.1
+Disallow: /
+
+#DataForSeoBot
+User-agent: DataForSeoBot
+Disallow: /
+
+#dotbot
+User-agent: dotbot
+Disallow: /
+
+#ExaBot
+User-agent: ExaBot
+Disallow: /
+
+#Femtosearch
+User-agent: FemtosearchBot
+Disallow: /
+
+#firstrain
+User-agent: http://firstra.in/FR3_0
+Disallow: /
+
+#flamingosearch.com
+User-agent: Flamingo_SearchEngine
+Disallow: /
+
+#grapeshot
+User-agent: grapeshot
+Disallow: /
+
+#grapeshot
+User-agent: grapeshot
+Disallow: /
+
+#gptbot
+User-agent: GPTBot
+Disallow: /
+
+#
+User-agent: ICC-Crawler
+Disallow: /
+
+#Magpie Brandwatch
+User-agent: magpie-crawler
+Disallow: /
+
+#Mappy Crawler
+User-agent: Mappy
+Disallow: /
+
+#cyber.harvard.edu
+User-agent: mediawords
+Disallow: /
+
+#MJ12bot
+User-agent: MJ12bot
+Disallow: /
+
+# Nutch
+User-Agent: Nutch
+Disallow: /
+
+# openindex
+User-agent: OpenindexSpider
+Disallow: /
+
+#comscore
+User-agent: proximic
+Disallow: /
+
+#Linguee
+User-agent: Linguee
+Disallow: /
+
+#Scrapy
+User-agent: Scrapy
+Disallow: /
+
+#sempi
+User-agent: Semanticbot
+Disallow: /
+
+#Semrush
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: SemrushBot-SA
+Disallow: /
+
+#Semrush
+User-agent: Semanticbot
+Disallow: /
+
+#sogou.com chinese search engine 
+User-agent: Sogou web spider
+Disallow: /
+
+#toutiao    trial
+User-agent: ToutiaoSpider
+Disallow: /
+
+#Trendiction
+User-Agent: trendictionbot 
+Disallow: /
+
+#trendkite
+User-agent: trendkite-akashic-crawler
+Disallow: /
+
+#turntin
+User-agent: TurnitinBot
+Disallow: /
+
+#theTradeDesk
+User-agent: TTD-Content
+Disallow: /
+
+#Yandex
+User-agent: Yandex
+Disallow: /
+
+User-agent: ias_crawler
+User-agent: ias-ie
+User-agent: peer39_crawler
+User-agent: ImagesiftBot
+Disallow: /
+
+User-agent: AwarioRssBot
+User-agent: AwarioSmartBot
+Disallow: /
+
+User-agent: barkrowler
+Disallow: /
+
+User-agent: GPTBot
+Disallow: /
+
+User-agent: GoogleOther
+Disallow: /
