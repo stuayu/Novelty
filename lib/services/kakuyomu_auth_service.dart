@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:novelty/services/kakuyomu_web_cookie_service.dart';
 import 'package:novelty/utils/kakuyomu_webview_support.dart';
 import 'package:riverpod/riverpod.dart';
@@ -45,7 +46,7 @@ class KakuyomuAuthService {
     required KakuyomuSessionRepository sessionRepository,
     Dio? dio,
   }) : _sessionRepository = sessionRepository,
-       _dio = dio ?? Dio();
+       _dio = dio ?? createNoveltyDio();
 
   final KakuyomuSessionRepository _sessionRepository;
   final Dio _dio;
@@ -64,10 +65,7 @@ class KakuyomuAuthService {
         options: Options(
           headers: <String, Object>{
             'Cookie': cookieHeader,
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/143.0.0.0 Safari/537.36',
+            'User-Agent': noveltyUserAgent,
           },
           followRedirects: true,
           validateStatus: (status) => status != null && status < 500,
