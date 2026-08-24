@@ -46,3 +46,43 @@
 - `<ruby>` 等が将来確認できた場合だけ、専用要素またはHybrid JSONのルビ情報へ変換。現採取物にはルビ実装を推測で追加しない
 - 画像、傍点、改ページは実HTML確認後に専用マッピングを決める。未確認のまま通常文字列へ潰さない
 - `packages/tategaki` との縦書き互換性は、ルビを含む実fixture取得後に別途検証。現時点は未確認
+
+---
+
+# 追加調査（2026-08-24 実施）
+
+以下は初回調査の「未確認」項目を実HTMLで確認し直した結果。上記と重複する記述があるが、
+こちらが後から実測で確定させた内容である。
+
+
+対象URL: `https://www.alphapolis.co.jp/novel/{authorId}/{workId}/episode/{episodeNo}`
+
+## 本文POST（確認済み）
+
+- 完全なPOST先: `https://www.alphapolis.co.jp/novel/episode_body`
+- bodyは`episode`と`token`の2項目のみ。tokenは同ページのインラインJavaScript、`$('div#novelBody').load()`第2引数に32文字小文字16進で埋め込まれる
+- CSRFは同ページの`$.ajaxSetup`内`X-CSRF-TOKEN`値
+- 成功時ヘッダー: `X-CSRF-TOKEN`、`Referer`、`X-Requested-With: XMLHttpRequest`、`Content-Type: application/x-www-form-urlencoded; charset=UTF-8`
+- GET発行Cookieをcookie jarでPOSTへ送る。非ログインで成功。Cookieなし・CSRF不一致はHTTP 419、`{"message":"CSRF token mismatch."}`
+- 成功応答: HTTP 200、`text/html; charset=utf-8`、JSONラップなし
+
+```sh
+curl -kfsSL -A 'Novelty research contact' -c cookie.txt -o episode.html \
+  'https://www.alphapolis.co.jp/novel/480761512/519070183/episode/11502116'
+csrf=$(awk -F'"' '/X-CSRF-TOKEN/{print $2; exit}' episode.html)
+token=$(awk -F"'" "/'token'/{print \$6; exit}" episode.html)
+sleep 1
+curl -kfsS -b cookie.txt -e 'https://www.alphapolis.co.jp/novel/480761512/519070183/episode/11502116' \
+  -H 'User-Agent: Novelty research contact' -H 'X-Requested-With: XMLHttpRequest' \
+  -H "X-CSRF-TOKEN: $csrf" -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
+  --data-urlencode 'episode=11502116' --data-urlencode "token=$token" \
+  'https://www.alphapolis.co.jp/novel/episode_body'
+```
+
+## 本文表現（確認済み）
+
+`<br />`が改行。連続`<br />`は空行。ルビは`<ruby>王族<rt>かぞく</rt></ruby>`、`<ruby>白蛇<rt>エ・ラジャ</rt></ruby>`。傍点、本文画像、改ページ専用要素は採取本文で未確認。`|漢字《よみ》`は検索結果・あらすじでは確認したが本文POSTでは未確認。
+
+## マッピング方針
+
+テキストを`plainText`、`br`を`newLine`へ変換。`ruby`は基底文字を`txt`へ連結し、Hybrid JSONの`rb`（`off`、`base`、`ruby`）へ記録する。`txt.substring(off, off + base.length) == base`を検証。画像・傍点・改ページは専用HTML確認まで潰さない。

@@ -40,3 +40,23 @@
 - URL: `&page=2`。最終ページは `rel="last"`。例: ファンタジー全体53,716件、最終 `page=1343`
 - 既定件数: 40件。HTMLのlimit選択肢は `40`, `80`, `120`
 - `category_ids` は1ページのフォームに `category_ids[]` が複数存在するため複数指定を受け付けるUIは確認。ただし複数値をURLへ送った結果の意味（OR/AND）は未確認
+
+---
+
+# 追加調査（2026-08-24 実施）
+
+以下は初回調査の「未確認」項目を実HTMLで確認し直した結果。上記と重複する記述があるが、
+こちらが後から実測で確定させた内容である。
+
+
+確認URL: `https://www.alphapolis.co.jp/novel/index?category_ids=110400&sort=total`
+
+## sort（確認済み全値）
+
+`completed`, `24hpt`, `episode_recent`, `weekly`, `monthly`, `yearly`, `total`, `favorite`, `comment`, `char`, `recent`, `episode_old`。
+
+## ページング・件数
+
+`page=2`形式。既定40件、選択肢40/80/120。`rel="last"`で最終ページ判定。実測53,716件、40件/ページ、最終`page=1343`。複数`category_ids`のOR/ANDは未確認。
+
+作品項目は`.p-content.is-novel`、タイトル`.p-content__title a`、著者`.p-content__author-bookinfo a`、あらすじ`.p-content__abstract`。

@@ -30,3 +30,21 @@
 ## エピソードID
 
 URL末尾の数値 `/episode/{episodeNo}` が一意な話IDとして使える実例を確認。`episodeNo` と一致する。共通モデルの `episodeIndex` は `dispOrder` または目次走査順、サイト固有URLは `url` に保持する。
+
+---
+
+# 追加調査（2026-08-24 実施）
+
+以下は初回調査の「未確認」項目を実HTMLで確認し直した結果。上記と重複する記述があるが、
+こちらが後から実測で確定させた内容である。
+
+
+作品詳細URL内の`script#app-cover-data`の`chapterEpisodes`を解析する。
+
+## 確認済み
+
+対象`/novel/666146886/441062651`で22章341話を同一レスポンスから取得。先頭`episodeNo=425200`、末尾`episodeNo=11640550`。100話超でも追加ページングURL・パラメータなし。
+
+保持キーは`chapterId`、`title`、`episodes[].episodeNo`、`url`、`mainTitle`、`upTime`、`counterText`、`isPublic`、`dispOrder`、`likes`、`rental`。章なしは`chapterId:null`。`episodeIndex`は`dispOrder`または走査順、サイトURLは`url`へ保持。
+
+`isPublic:false`の実例は`rental.isFree:false`、`coin:35`、`isZeroYenTarget:true`。

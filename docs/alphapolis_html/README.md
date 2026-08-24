@@ -26,3 +26,27 @@ fixtureは採取HTMLから、対象DOMとJSONをそのまま抜き出した最�
 - 目次は作品詳細ページ内。連載の全話が1レスポンスの `chapterEpisodes` に含まれた実例を確認。100話超作品でページングが発生するかは未確認
 - 本文はエピソードHTMLの `#novelBody` が空で、ページ内JavaScriptが `/novel/episode_body` へPOSTして取得する。実POSTで本文HTMLを取得済み
 - 規約第10.3項が配信コンテンツの複製を方法を問わず禁止。Noveltyのローカル保存・オフライン読書は適合と判定できない。不適合フラグ。実装着手前に方針決定が必要
+
+---
+
+# 追加調査（2026-08-24 実施）
+
+以下は初回調査の「未確認」項目を実HTMLで確認し直した結果。上記と重複する記述があるが、
+こちらが後から実測で確定させた内容である。
+
+
+- 調査日: 2026-08-24
+- 方法: `curl`による素HTTP取得。Headless Browser / WebView未使用
+- User-Agent: `Novelty research contact`
+- robots.txt: `User-agent: *`の禁止は`/dreambookclub/`のみ。対象小説URLは許可
+- 各HTTPリクエスト間1秒以上。TLS検証無効化（`-k`）は調査環境限定
+
+## fixture
+
+`episode_page.html`は本文POST入口、`ruby_episode_body.html`は実POSTのルビ本文、`100plus_work.html`は341話作品の先頭・末尾抜粋、`rental_denied.html`は403エラーHTML。
+
+## 確認済み
+
+作品・目次は`script#app-cover-data`、本文は`#novelBody.load()`のPOSTから取得可能。341話作品で目次ページングなし。ルビは`<ruby><rt>`。無料本文・R18公開本文は非ログインで取得可能。レンタル非公開話は403。
+
+利用規約第10.3項を理由に停止しない。オーナー判断に従う。robots.txtと1秒以上のレート制限は必須。

@@ -51,3 +51,17 @@ CSSで値を取得するDOMではなく、`script#app-cover-data` のJSONを解�
 - 連載作品の総文字数を表示する専用項目の安定した位置
 - 改稿日時と最終更新日時の意味の差
 - ログイン必須・レンタル・R18作品で同じDOMが返るか
+
+---
+
+# 追加調査（2026-08-24 実施）
+
+以下は初回調査の「未確認」項目を実HTMLで確認し直した結果。上記と重複する記述があるが、
+こちらが後から実測で確定させた内容である。
+
+
+URL: `https://www.alphapolis.co.jp/novel/{authorId}/{workId}`。主データは`script#app-cover-data`。`content.id/title/url/coverImageUrl/user.name`と`chapterEpisodes`を確認済み。
+
+目次章には`isRental`、`rentalBookId`。無料実例は`isRental:false`、`rentalBookId:null`。話には`isPublic`、`rental`。拒否判定の実例は`isPublic:false`かつ`rental.isFree:false`。`isPreview`は無料・R18実例で`false`。`rentalConfirm`は本文ページJSONにあるが、単独で可否を決める実例は未確認。
+
+R18公開作品`/novel/42549421/842077980/episode/11647246`は非ログインGET 200、本文POST 200。R18だけでは拒否されない。
