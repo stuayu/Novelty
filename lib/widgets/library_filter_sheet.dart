@@ -13,11 +13,15 @@ class LibraryFilterSheet extends HookWidget {
     required this.initialSerialStatus,
     required this.initialSelectedGenreId,
     required this.onApply,
+    this.genreFilteringEnabled = true,
     super.key,
   });
 
   /// ジャンルのマスタデータ一覧（サイト実装が提供）。
   final List<GenreMaster> genres;
+
+  /// ジャンル絞り込みを操作できるか
+  final bool genreFilteringEnabled;
 
   /// 前回の「連載状況」設定
   final LibrarySerialStatus initialSerialStatus;
@@ -147,76 +151,79 @@ class LibraryFilterSheet extends HookWidget {
 
                     const SizedBox(height: 24),
 
-                    // Genre Section
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'ジャンル',
-                          style: Theme.of(context).textTheme.titleSmall
-                              ?.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.bold,
-                              ),
-                        ),
-                        // "指定なし"を選択するためのチップ等
-                        if (selectedGenreId.value != null)
-                          TextButton.icon(
-                            onPressed: () => selectedGenreId.value = null,
-                            icon: const Icon(Icons.close, size: 16),
-                            label: const Text('ジャンル解除'),
-                            style: TextButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Grouped Genres
-                    ...groupedGenres.entries.map((entry) {
-                      final category = entry.key;
-                      final items = entry.value;
-
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    if (genreFilteringEnabled) ...[
+                      // Genre Section
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Text(
-                              category,
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                  ),
+                          Text(
+                            'ジャンル',
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          if (selectedGenreId.value != null)
+                            TextButton.icon(
+                              onPressed: () => selectedGenreId.value = null,
+                              icon: const Icon(Icons.close, size: 16),
+                              label: const Text('ジャンル解除'),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                              ),
                             ),
-                          ),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: items.map((genre) {
-                              final isSelected =
-                                  selectedGenreId.value == genre.id;
-
-                              return FilterChip(
-                                label: Text(genre.name),
-                                selected: isSelected,
-                                onSelected: (selected) {
-                                  selectedGenreId.value = selected
-                                      ? genre.id
-                                      : null;
-                                },
-                                showCheckmark: false,
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(height: 12),
                         ],
-                      );
-                    }),
+                      ),
+                      const SizedBox(height: 8),
+                      ...groupedGenres.entries.map((entry) {
+                        final category = entry.key;
+                        final items = entry.value;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                category,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: items.map((genre) {
+                                final isSelected =
+                                    selectedGenreId.value == genre.id;
+
+                                return FilterChip(
+                                  label: Text(genre.name),
+                                  selected: isSelected,
+                                  onSelected: (selected) {
+                                    selectedGenreId.value = selected
+                                        ? genre.id
+                                        : null;
+                                  },
+                                  showCheckmark: false,
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                        );
+                      }),
+                    ] else
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Text('サイトを選択するとジャンルを指定できます'),
+                      ),
                     const SizedBox(height: 48), // Bottom padding
                   ],
                 ),

@@ -9,6 +9,7 @@ import 'package:novelty/models/novel_info_extension.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/repositories/novel_repository.dart';
 import 'package:novelty/screens/search_page.dart';
+import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/widgets/app_bar_source_dropdown.dart';
@@ -187,8 +188,9 @@ class LibraryPage extends HookConsumerWidget {
 
     void showFilterSheet() {
       // ジャンル一覧は選択中のサイトのマスタデータを使用する
-      final genres =
-          defaultNovelSiteRegistry[filter.source ?? NovelSource.narou]!.genres;
+      final genres = filter.source == null
+          ? const <GenreMaster>[]
+          : defaultNovelSiteRegistry[filter.source]!.genres;
       unawaited(
         showModalBottomSheet<void>(
           context: context,
@@ -196,6 +198,7 @@ class LibraryPage extends HookConsumerWidget {
           useSafeArea: true,
           builder: (context) => LibraryFilterSheet(
             genres: genres,
+            genreFilteringEnabled: filter.source != null,
             initialSerialStatus: filter.serialStatus,
             initialSelectedGenreId: filter.selectedGenreId,
             onApply: ({required serialStatus, required selectedGenreId}) {

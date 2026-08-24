@@ -107,7 +107,7 @@ void main() {
       final list = await stream.first;
 
       expect(list.length, 1);
-      expect(list.first.ncode, normalizedNcode);
+      expect(list.first.workId, normalizedNcode);
       expect(list.first.successCount, 3);
     });
 
@@ -150,9 +150,49 @@ void main() {
         final list = await stream.first;
 
         expect(list.length, 1);
-        expect(list.first.ncode, normalizedNcode);
+        expect(list.first.workId, normalizedNcode);
         expect(list.first.successCount, 2);
       },
     );
+
+    test('3サイトの同じworkIdをsource別に集計する', () async {
+      const workId = 'shared-work';
+      for (final source in NovelSource.values) {
+        await database
+            .into(database.novels)
+            .insert(
+              NovelsCompanion(
+                source: Value(source),
+                workId: const Value(workId),
+                title: Value(source.label),
+                generalAllNo: const Value(1),
+              ),
+            );
+        await database
+            .into(database.episodeContents)
+            .insert(
+              EpisodeContentsCompanion(
+                source: Value(source),
+                workId: const Value(workId),
+                episodeId: const Value(1),
+                content: Value([
+                  NovelContentElement.plainText(source.label),
+                ]),
+              ),
+            );
+      }
+
+      final summaries = await database.watchCompletedDownloads().first;
+
+      expect(summaries, hasLength(3));
+      expect(
+        summaries.map((summary) => (summary.source, summary.workId)).toSet(),
+        {
+          (NovelSource.narou, workId),
+          (NovelSource.kakuyomu, workId),
+          (NovelSource.alphapolis, workId),
+        },
+      );
+    });
   });
 }

@@ -2080,6 +2080,7 @@ class AppDatabase extends _$AppDatabase {
     return query.map((rows) {
       final summaries = <NovelDownloadSummary>[];
       for (final row in rows) {
+        final source = NovelSource.values.byName(row.read<String>('source'));
         final workId = row.read<String>('work_id');
         final successCount = row.read<int>('success_count');
         final failureCount = row.read<int>('failure_count');
@@ -2088,8 +2089,8 @@ class AppDatabase extends _$AppDatabase {
         if (totalEpisodes == null) continue;
 
         final summary = NovelDownloadSummary(
-          // P1時点ではなろうのみのため ncode = workId（カクヨム対応はP2）
-          ncode: workId,
+          source: source,
+          workId: workId,
           successCount: successCount,
           failureCount: failureCount,
           totalEpisodes: totalEpisodes,

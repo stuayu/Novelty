@@ -366,8 +366,12 @@ import しており（`database.dart:13`, `:15`）、`KakuyomuHistoryEntry` を�
 
 - `lib/screens/library_page.dart:191` — source が null（「すべて」）のとき
   `NovelSource.narou` のジャンルへフォールバックしている
-- `lib/widgets/sort_selection_sheet.dart:58-59` — `ncodeasc` / `ncodedesc`（Nコード順）が
-  サイト分岐なしで常時表示される
+- ~~`lib/widgets/sort_selection_sheet.dart:58-59` — `ncodeasc` / `ncodedesc`（Nコード順）が
+  サイト分岐なしで常時表示される~~
+  **訂正（2026-08-25）**: 誤り。`SortSelectionSheet` の呼び出しは
+  `lib/widgets/search_modal.dart` のなろう限定ブロック（`if (query.value.source ==
+  NovelSource.narou)`、120〜326行）の内側にあり、そもそもなろう選択時しか表示されない。
+  対応不要
 - `lib/widgets/search_modal.dart:120`, `:328`, `:351` — サイト別の条件ブロックが直書きで、
   サイト追加のたびに線形に増える（allow-list型なので第3サイトは安全側に倒れる）
 - `lib/domain/novel_enrichment.dart:26-32` — カバー画像URLがなろう専用

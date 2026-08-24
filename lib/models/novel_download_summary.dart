@@ -1,18 +1,23 @@
 import 'package:flutter/foundation.dart';
+import 'package:novelty/sites/novel_source.dart';
 
 /// 小説のダウンロード状態の集計情報を表すクラス。
 @immutable
 class NovelDownloadSummary {
   /// ファクトリーコンストラクタ
   const NovelDownloadSummary({
-    required this.ncode,
+    required this.source,
+    required this.workId,
     required this.successCount,
     required this.failureCount,
     required this.totalEpisodes,
   });
 
-  /// 小説のncode
-  final String ncode;
+  /// 小説の提供サイト
+  final NovelSource source;
+
+  /// サイト内の作品ID
+  final String workId;
 
   /// ダウンロード成功したエピソード数
   final int successCount;
@@ -50,13 +55,15 @@ class NovelDownloadSummary {
 
   /// フィールドを変更した新しいインスタンスを作成する
   NovelDownloadSummary copyWith({
-    String? ncode,
+    NovelSource? source,
+    String? workId,
     int? successCount,
     int? failureCount,
     int? totalEpisodes,
   }) {
     return NovelDownloadSummary(
-      ncode: ncode ?? this.ncode,
+      source: source ?? this.source,
+      workId: workId ?? this.workId,
       successCount: successCount ?? this.successCount,
       failureCount: failureCount ?? this.failureCount,
       totalEpisodes: totalEpisodes ?? this.totalEpisodes,
@@ -68,18 +75,20 @@ class NovelDownloadSummary {
       identical(this, other) ||
       other is NovelDownloadSummary &&
           runtimeType == other.runtimeType &&
-          ncode == other.ncode &&
+          source == other.source &&
+          workId == other.workId &&
           successCount == other.successCount &&
           failureCount == other.failureCount &&
           totalEpisodes == other.totalEpisodes;
 
   @override
   int get hashCode =>
-      Object.hash(ncode, successCount, failureCount, totalEpisodes);
+      Object.hash(source, workId, successCount, failureCount, totalEpisodes);
 
   @override
   String toString() {
-    return 'NovelDownloadSummary(ncode: $ncode, successCount: $successCount, '
-        'failureCount: $failureCount, totalEpisodes: $totalEpisodes)';
+    return 'NovelDownloadSummary(source: $source, workId: $workId, '
+        'successCount: $successCount, failureCount: $failureCount, '
+        'totalEpisodes: $totalEpisodes)';
   }
 }
