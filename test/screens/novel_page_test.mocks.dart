@@ -157,6 +157,27 @@ class MockNovelRepository extends _i1.Mock implements _i4.NovelRepository {
           as _i8.Future<void>);
 
   @override
+  _i8.Future<void> updateReadingProgress({
+    required _i10.NovelSource? source,
+    required String? workId,
+    required String? title,
+    required String? writer,
+    required int? episode,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#updateReadingProgress, [], {
+              #source: source,
+              #workId: workId,
+              #title: title,
+              #writer: writer,
+              #episode: episode,
+            }),
+            returnValue: _i8.Future<void>.value(),
+            returnValueForMissingStub: _i8.Future<void>.value(),
+          )
+          as _i8.Future<void>);
+
+  @override
   _i8.Future<void> deleteHistory(_i10.NovelSource? source, String? workId) =>
       (super.noSuchMethod(
             Invocation.method(#deleteHistory, [source, workId]),

@@ -222,12 +222,12 @@ void main() {
 
       final mockNovelRepository = MockNovelRepository();
       when(
-        mockNovelRepository.addToHistory(
+        mockNovelRepository.updateReadingProgress(
           source: anyNamed('source'),
           workId: anyNamed('workId'),
           title: anyNamed('title'),
           writer: anyNamed('writer'),
-          lastEpisode: anyNamed('lastEpisode'),
+          episode: anyNamed('episode'),
         ),
       ).thenAnswer((_) async {});
       when(mockNovelRepository.dispose()).thenReturn(null);
@@ -281,12 +281,12 @@ void main() {
 
       final mockNovelRepository = MockNovelRepository();
       when(
-        mockNovelRepository.addToHistory(
+        mockNovelRepository.updateReadingProgress(
           source: anyNamed('source'),
           workId: anyNamed('workId'),
           title: anyNamed('title'),
           writer: anyNamed('writer'),
-          lastEpisode: anyNamed('lastEpisode'),
+          episode: anyNamed('episode'),
         ),
       ).thenAnswer((_) async {});
       when(mockNovelRepository.dispose()).thenReturn(null);

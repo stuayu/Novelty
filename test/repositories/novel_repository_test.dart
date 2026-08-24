@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:narou_parser/narou_parser.dart';
 import 'package:novelty/database/database.dart' as db;
@@ -10,12 +11,16 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/providers/network_fallback_event_provider.dart';
 import 'package:novelty/repositories/novel_repository.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/sites/account_sync_adapter.dart';
+import 'package:novelty/sites/account_sync_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/ncode_utils.dart';
 import 'package:novelty/utils/settings_provider.dart';
 
 import '../providers/novel_info_offline_test.mocks.dart';
+import 'novel_repository_test.mocks.dart';
 
+@GenerateNiceMocks([MockSpec<AccountSyncAdapter>()])
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -893,6 +898,133 @@ void main() {
       await repository.refreshStaleLibraryMetadata();
     });
   });
+
+  group('NovelRepository updateReadingProgress', () {
+    late MockAppDatabase mockDatabase;
+    late MockApiService mockApiService;
+    late MockAccountSyncAdapter mockAdapter;
+    late ProviderContainer container;
+
+    ProviderContainer createContainer({
+      required bool isIncognito,
+      required bool isOfflineMode,
+    }) {
+      return ProviderContainer(
+        overrides: [
+          db.appDatabaseProvider.overrideWithValue(mockDatabase),
+          apiServiceProvider.overrideWithValue(mockApiService),
+          settingsProvider.overrideWith(
+            () => ReadingProgressSettings(
+              isIncognito: isIncognito,
+              isOfflineMode: isOfflineMode,
+            ),
+          ),
+          accountSyncRegistryProvider.overrideWithValue({
+            NovelSource.narou: mockAdapter,
+          }),
+        ],
+      );
+    }
+
+    setUp(() {
+      mockDatabase = MockAppDatabase();
+      mockApiService = MockApiService();
+      mockAdapter = MockAccountSyncAdapter();
+    });
+
+    tearDown(() {
+      container.dispose();
+    });
+
+    test('シークレットモード中はリモートへ読書位置を送信しない', () async {
+      container = createContainer(isIncognito: true, isOfflineMode: false);
+      await container.read(settingsProvider.future);
+
+      await container
+          .read(novelRepositoryProvider)
+          .updateReadingProgress(
+            source: NovelSource.narou,
+            workId: 'n1234ab',
+            title: 'テスト小説',
+            writer: 'テスト作者',
+            episode: 3,
+          );
+
+      verifyZeroInteractions(mockAdapter);
+    });
+
+    test('オフラインモード中はリモートへ読書位置を送信しない', () async {
+      container = createContainer(isIncognito: false, isOfflineMode: true);
+      await container.read(settingsProvider.future);
+      when(mockDatabase.addToHistory(any)).thenAnswer((_) async => 1);
+
+      await container
+          .read(novelRepositoryProvider)
+          .updateReadingProgress(
+            source: NovelSource.narou,
+            workId: 'n1234ab',
+            title: 'テスト小説',
+            writer: 'テスト作者',
+            episode: 3,
+          );
+
+      verify(mockDatabase.addToHistory(any)).called(1);
+      verifyZeroInteractions(mockAdapter);
+    });
+
+    test('通常モード中はリモートへ読書位置を送信する', () async {
+      container = createContainer(isIncognito: false, isOfflineMode: false);
+      await container.read(settingsProvider.future);
+      when(mockDatabase.addToHistory(any)).thenAnswer((_) async => 1);
+      when(
+        mockAdapter.pushReadingProgress(
+          workId: 'n1234ab',
+          episode: 3,
+        ),
+      ).thenAnswer((_) async => true);
+
+      await container
+          .read(novelRepositoryProvider)
+          .updateReadingProgress(
+            source: NovelSource.narou,
+            workId: 'n1234ab',
+            title: 'テスト小説',
+            writer: 'テスト作者',
+            episode: 3,
+          );
+
+      verify(
+        mockAdapter.pushReadingProgress(
+          workId: 'n1234ab',
+          episode: 3,
+        ),
+      ).called(1);
+    });
+  });
+}
+
+class ReadingProgressSettings extends Settings {
+  ReadingProgressSettings({
+    required this.isIncognito,
+    required this.isOfflineMode,
+  });
+
+  final bool isIncognito;
+  final bool isOfflineMode;
+
+  @override
+  Future<AppSettings> build() async {
+    return AppSettings(
+      fontSize: 16,
+      isVertical: false,
+      themeMode: ThemeMode.system,
+      lineHeight: 1.5,
+      isIncognito: isIncognito,
+      isPageFlip: false,
+      isRubyEnabled: true,
+      isOfflineMode: isOfflineMode,
+    );
+  }
 }
 
 class FakeSettings extends Settings {
