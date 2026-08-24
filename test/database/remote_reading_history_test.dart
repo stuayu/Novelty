@@ -65,4 +65,53 @@ void main() {
       DateTime(2026, 8, 23),
     );
   });
+
+  test('watchHistoryがカクヨム閲覧履歴の同期直後に更新される', () async {
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+    const workId = '1000000000000000001';
+    const remoteEpisodeId = '1000000000000000002';
+    await db
+        .into(db.novels)
+        .insert(
+          const NovelsCompanion(
+            source: Value(NovelSource.kakuyomu),
+            workId: Value(workId),
+            title: Value('テスト作品'),
+          ),
+        );
+    await db.upsertEpisodes([
+      const EpisodeListEntriesCompanion(
+        source: Value(NovelSource.kakuyomu),
+        workId: Value(workId),
+        episodeId: Value(10),
+        url: Value(
+          'https://kakuyomu.jp/works/$workId/episodes/$remoteEpisodeId',
+        ),
+      ),
+    ]);
+
+    final expectation = expectLater(
+      db.watchHistory(),
+      emitsInOrder([
+        isEmpty,
+        predicate<List<HistoryData>>(
+          (histories) =>
+              histories.length == 1 && histories.single.lastEpisode == 10,
+        ),
+      ]),
+    );
+
+    await Future<void>.delayed(Duration.zero);
+    await db.mergeKakuyomuReadingHistories([
+      KakuyomuHistoryEntry(
+        source: NovelSource.kakuyomu,
+        workId: workId,
+        episodeId: remoteEpisodeId,
+        lastReadAt: DateTime(2026, 8, 23),
+      ),
+    ]);
+
+    await expectation;
+  });
 }

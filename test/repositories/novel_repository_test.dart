@@ -10,6 +10,7 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/providers/network_fallback_event_provider.dart';
 import 'package:novelty/repositories/novel_repository.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_history_parser.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/ncode_utils.dart';
 import 'package:novelty/utils/settings_provider.dart';
@@ -163,6 +164,71 @@ void main() {
           100,
         ),
       ).called(1);
+    });
+  });
+
+  group('NovelRepository watchLastReadEpisode', () {
+    late db.AppDatabase database;
+    late MockApiService mockApiService;
+    late ProviderContainer container;
+
+    setUp(() {
+      database = db.AppDatabase.memory();
+      mockApiService = MockApiService();
+      container = ProviderContainer(
+        overrides: [
+          db.appDatabaseProvider.overrideWithValue(database),
+          apiServiceProvider.overrideWithValue(mockApiService),
+          settingsProvider.overrideWith(FakeSettings.new),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+    });
+
+    tearDown(() async {
+      container.dispose();
+      await database.close();
+    });
+
+    test('カクヨム閲覧履歴の同期直後に最後に読んだエピソードが更新される', () async {
+      const workId = '1000000000000000001';
+      const remoteEpisodeId = '1000000000000000002';
+      await database
+          .into(database.novels)
+          .insert(
+            const db.NovelsCompanion(
+              source: drift.Value(NovelSource.kakuyomu),
+              workId: drift.Value(workId),
+              title: drift.Value('テスト作品'),
+            ),
+          );
+      await database.upsertEpisodes([
+        const db.EpisodeListEntriesCompanion(
+          source: drift.Value(NovelSource.kakuyomu),
+          workId: drift.Value(workId),
+          episodeId: drift.Value(10),
+          url: drift.Value(
+            'https://kakuyomu.jp/works/$workId/episodes/$remoteEpisodeId',
+          ),
+        ),
+      ]);
+      final repository = container.read(novelRepositoryProvider);
+      final expectation = expectLater(
+        repository.watchLastReadEpisode(NovelSource.kakuyomu, workId),
+        emitsInOrder([isNull, 10]),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      await database.mergeKakuyomuReadingHistories([
+        KakuyomuHistoryEntry(
+          source: NovelSource.kakuyomu,
+          workId: workId,
+          episodeId: remoteEpisodeId,
+          lastReadAt: DateTime(2026, 8, 23),
+        ),
+      ]);
+
+      await expectation;
     });
   });
 
