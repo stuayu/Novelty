@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/utils/user_agents.dart';
 
 class _DelayedResponseAdapter implements HttpClientAdapter {
   @override
@@ -29,10 +30,9 @@ void main() {
     expect(dio.options.connectTimeout, const Duration(seconds: 15));
     expect(dio.options.receiveTimeout, const Duration(seconds: 30));
     expect(dio.options.sendTimeout, const Duration(seconds: 30));
-    expect(
-      dio.options.headers['User-Agent'],
-      contains('Chrome/143.0.0.0'),
-    );
+    // User-Agent は実行環境のプリセットに追随する
+    expect(dio.options.headers['User-Agent'], defaultUserAgent);
+    expect(dio.options.headers['User-Agent'], startsWith('Mozilla/5.0'));
   });
 
   test('遅延レスポンスはreceiveTimeoutになる', () async {

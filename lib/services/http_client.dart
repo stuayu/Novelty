@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
+import 'package:novelty/utils/user_agents.dart';
 
 /// 通信開始までの待機上限。
 const noveltyConnectTimeout = Duration(seconds: 15);
@@ -13,12 +14,12 @@ const noveltyRetryBaseDelay = Duration(seconds: 1);
 /// 429 / 503 の最大再試行回数。
 const noveltyMaxRetries = 3;
 
-/// 現行サイトがブラウザ以外のUser-Agentを拒否する可能性があるため、値は現状維持。
-/// 将来、サイト規約と連絡先を確認したうえで `Novelty/<version> (+<contact>)` へ変更する。
-const noveltyUserAgent =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-    'AppleWebKit/537.36 (KHTML, like Gecko) '
-    'Chrome/143.0.0.0 Safari/537.36';
+/// 通信に使う既定の User-Agent。
+///
+/// 実行中のプラットフォームに対応するプリセットを返す。値を差し替える場合は
+/// `lib/utils/user_agents.dart` の [userAgentPresets] を編集する。
+/// サイトごとに変えたい場合は [createNoveltyDio] の `userAgent` で上書きする。
+String get noveltyUserAgent => defaultUserAgent;
 
 /// 再試行前の待機処理。
 typedef RetryDelay = Future<void> Function(Duration duration);
@@ -36,6 +37,8 @@ Dio createNoveltyDio({
   RetryDelay? retryDelay,
   CurrentTime? now,
   RequestRateLimiter? rateLimiter,
+  String? userAgent,
+  UserAgentProfile? userAgentProfile,
 }) {
   assert(maxRetries >= 0, 'maxRetriesは0以上である必要があります');
   final dio = Dio(
@@ -43,7 +46,13 @@ Dio createNoveltyDio({
       connectTimeout: connectTimeout,
       receiveTimeout: receiveTimeout,
       sendTimeout: sendTimeout,
-      headers: <String, Object>{'User-Agent': noveltyUserAgent},
+      headers: <String, Object>{
+        'User-Agent':
+            userAgent ??
+            (userAgentProfile != null
+                ? userAgentFor(userAgentProfile)
+                : defaultUserAgent),
+      },
     ),
   );
   if (rateLimiter != null) {
