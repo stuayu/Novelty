@@ -437,6 +437,58 @@ void main() {
       expect(data?.subtitle, '元のサブタイトル');
       expect(data?.content, isEmpty);
     });
+
+    for (final bodyCase in <String, String?>{'null': null, '空文字': ''}.entries) {
+      test('${bodyCase.key}本文は失敗となり次回も再取得する', () async {
+        await database.insertNovel(
+          NovelInfo(ncode: normalizedNcode, title: 'test').toDbCompanion(),
+        );
+        await database.upsertEpisodes([
+          db.EpisodeListEntriesCompanion(
+            source: const drift.Value(NovelSource.narou),
+            workId: drift.Value(normalizedNcode),
+            episodeId: const drift.Value(episodeId),
+            revisedAt: const drift.Value('2026-08-24'),
+          ),
+        ]);
+        when(
+          mockApiService.fetchEpisode(normalizedNcode, episodeId),
+        ).thenAnswer(
+          (_) async => Episode(
+            ncode: normalizedNcode,
+            index: episodeId,
+            body: bodyCase.value,
+          ),
+        );
+
+        final repository = container.read(novelRepositoryProvider);
+        final first = await repository.downloadSingleEpisode(
+          NovelSource.narou,
+          normalizedNcode,
+          episodeId,
+          revised: '2026-08-25',
+        );
+        final afterFirst = await database.getEpisodeData(
+          NovelSource.narou,
+          normalizedNcode,
+          episodeId,
+        );
+        final second = await repository.downloadSingleEpisode(
+          NovelSource.narou,
+          normalizedNcode,
+          episodeId,
+          revised: '2026-08-25',
+        );
+
+        expect(first, isFalse);
+        expect(second, isFalse);
+        expect(afterFirst?.content, isEmpty);
+        expect(afterFirst?.revisedAt, '2026-08-24');
+        verify(
+          mockApiService.fetchEpisode(normalizedNcode, episodeId),
+        ).called(2);
+      });
+    }
   });
 
   group('NovelRepository watchEpisodeList', () {

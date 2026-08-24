@@ -28,10 +28,15 @@ NarouAuthService narouAuthService(Ref ref) {
 /// - 小説API (`api.syosetu.com`)、小説本文取得、検索では認証Cookieを使用しない。
 class NarouAuthService {
   /// コンストラクタ。
-  NarouAuthService({required this.authRepository});
+  NarouAuthService({
+    required this.authRepository,
+    Dio Function()? dioFactory,
+  }) : _dioFactory = dioFactory ?? Dio.new;
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
+
+  final Dio Function() _dioFactory;
 
   /// ログインPOSTリクエストを送信し、セッションCookieを取得・保存する。
   ///
@@ -41,11 +46,12 @@ class NarouAuthService {
     required String narouid,
     required String password,
   }) async {
-    final dio = Dio();
+    final dio = _dioFactory();
     try {
       final response = await dio.post<String>(
         _loginUrl,
-        data: 'narouid=${Uri.encodeQueryComponent(narouid)}'
+        data:
+            'narouid=${Uri.encodeQueryComponent(narouid)}'
             '&pass=${Uri.encodeQueryComponent(password)}',
         options: Options(
           headers: {
@@ -83,11 +89,13 @@ class NarouAuthService {
           await _fetchUsername(ks2: ks2, ses: ses, userl: userl) ?? narouid;
 
       // 認証情報を安全に保存する
-      await Future.wait([
-        authRepository.saveNarouid(narouid),
-        authRepository.saveUsername(username),
-        authRepository.saveSessionCookies(ks2: ks2, ses: ses, userl: userl),
-      ]);
+      await authRepository.saveNarouid(narouid);
+      await authRepository.saveUsername(username);
+      await authRepository.saveSessionCookies(
+        ks2: ks2,
+        ses: ses,
+        userl: userl,
+      );
 
       return NarouLoginResult.success(username: username);
     } on DioException catch (e) {
@@ -106,7 +114,7 @@ class NarouAuthService {
     if (cookieHeader == null) return false;
 
     try {
-      final dio = Dio();
+      final dio = _dioFactory();
       final response = await dio.get<String>(
         _bookmarkListUrl,
         options: Options(
@@ -143,7 +151,7 @@ class NarouAuthService {
     required String userl,
   }) async {
     try {
-      final dio = Dio();
+      final dio = _dioFactory();
       final response = await dio.get<String>(
         _bookmarkListUrl,
         options: Options(
@@ -189,13 +197,13 @@ class NarouAuthService {
 class NarouLoginResult {
   /// ログイン成功。
   const NarouLoginResult.success({required this.username})
-      : isSuccess = true,
-        error = null;
+    : isSuccess = true,
+      error = null;
 
   /// ログイン失敗。
   const NarouLoginResult.failure(String this.error)
-      : isSuccess = false,
-        username = null;
+    : isSuccess = false,
+      username = null;
 
   /// 成功したか否か。
   final bool isSuccess;

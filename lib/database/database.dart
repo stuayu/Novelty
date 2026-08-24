@@ -594,7 +594,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   /// 現在のデータベーススキーマバージョン
-  static const int currentSchemaVersion = 22;
+  static const int currentSchemaVersion = 23;
 
   @override
   int get schemaVersion => currentSchemaVersion;
@@ -605,6 +605,7 @@ class AppDatabase extends _$AppDatabase {
       onCreate: (m) async {
         await m.createAll();
         await _migrateToV22();
+        await _migrateToV23();
       },
       onUpgrade: (m, from, to) async {
         try {
@@ -849,6 +850,10 @@ class AppDatabase extends _$AppDatabase {
 
           if (from < 22) {
             await _migrateToV22();
+          }
+
+          if (from < 23) {
+            await _migrateToV23();
           }
         } on MigrationException {
           rethrow;
@@ -1227,6 +1232,26 @@ class AppDatabase extends _$AppDatabase {
         episode_title TEXT,
         PRIMARY KEY (source, work_id, episode_id)
       )
+    ''');
+  }
+
+  Future<void> _migrateToV23() async {
+    final tables = await customSelect(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+      "AND name = 'episode_list_entries'",
+    ).get();
+    if (tables.isEmpty) return;
+
+    await customStatement('''
+      UPDATE episode_list_entries
+      SET subtitle = NULLIF(subtitle, ''),
+          url = NULLIF(url, ''),
+          published_at = NULLIF(published_at, ''),
+          revised_at = NULLIF(revised_at, '')
+      WHERE subtitle = ''
+         OR url = ''
+         OR published_at = ''
+         OR revised_at = ''
     ''');
   }
 
@@ -1745,13 +1770,41 @@ class AppDatabase extends _$AppDatabase {
 
     await batch((batch) {
       for (final episode in newEpisodes) {
-        batch.insert(
-          episodeListEntries,
-          episode.copyWith(fetchedAt: Value(now)),
-          mode: InsertMode.insertOrReplace,
+        batch.customStatement(
+          '''
+          INSERT INTO episode_list_entries
+            (source, work_id, episode_id, subtitle, url, published_at,
+             revised_at, fetched_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(source, work_id, episode_id) DO UPDATE SET
+            subtitle =
+              COALESCE(excluded.subtitle, episode_list_entries.subtitle),
+            url = COALESCE(excluded.url, episode_list_entries.url),
+            published_at = COALESCE(
+              excluded.published_at,
+              episode_list_entries.published_at
+            ),
+            revised_at =
+              COALESCE(excluded.revised_at, episode_list_entries.revised_at),
+            fetched_at = excluded.fetched_at;
+          ''',
+          [
+            episode.source.value.dbId,
+            episode.workId.value,
+            episode.episodeId.value,
+            _presentValueOrNull(episode.subtitle),
+            _presentValueOrNull(episode.url),
+            _presentValueOrNull(episode.publishedAt),
+            _presentValueOrNull(episode.revisedAt),
+            now,
+          ],
+          // Batch.customStatement の updates は既定が空で、指定しないと
+          // watchEpisodesRange などのストリームへ更新が通知されない
+          [TableUpdate.onTable(episodeListEntries)],
         );
       }
     });
+    markTablesUpdated({episodeListEntries});
   }
 
   /// エピソード本文の保存
@@ -2034,6 +2087,10 @@ class AppDatabase extends _$AppDatabase {
       return summaries;
     });
   }
+}
+
+T? _presentValueOrNull<T>(Value<T?> value) {
+  return value.present ? value.value : null;
 }
 
 LazyDatabase _openConnection() {
