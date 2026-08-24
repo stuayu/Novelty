@@ -17,7 +17,10 @@ enum NovelSource {
   ),
 
   /// ハーメルン。
-  hameln('hameln', 'ハーメルン', 'https://syosetu.org');
+  hameln('hameln', 'ハーメルン', 'https://syosetu.org'),
+
+  /// エブリスタ。
+  estar('estar', 'エブリスタ', 'https://estar.jp');
 
   /// コンストラクタ。
   const NovelSource(this.dbId, this.label, this.baseUrl);

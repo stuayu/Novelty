@@ -8,6 +8,7 @@ const Map<NovelSource, Duration> siteRequestIntervals = <NovelSource, Duration>{
   NovelSource.kakuyomu: Duration(seconds: 1),
   NovelSource.alphapolis: Duration(seconds: 1),
   NovelSource.hameln: Duration(seconds: 3),
+  NovelSource.estar: Duration(seconds: 1),
 };
 
 final _narouRateLimiterProvider = Provider<RequestRateLimiter>((ref) {
@@ -32,6 +33,10 @@ final _hamelnRateLimiterProvider = Provider<RequestRateLimiter>((ref) {
   );
 });
 
+final _estarRateLimiterProvider = Provider<RequestRateLimiter>((ref) {
+  return RequestRateLimiter(interval: siteRequestIntervals[NovelSource.estar]!);
+});
+
 /// アプリ内でサイトごとに単一のレートリミッターを提供する。
 Provider<RequestRateLimiter> siteRateLimiterProvider(NovelSource source) {
   return switch (source) {
@@ -39,5 +44,6 @@ Provider<RequestRateLimiter> siteRateLimiterProvider(NovelSource source) {
     NovelSource.kakuyomu => _kakuyomuRateLimiterProvider,
     NovelSource.alphapolis => _alphapolisRateLimiterProvider,
     NovelSource.hameln => _hamelnRateLimiterProvider,
+    NovelSource.estar => _estarRateLimiterProvider,
   };
 }

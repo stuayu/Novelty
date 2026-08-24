@@ -1,5 +1,6 @@
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/alphapolis_uri.dart';
+import 'package:novelty/utils/estar_uri.dart';
 import 'package:novelty/utils/hameln_uri.dart';
 import 'package:novelty/utils/ncode_utils.dart';
 
@@ -22,5 +23,7 @@ String buildWorkUrl(
       return buildAlphapolisWorkUrl(workId ?? '');
     case NovelSource.hameln:
       return buildHamelnWorkUrl(workId ?? '');
+    case NovelSource.estar:
+      return buildEstarWorkUrl(workId ?? '');
   }
 }

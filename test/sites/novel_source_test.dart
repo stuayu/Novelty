@@ -1,13 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/sites/novel_source.dart';
 
 void main() {
   group('NovelSource', () {
-    test('定義されているサイト種別は4つ', () {
-      expect(NovelSource.values, hasLength(4));
+    test('定義されているサイト種別は5つ', () {
+      expect(NovelSource.values, hasLength(5));
       expect(
         NovelSource.values.map((source) => source.name),
-        containsAll(<String>['narou', 'kakuyomu', 'alphapolis', 'hameln']),
+        containsAll(<String>[
+          'narou',
+          'kakuyomu',
+          'alphapolis',
+          'hameln',
+          'estar',
+        ]),
       );
     });
 
@@ -41,6 +48,15 @@ void main() {
       expect(source.dbId, 'hameln');
       expect(source.label, 'ハーメルン');
       expect(source.baseUrl, 'https://syosetu.org');
+    });
+
+    test('estar のメタデータと取得間隔が仕様どおり', () {
+      const source = NovelSource.estar;
+
+      expect(source.dbId, 'estar');
+      expect(source.label, 'エブリスタ');
+      expect(source.baseUrl, 'https://estar.jp');
+      expect(siteRequestIntervals[source], const Duration(seconds: 1));
     });
 
     test('dbId は enum 名と同一', () {

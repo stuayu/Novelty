@@ -147,6 +147,7 @@ class _ExplorePageState extends ConsumerState<ExplorePage>
   Widget build(BuildContext context) {
     final searchState = ref.watch(searchStateProvider);
     final isOfflineMode = ref.watch(isOfflineModeProvider);
+    final hasRanking = _rankingTypes.isNotEmpty;
 
     return PopScope(
       canPop: !searchState.isSearching,
@@ -193,7 +194,7 @@ class _ExplorePageState extends ConsumerState<ExplorePage>
                   ? () => _showOfflineDisabledSnackBar(context)
                   : _showSearchModal,
             ),
-            if (!searchState.isSearching)
+            if (!searchState.isSearching && hasRanking)
               IconButton(
                 icon: const Icon(Icons.filter_list),
                 onPressed: isOfflineMode
@@ -201,7 +202,7 @@ class _ExplorePageState extends ConsumerState<ExplorePage>
                     : _showRankingFilterDialog,
               ),
           ],
-          bottom: searchState.isSearching
+          bottom: searchState.isSearching || !hasRanking
               ? null
               : PreferredSize(
                   preferredSize: const Size.fromHeight(48),
@@ -222,6 +223,8 @@ class _ExplorePageState extends ConsumerState<ExplorePage>
                     )
             : isOfflineMode
             ? const _OfflineExploreBody()
+            : !hasRanking
+            ? const _RankingUnsupportedBody()
             : TabBarView(
                 controller: _tabController,
                 children: [
@@ -245,6 +248,15 @@ class _ExplorePageState extends ConsumerState<ExplorePage>
         content: Text('オフラインモード中は検索・ランキングを利用できません'),
       ),
     );
+  }
+}
+
+class _RankingUnsupportedBody extends StatelessWidget {
+  const _RankingUnsupportedBody();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(child: Text('このサイトのランキングは未対応です'));
   }
 }
 

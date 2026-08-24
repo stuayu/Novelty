@@ -127,5 +127,27 @@ void main() {
       expect(find.text('年間'), findsOneWidget);
       expect(find.text('四半期'), findsNothing);
     });
+
+    testWidgets('ランキング未対応サイトでは空タブとフィルターを表示しない', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            isOfflineModeProvider.overrideWithValue(true),
+            searchStateProvider.overrideWithValue(const SearchState()),
+          ],
+          child: const MaterialApp(home: ExplorePage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('app_bar_source_dropdown')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('エブリスタ').last);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TabBar), findsNothing);
+      expect(find.byIcon(Icons.filter_list), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

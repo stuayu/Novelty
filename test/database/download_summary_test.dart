@@ -184,15 +184,10 @@ void main() {
 
       final summaries = await database.watchCompletedDownloads().first;
 
-      expect(summaries, hasLength(4));
+      expect(summaries, hasLength(NovelSource.values.length));
       expect(
         summaries.map((summary) => (summary.source, summary.workId)).toSet(),
-        {
-          (NovelSource.narou, workId),
-          (NovelSource.kakuyomu, workId),
-          (NovelSource.alphapolis, workId),
-          (NovelSource.hameln, workId),
-        },
+        NovelSource.values.map((source) => (source, workId)).toSet(),
       );
     });
   });

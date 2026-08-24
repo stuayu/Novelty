@@ -65,5 +65,19 @@ void main() {
         throwsA(isA<FormatException>()),
       );
     });
+
+    test('エブリスタは数字のworkIdから作品URLを組み立てる', () {
+      expect(
+        buildWorkUrl(NovelSource.estar, workId: '26544596'),
+        'https://estar.jp/novels/26544596',
+      );
+    });
+
+    test('エブリスタはworkIdがnullならFormatExceptionを投げる', () {
+      expect(
+        () => buildWorkUrl(NovelSource.estar),
+        throwsA(isA<FormatException>()),
+      );
+    });
   });
 }
