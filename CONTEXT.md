@@ -14,15 +14,18 @@
 |---|---|---|---|
 | `narou` | `narou` | 小説家になろう | `https://ncode.syosetu.com` |
 | `kakuyomu` | `kakuyomu` | カクヨム | `https://kakuyomu.jp` |
+| `alphapolis` | `alphapolis` | アルファポリス | `https://www.alphapolis.co.jp` |
 
 - **避ける**: 「プロバイダ」を「サイト」と混同しない（本プロジェクトでは両方使うが、コード上の型名は `NovelSource`）。
 - DBの `source` カラムは `dbId`（enum名と同一）を保存する。
 
 ### workId（サイト共通の作品ID）
 
-`NovelSource` 内で一意な作品ID。なろうはNコード（例: `n1234ab`）、カクヨムは作品ID（例: `16818023211929539879`）。
+`NovelSource` 内で一意な作品ID。なろうはNコード（例: `n1234ab`）、カクヨムは作品ID（例: `16818023211929539879`）、
+アルファポリスは `{authorId}-{workId}` の複合ID（例: `480761512-519070183`）。
 - DBの複合主キーは `(source, work_id)`。
 - なろうの `ncode` フィールドは `workId` と同一値（互換のため保持）。
+- **避ける**: アルファポリスの複合IDをコアで分解しない。分解・組み立ては `lib/utils/alphapolis_uri.dart` に閉じ込める。
 
 ### episodeIndex（エピソード番号）
 

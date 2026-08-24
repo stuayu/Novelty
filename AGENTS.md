@@ -1,6 +1,6 @@
 # Project Overview
 
-This is a Flutter project called "Novelty," a cross-platform novel viewer for the website "小説家になろう" (Let's Become a Novelist). The application is designed to provide an optimal reading experience, built from the ground up with a focus on simplicity and modern features. It is a client application for the "小説家になろう" website and is developed using the Flutter framework, ensuring a consistent and comfortable user experience across iOS, Android, and desktop platforms (Windows, macOS, Linux).
+This is a Flutter project called "Novelty," a cross-platform novel viewer for Japanese web novel sites. It currently supports 小説家になろう (Let's Become a Novelist), カクヨム (Kakuyomu), and アルファポリス (AlphaPolis) through a site abstraction layer (`NovelSource` / `NovelSite`, see `docs/adr/0001-multi-provider-abstraction.md`). The application is designed to provide an optimal reading experience, built from the ground up with a focus on simplicity and modern features. It is developed using the Flutter framework, ensuring a consistent and comfortable user experience across iOS, Android, and desktop platforms (Windows, macOS, Linux).
 
 The project uses a modern and robust technology stack, including:
 - **Framework:** Flutter

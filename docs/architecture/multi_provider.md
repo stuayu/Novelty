@@ -67,7 +67,11 @@ ExplorePage (source 切替)
 ## アクセス方針（カクヨム）
 
 - **robots.txt 遵守**: `KakuyomuSite` がリクエスト前に禁止パス（`/read` ページ等）を検証して拒否
-- **レート制限**: リクエスト間隔1秒（`KakuyomuRateLimiter`、モノトニッククロック使用）
+- **レート制限**: サイトごとに単一の `RequestRateLimiter`（`lib/utils/request_rate_limiter.dart`）を
+  `siteRateLimiterProvider` で共有する。間隔はなろう250ms、カクヨム1秒、アルファポリス1秒。
+  Future チェーンで直列化しており、並行呼び出しでも間隔が守られる
+- **HTTPクライアント**: `createNoveltyDio()`（`lib/services/http_client.dart`）を共通で使う。
+  タイムアウト（接続15秒・送受信30秒）、User-Agent、429/503 の指数バックオフを集約している
 - **キャッシュファースト**: 本文は DB（`EpisodeContents`）にキャッシュし、差分（改稿日時）でのみ再取得
 
 ## パーサーパッケージ
@@ -77,6 +81,7 @@ ExplorePage (source 切替)
 | `novel_parser_core` | 共通モデル（`NovelContentElement`） | - |
 | `narou_parser` | なろう本文 | `.p-novel__text` の innerHtml |
 | `kakuyomu_parser` | カクヨム本文 | `widget-episodeBody` の innerHtml |
+| `alphapolis_parser` | アルファポリス本文 | `POST /novel/episode_body` のレスポンス、または `#novelBody` を含むページ |
 
 本文表示（`NovelContentView`）は `NovelContentElement` のみに依存するため、パーサーを追加しても表示層は無変更。
 
@@ -84,3 +89,17 @@ ExplorePage (source 切替)
 
 - HTML構造: [docs/kakuyomu_html/](../kakuyomu_html/) / [docs/narou_html/](../narou_html/)
 - プロバイダ追加ガイド: [adding_a_provider.md](adding_a_provider.md)
+
+## アルファポリス固有の注意点
+
+- **複合ID**: 作品は `{authorId}/{workId}` の2要素で識別される。アプリ内では
+  `{authorId}-{workId}` の単一文字列を `workId` として扱い、DBスキーマ・ルータ・
+  `NovelSite` インターフェースは変更していない。分解と組み立ては
+  `lib/utils/alphapolis_uri.dart` に閉じ込める
+- **本文取得**: 本文は HTML に埋め込まれていない。エピソードページから CSRF トークンと
+  32文字の `token` を抽出し、`POST /novel/episode_body` で取得する。
+  仕様は実レスポンスで確認した内容を `docs/alphapolis_html/episode.md` に記録している
+- **目次**: `script#app-cover-data` の JSON に全話が含まれる。341話の作品でも
+  1レスポンスで取得でき、ページングは発生しない
+- **取得できない話**: CSRF 不一致は 419、レンタル非公開は 403 を返す。
+  いずれも `AlphapolisHttpException` として明確に失敗させる
