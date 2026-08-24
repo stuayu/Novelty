@@ -30,3 +30,19 @@
 ## 年齢確認
 
 一般作品の取得ではワンクッションページを確認しなかった。R18作品・R18検索へのアクセスは行っていない。R18判別方法、HTTPステータス、年齢確認画面のレスポンスは未確認。
+
+## 追加確認済み：本文装飾
+
+実作品 `https://syosetu.org/novel/399831/38.html` の `#honbun` で確認した。
+
+|表現|実HTML|`NovelContentElement`への扱い|
+|---|---|---|
+|ルビ|`<ruby><rb>廃棄された天庭</rb><rp>(</rp><rt>バビロン</rt><rp>)</rp></ruby>`|`RubyText`。`rb`を本文、`rt`を読みとして保持|
+|複数ルビ|1つの`p`内に複数の`ruby`|出現順にPlainText/RubyTextを分割して連結|
+|傍点|`<span class=".sesame">`内の`ruby`、`rt=&#x30FB;`|傍点もRubyTextとして扱える。`.sesame`の装飾情報は別保持できるか未確認|
+|本文段落|`#honbun > p`。空行は全角空白だけの`p`|各`p`終了後に`NewLine`。空白だけの`p`も`NewLine`|
+|区切り線|`<hr class="separator">`|現行モデルに専用要素があるか未確認。無ければ`NewLine`または無視|
+|画像|FAQ 118の本文用タグは`{IMG数字}`|展開後`<img>`のURL・altは未確認|
+|`br`|今回の実本文`#honbun`では未確認|本文内`br`を`NewLine`にする仕様は未確認|
+
+`<ruby>`は`rb`/`rt`/`rp`のHTML標準形。実HTML断片は`test/fixtures/hameln/episode_ruby.html`に保存した。FAQ 50はFirefox等で「ルビ機能：有」を選択すると表示されると説明している。
