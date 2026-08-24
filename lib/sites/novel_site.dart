@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:novel_parser_core/novel_parser_core.dart';
 import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
@@ -153,6 +154,9 @@ abstract class NovelSite {
   }) {
     throw UnsupportedError('${source.label} は本文取得に対応していません');
   }
+
+  /// エピソード本文HTMLをコンテンツ要素へパースする。
+  List<NovelContentElement> parseEpisodeBody(String html);
 
   /// キーワード検索を実行する。
   ///

@@ -1,3 +1,4 @@
+import 'package:narou_parser/narou_parser.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -13,6 +14,12 @@ class NarouSite extends NovelSite {
 
   @override
   NovelSource get source => NovelSource.narou;
+
+  /// なろうのエピソード本文HTMLをパースする。
+  @override
+  List<NovelContentElement> parseEpisodeBody(String html) {
+    return parseNovelContent(html);
+  }
 
   /// なろうのメタ情報（ポイント表記）。
   @override

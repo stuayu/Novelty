@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:narou_parser/narou_parser.dart';
 import 'package:novelty/sites/narou/narou_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 
@@ -8,6 +9,15 @@ void main() {
 
     test('source は NovelSource.narou', () {
       expect(site.source, NovelSource.narou);
+    });
+
+    test('エピソード本文をなろうパーサでパースする', () {
+      final content = site.parseEpisodeBody('<p>なろう本文</p>');
+
+      expect(content, hasLength(2));
+      expect(content.first, isA<PlainText>());
+      expect((content.first as PlainText).text, 'なろう本文');
+      expect(content.last, isA<NewLine>());
     });
 
     test('ジャンルが genreList の全20件を正しい大ジャンルIDで保持する', () {

@@ -53,6 +53,8 @@ dependencies:
     path: packages/kakuyomu_parser
   narou_parser:
     path: packages/narou_parser
+  novel_parser_core:
+    path: packages/novel_parser_core
   path: ^1.9.0
   path_provider: ^2.1.6
   riverpod: ^3.3.2

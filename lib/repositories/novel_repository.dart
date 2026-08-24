@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
-import 'package:kakuyomu_parser/kakuyomu_parser.dart';
 import 'package:narou_parser/narou_parser.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/models/download_progress.dart';
@@ -390,17 +389,6 @@ class NovelRepository {
     return all.sublist(start, end);
   }
 
-  /// エピソード本文をコンテンツ要素へパースするヘルパーメソッド。
-  List<NovelContentElement> _parseEpisodeBody(
-    NovelSource source,
-    String body,
-  ) {
-    if (source == NovelSource.narou) {
-      return parseNovelContent(body);
-    }
-    return parseKakuyomuEpisodeBody(body);
-  }
-
   /// 単一エピソードのダウンロードを実行するメソッド。
   ///
   /// 既にダウンロード成功済み（contentが空でない）の場合はスキップする。
@@ -429,7 +417,7 @@ class NovelRepository {
       // エピソードをフェッチ (Metadata + Content)
       final ep = await _fetchEpisode(source, workId, episode);
       final content = ep.body != null
-          ? _parseEpisodeBody(source, ep.body!)
+          ? _sites[source]!.parseEpisodeBody(ep.body!)
           : <NovelContentElement>[];
 
       // データベースに保存（成功）
@@ -506,7 +494,7 @@ class NovelRepository {
     try {
       final ep = await _fetchEpisode(source, workId, episode);
       final content = ep.body != null
-          ? _parseEpisodeBody(source, ep.body!)
+          ? _sites[source]!.parseEpisodeBody(ep.body!)
           : <NovelContentElement>[];
 
       await _db.updateEpisodeContent(

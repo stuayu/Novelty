@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
+import 'package:novel_parser_core/novel_parser_core.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
@@ -18,8 +19,7 @@ import 'novel_info_offline_test.mocks.dart';
 
 /// 固定の [RankingPage] を返すだけの最小のサイト実装。
 ///
-/// ランキング以外のメソッドは [NovelSite] のデフォルト実装
-/// （[UnsupportedError]）を使用する。
+/// ランキング以外のメソッドはテストで使用しない。
 class _StubRankingSite extends NovelSite {
   _StubRankingSite(this._pages);
 
@@ -40,6 +40,10 @@ class _StubRankingSite extends NovelSite {
 
   @override
   String? metaText(NovelInfo info) => null;
+
+  @override
+  List<NovelContentElement> parseEpisodeBody(String html) =>
+      throw UnsupportedError('テスト対象外');
 
   @override
   Future<RankingPage> fetchRanking(
@@ -188,8 +192,6 @@ void main() {
       // 例外が投げられていなければ成功（破棄後のstate更新でエラーにならない）
       verify(mockApiService.searchNovels(any)).called(1);
     });
-
-
   });
 
   group('RankingNotifier（カクヨムのサイト実装経路）', () {
