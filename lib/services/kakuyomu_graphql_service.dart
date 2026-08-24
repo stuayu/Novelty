@@ -1,5 +1,9 @@
 import 'package:dio/dio.dart';
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/http_client.dart';
+import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod/riverpod.dart';
 
 const _kakuyomuGraphqlEndpoint = 'https://kakuyomu.jp/graphql';
@@ -84,6 +88,9 @@ typedef KakuyomuGraphqlTransport =
 final kakuyomuGraphqlServiceProvider = Provider<KakuyomuGraphqlService>((ref) {
   return KakuyomuGraphqlService(
     sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
+    rateLimiter: ref.watch(
+      siteRateLimiterProvider(NovelSource.kakuyomu),
+    ),
   );
 });
 
@@ -98,8 +105,13 @@ class KakuyomuGraphqlService {
     required KakuyomuSessionRepository sessionRepository,
     Dio? dio,
     KakuyomuGraphqlTransport? transport,
+    RequestRateLimiter? rateLimiter,
   }) : _sessionRepository = sessionRepository,
-       _dio = dio ?? Dio(),
+       _dio =
+           dio ??
+           createNoveltyDio(
+             rateLimiter: rateLimiter,
+           ),
        _transport = transport;
 
   final KakuyomuSessionRepository _sessionRepository;

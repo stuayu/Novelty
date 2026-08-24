@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/models/episode.dart';
@@ -9,6 +11,7 @@ import 'package:novelty/services/kakuyomu_reading_progress_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 
 class _FakeSessionRepository extends KakuyomuSessionRepository {
   _FakeSessionRepository(this.cookieHeader);
@@ -18,6 +21,9 @@ class _FakeSessionRepository extends KakuyomuSessionRepository {
   @override
   Future<String?> buildCookieHeader() async => cookieHeader;
 }
+
+RequestRateLimiter _noWaitLimiter() =>
+    RequestRateLimiter(interval: Duration.zero);
 
 void main() {
   String fixture(String name) =>
@@ -52,10 +58,50 @@ void main() {
       expect(fetched, isFalse);
     });
 
+    test('pullLibraryのページ取得は共有レートリミッターの許可後に始まる', () {
+      fakeAsync((async) {
+        final limiter = RequestRateLimiter(
+          interval: const Duration(milliseconds: 100),
+          now: () => async.elapsed,
+        );
+        var fetched = false;
+        var completed = false;
+        unawaited(limiter.wait());
+        async.flushMicrotasks();
+
+        final adapter = KakuyomuAccountSyncAdapter(
+          sessionRepository: _FakeSessionRepository('session=test'),
+          db: db,
+          rateLimiter: limiter,
+          pageFetcher: (url, cookie) async {
+            fetched = true;
+            return KakuyomuFollowedWorksHttpResponse(
+              statusCode: 200,
+              realUri: url,
+              body: '',
+            );
+          },
+        );
+        unawaited(adapter.pullLibrary().then((_) => completed = true));
+
+        async.flushMicrotasks();
+        expect(fetched, isFalse);
+        expect(completed, isFalse);
+
+        async.elapse(const Duration(milliseconds: 99));
+        expect(fetched, isFalse);
+
+        async.elapse(const Duration(milliseconds: 1));
+        expect(fetched, isTrue);
+        expect(completed, isTrue);
+      });
+    });
+
     test('ログイン画面へ戻された場合はセッション切れを返す', () async {
       final adapter = KakuyomuAccountSyncAdapter(
         sessionRepository: _FakeSessionRepository('session=test'),
         db: db,
+        rateLimiter: _noWaitLimiter(),
         pageFetcher: (url, cookie) async {
           return KakuyomuFollowedWorksHttpResponse(
             statusCode: 200,
@@ -76,6 +122,7 @@ void main() {
       final adapter = KakuyomuAccountSyncAdapter(
         sessionRepository: _FakeSessionRepository('session=test'),
         db: db,
+        rateLimiter: _noWaitLimiter(),
         pageFetcher: (url, cookie) async {
           return KakuyomuFollowedWorksHttpResponse(
             statusCode: 200,
@@ -106,6 +153,7 @@ void main() {
       final adapter = KakuyomuAccountSyncAdapter(
         sessionRepository: _FakeSessionRepository('session=test'),
         db: db,
+        rateLimiter: _noWaitLimiter(),
         pageFetcher: (url, cookie) async {
           return KakuyomuFollowedWorksHttpResponse(
             statusCode: 200,
@@ -145,6 +193,7 @@ void main() {
       final adapter = KakuyomuAccountSyncAdapter(
         sessionRepository: _FakeSessionRepository('session=test'),
         db: db,
+        rateLimiter: _noWaitLimiter(),
         pageFetcher: (url, cookie) async => KakuyomuFollowedWorksHttpResponse(
           statusCode: 200,
           realUri: url,
@@ -170,6 +219,7 @@ void main() {
       final adapter = KakuyomuAccountSyncAdapter(
         sessionRepository: _FakeSessionRepository('session=test'),
         db: db,
+        rateLimiter: _noWaitLimiter(),
         pageFetcher: (url, cookie) async => KakuyomuFollowedWorksHttpResponse(
           statusCode: 200,
           realUri: url,

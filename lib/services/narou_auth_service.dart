@@ -1,6 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as parser;
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/auth_repository.dart';
+import 'package:novelty/services/http_client.dart';
+import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'narou_auth_service.g.dart';
@@ -17,7 +21,10 @@ const narouUserAgent =
 @Riverpod(keepAlive: true)
 /// なろう認証サービスのプロバイダー。
 NarouAuthService narouAuthService(Ref ref) {
-  return NarouAuthService(authRepository: ref.watch(authRepositoryProvider));
+  return NarouAuthService(
+    authRepository: ref.watch(authRepositoryProvider),
+    rateLimiter: ref.watch(siteRateLimiterProvider(NovelSource.narou)),
+  );
 }
 
 /// なろうへのログイン・セッション管理を行うサービス。
@@ -28,10 +35,19 @@ NarouAuthService narouAuthService(Ref ref) {
 /// - 小説API (`api.syosetu.com`)、小説本文取得、検索では認証Cookieを使用しない。
 class NarouAuthService {
   /// コンストラクタ。
-  NarouAuthService({required this.authRepository});
+  NarouAuthService({
+    required this.authRepository,
+    Dio? dio,
+    RequestRateLimiter? rateLimiter,
+  }) : _dio =
+           dio ??
+           createNoveltyDio(
+             rateLimiter: rateLimiter,
+           );
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
+  final Dio _dio;
 
   /// ログインPOSTリクエストを送信し、セッションCookieを取得・保存する。
   ///
@@ -41,9 +57,8 @@ class NarouAuthService {
     required String narouid,
     required String password,
   }) async {
-    final dio = Dio();
     try {
-      final response = await dio.post<String>(
+      final response = await _dio.post<String>(
         _loginUrl,
         data: 'narouid=${Uri.encodeQueryComponent(narouid)}'
             '&pass=${Uri.encodeQueryComponent(password)}',
@@ -106,8 +121,7 @@ class NarouAuthService {
     if (cookieHeader == null) return false;
 
     try {
-      final dio = Dio();
-      final response = await dio.get<String>(
+      final response = await _dio.get<String>(
         _bookmarkListUrl,
         options: Options(
           headers: {
@@ -143,8 +157,7 @@ class NarouAuthService {
     required String userl,
   }) async {
     try {
-      final dio = Dio();
-      final response = await dio.get<String>(
+      final response = await _dio.get<String>(
         _bookmarkListUrl,
         options: Options(
           headers: {

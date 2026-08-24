@@ -9,7 +9,11 @@ import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/novel_search_result.dart';
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
+import 'package:novelty/services/http_client.dart';
+import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/ncode_utils.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'api_service.g.dart';
@@ -47,12 +51,19 @@ const String userAgent =
 
 @Riverpod(keepAlive: true)
 /// APIサービスのプロバイダー
-ApiService apiService(Ref ref) => ApiService();
+ApiService apiService(Ref ref) => ApiService(
+  rateLimiter: ref.watch(siteRateLimiterProvider(NovelSource.narou)),
+);
 
 /// APIサービスクラス。
 class ApiService {
   /// [dio] を外部から注入可能にする。テスト時はモックを渡すことができる。
-  ApiService({Dio? dio}) : _dio = dio ?? Dio();
+  ApiService({Dio? dio, RequestRateLimiter? rateLimiter})
+    : _dio =
+          dio ??
+          createNoveltyDio(
+            rateLimiter: rateLimiter,
+          );
 
   final Dio _dio;
 

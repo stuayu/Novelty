@@ -1,8 +1,12 @@
 import 'package:dio/dio.dart';
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_history_parser.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_session_exception.dart';
+import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/kakuyomu_uri.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod/riverpod.dart';
 
 export 'kakuyomu_session_exception.dart';
@@ -43,8 +47,13 @@ class KakuyomuHistoryClient {
     Dio? dio,
     KakuyomuHistoryParser? parser,
     KakuyomuHistoryPageFetcher? pageFetcher,
+    RequestRateLimiter? rateLimiter,
   }) : _sessionRepository = sessionRepository,
-       _dio = dio ?? Dio(),
+       _dio = _createRateLimitedDio(
+         dio,
+         rateLimiter ??
+             RequestRateLimiter(interval: const Duration(seconds: 1)),
+       ),
        _parser = parser ?? KakuyomuHistoryParser(),
        _pageFetcher = pageFetcher;
 
@@ -52,6 +61,15 @@ class KakuyomuHistoryClient {
   final Dio _dio;
   final KakuyomuHistoryParser _parser;
   final KakuyomuHistoryPageFetcher? _pageFetcher;
+
+  static Dio _createRateLimitedDio(
+    Dio? dio,
+    RequestRateLimiter rateLimiter,
+  ) {
+    return dio == null
+        ? createNoveltyDio(rateLimiter: rateLimiter)
+        : attachNoveltyRateLimiter(dio, rateLimiter);
+  }
 
   /// セッションが失効している場合の例外。
   static const sessionExpired = KakuyomuSessionExpiredException();
@@ -148,5 +166,8 @@ class KakuyomuHistoryClient {
 final kakuyomuHistoryClientProvider = Provider<KakuyomuHistoryClient>((ref) {
   return KakuyomuHistoryClient(
     sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
+    rateLimiter: ref.watch(
+      siteRateLimiterProvider(NovelSource.kakuyomu),
+    ),
   );
 });

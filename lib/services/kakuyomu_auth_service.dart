@@ -1,8 +1,12 @@
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:novelty/services/kakuyomu_web_cookie_service.dart';
+import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/kakuyomu_webview_support.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod/riverpod.dart';
 
 const _kakuyomuBaseUrl = 'https://kakuyomu.jp';
@@ -35,6 +39,9 @@ bool kakuyomuDashboardIndicatesLoggedIn(String html) {
 final kakuyomuAuthServiceProvider = Provider<KakuyomuAuthService>((ref) {
   return KakuyomuAuthService(
     sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
+    rateLimiter: ref.watch(
+      siteRateLimiterProvider(NovelSource.kakuyomu),
+    ),
   );
 });
 
@@ -44,8 +51,13 @@ class KakuyomuAuthService {
   KakuyomuAuthService({
     required KakuyomuSessionRepository sessionRepository,
     Dio? dio,
+    RequestRateLimiter? rateLimiter,
   }) : _sessionRepository = sessionRepository,
-       _dio = dio ?? Dio();
+       _dio =
+           dio ??
+           createNoveltyDio(
+             rateLimiter: rateLimiter,
+           );
 
   final KakuyomuSessionRepository _sessionRepository;
   final Dio _dio;

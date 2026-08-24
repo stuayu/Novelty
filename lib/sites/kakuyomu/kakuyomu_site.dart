@@ -7,39 +7,21 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 
 /// カクヨムへのリクエスト間隔を制御するレートリミッター。
 ///
 /// サーバー負荷軽減のため、連続リクエスト間に最低限の間隔を設ける。
 /// 壁時計（DateTime）ではなくモノトニッククロック（Stopwatch）を
 /// 使用することで、システム時刻の変更の影響を受けない。
-class KakuyomuRateLimiter {
+class KakuyomuRateLimiter extends RequestRateLimiter {
   /// コンストラクタ。
   KakuyomuRateLimiter({
-    this.interval = const Duration(seconds: 1),
+    super.interval = const Duration(seconds: 1),
   });
-
-  /// リクエスト間隔。
-  final Duration interval;
-
-  final Stopwatch _stopwatch = Stopwatch();
-
-  /// 直前のリクエストから [interval] 以上経過するまで待機する。
-  Future<void> wait() async {
-    if (_stopwatch.isRunning) {
-      final elapsed = _stopwatch.elapsed;
-      if (elapsed < interval) {
-        await Future<void>.delayed(interval - elapsed);
-      }
-      _stopwatch
-        ..reset()
-        ..start();
-    } else {
-      _stopwatch.start();
-    }
-  }
 }
 
 /// カクヨムからのHTTP取得に失敗した場合の例外。
@@ -70,12 +52,22 @@ class KakuyomuSite implements NovelSite {
   /// コンストラクタ。
   ///
   /// [dio] と [rateLimiter] はテスト時に注入できる。
-  KakuyomuSite({Dio? dio, KakuyomuRateLimiter? rateLimiter})
-    : _dio = dio ?? Dio(),
-      _rateLimiter = rateLimiter ?? KakuyomuRateLimiter();
+  KakuyomuSite({Dio? dio, RequestRateLimiter? rateLimiter})
+    : _dio = _createRateLimitedDio(
+        dio,
+        rateLimiter ?? KakuyomuRateLimiter(),
+      );
 
   final Dio _dio;
-  final KakuyomuRateLimiter _rateLimiter;
+
+  static Dio _createRateLimitedDio(
+    Dio? dio,
+    RequestRateLimiter rateLimiter,
+  ) {
+    return dio == null
+        ? createNoveltyDio(rateLimiter: rateLimiter)
+        : attachNoveltyRateLimiter(dio, rateLimiter);
+  }
 
   /// カクヨムのUser-Agent。
   static const String _userAgent =
@@ -269,7 +261,6 @@ class KakuyomuSite implements NovelSite {
     final url = uri.hasScheme ? pathOrUrl : '${source.baseUrl}$pathOrUrl';
     _assertAllowed(Uri.parse(url).path);
 
-    await _rateLimiter.wait();
     final response = await _dio.get<String>(
       url,
       options: Options(

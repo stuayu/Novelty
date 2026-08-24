@@ -6,11 +6,14 @@ import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart' as parser;
 import 'package:novelty/database/database.dart';
 import 'package:novelty/models/novel_info.dart';
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/services/http_client.dart';
 import 'package:novelty/services/narou_auth_service.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/ncode_utils.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'narou_sync_service.g.dart';
@@ -57,6 +60,7 @@ NarouSyncService narouSyncService(Ref ref) {
     authRepository: ref.watch(authRepositoryProvider),
     db: ref.watch(appDatabaseProvider),
     apiService: ref.watch(apiServiceProvider),
+    rateLimiter: ref.watch(siteRateLimiterProvider(NovelSource.narou)),
   );
 }
 
@@ -75,7 +79,12 @@ class NarouSyncService {
     required this.db,
     required this.apiService,
     Dio? dio,
-  }) : _dio = dio ?? Dio();
+    RequestRateLimiter? rateLimiter,
+  }) : _dio =
+           dio ??
+           createNoveltyDio(
+             rateLimiter: rateLimiter,
+           );
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
