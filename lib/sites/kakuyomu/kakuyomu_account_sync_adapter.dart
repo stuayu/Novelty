@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/models/episode.dart';
@@ -9,22 +10,17 @@ import 'package:novelty/services/kakuyomu_follow_service.dart';
 import 'package:novelty/services/kakuyomu_reading_progress_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_followed_works_parser.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_history_client.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_history_parser.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/kakuyomu_uri.dart';
 
+export 'kakuyomu_session_exception.dart';
+
 const _initialFollowedWorksUrl =
     'https://kakuyomu.jp/my/antenna/works/all?order=last_read_at';
-
-/// カクヨムの保存済みセッションが失効している場合の例外。
-class KakuyomuSessionExpiredException implements Exception {
-  /// コンストラクタ。
-  const KakuyomuSessionExpiredException();
-
-  @override
-  String toString() => 'KakuyomuSessionExpiredException';
-}
 
 /// フォロー一覧1ページのHTTP取得結果。
 class KakuyomuFollowedWorksHttpResponse {
@@ -78,6 +74,9 @@ typedef KakuyomuEpisodeListResolver =
       String workId,
     );
 
+/// カクヨム閲覧履歴取得処理を差し替えるコールバック。
+typedef KakuyomuHistoryResolver = Future<List<KakuyomuHistoryEntry>> Function();
+
 /// カクヨム同期アダプターのProvider。
 final kakuyomuAccountSyncAdapterProvider = Provider<KakuyomuAccountSyncAdapter>(
   (ref) {
@@ -96,6 +95,7 @@ final kakuyomuAccountSyncAdapterProvider = Provider<KakuyomuAccountSyncAdapter>(
       pushReadingProgress: readingProgressService.record,
       fetchRemoteReadingState: readingProgressService.fetchRemoteState,
       episodeListResolver: kakuyomuSite.fetchToc,
+      historyResolver: ref.watch(kakuyomuHistoryClientProvider).fetchAll,
     );
   },
 );
@@ -119,6 +119,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     KakuyomuRemoteReadingProgressOperation? pushReadingProgress,
     KakuyomuRemoteReadingStateOperation? fetchRemoteReadingState,
     KakuyomuEpisodeListResolver? episodeListResolver,
+    KakuyomuHistoryResolver? historyResolver,
     KakuyomuRateLimiter? rateLimiter,
   }) : _sessionRepository = sessionRepository,
        _db = db,
@@ -131,6 +132,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
        _pushReadingProgress = pushReadingProgress,
        _fetchRemoteReadingState = fetchRemoteReadingState,
        _episodeListResolver = episodeListResolver,
+       _historyResolver = historyResolver,
        _rateLimiter = rateLimiter ?? KakuyomuRateLimiter();
 
   final KakuyomuSessionRepository _sessionRepository;
@@ -144,6 +146,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
   final KakuyomuRemoteReadingProgressOperation? _pushReadingProgress;
   final KakuyomuRemoteReadingStateOperation? _fetchRemoteReadingState;
   final KakuyomuEpisodeListResolver? _episodeListResolver;
+  final KakuyomuHistoryResolver? _historyResolver;
   final KakuyomuRateLimiter _rateLimiter;
 
   @override
@@ -246,7 +249,26 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
       currentUrl = next;
     }
 
+    await _syncReadingHistories();
     return importedCount;
+  }
+
+  Future<void> _syncReadingHistories() async {
+    final resolver = _historyResolver;
+    if (resolver == null) return;
+    try {
+      final entries = await resolver();
+      final result = await _db.mergeKakuyomuReadingHistories(entries);
+      debugPrint(
+        '[KakuyomuHistory] fetched=${entries.length} '
+        'inserted=${result.inserted} updated=${result.updated}',
+      );
+    } on KakuyomuSessionExpiredException {
+      debugPrint('[KakuyomuHistory] session expired');
+      rethrow;
+    } on Object catch (error) {
+      debugPrint('[KakuyomuHistory] failed: $error');
+    }
   }
 
   Future<void> _syncRemoteReadingProgress(String workId) async {

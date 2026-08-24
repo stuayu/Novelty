@@ -10,7 +10,9 @@ import 'package:novel_parser_core/novel_parser_core.dart';
 import 'package:novelty/database/migration_helper.dart';
 import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_download_summary.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_history_parser.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/kakuyomu_uri.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -205,6 +207,21 @@ class HistoryData {
         'lastEpisode: $lastEpisode, viewedAt: $viewedAt, '
         'updatedAt: $updatedAt)';
   }
+}
+
+/// 外部サイト閲覧履歴の同期結果。
+class RemoteHistoryMergeResult {
+  /// コンストラクタ。
+  const RemoteHistoryMergeResult({
+    required this.inserted,
+    required this.updated,
+  });
+
+  /// 新規登録数。
+  final int inserted;
+
+  /// 更新数。
+  final int updated;
 }
 
 // テーブル定義
@@ -577,7 +594,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   /// 現在のデータベーススキーマバージョン
-  static const int currentSchemaVersion = 21;
+  static const int currentSchemaVersion = 22;
 
   @override
   int get schemaVersion => currentSchemaVersion;
@@ -587,6 +604,7 @@ class AppDatabase extends _$AppDatabase {
     return MigrationStrategy(
       onCreate: (m) async {
         await m.createAll();
+        await _migrateToV22();
       },
       onUpgrade: (m, from, to) async {
         try {
@@ -827,6 +845,10 @@ class AppDatabase extends _$AppDatabase {
           if (from < 21) {
             // v21: サイト共通作品メタデータ（キャッチコピー・文字数・フォロー数）を追加する。
             await _migrateToV21(m);
+          }
+
+          if (from < 22) {
+            await _migrateToV22();
           }
         } on MigrationException {
           rethrow;
@@ -1193,6 +1215,21 @@ class AppDatabase extends _$AppDatabase {
     await m.addColumnIfNotExists(novels, novels.followCount);
   }
 
+  Future<void> _migrateToV22() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_reading_histories (
+        source TEXT NOT NULL,
+        work_id TEXT NOT NULL,
+        episode_id TEXT NOT NULL,
+        last_read_at INTEGER,
+        synced_at INTEGER NOT NULL,
+        title TEXT,
+        episode_title TEXT,
+        PRIMARY KEY (source, work_id, episode_id)
+      )
+    ''');
+  }
+
   /// 小説情報の取得
   Future<Novel?> getNovel(NovelSource source, String workId) {
     return (select(novels)..where(
@@ -1526,6 +1563,96 @@ class AppDatabase extends _$AppDatabase {
       ),
       mode: InsertMode.insertOrReplace,
     );
+  }
+
+  /// カクヨムの閲覧履歴を保存し、既存の履歴画面用履歴へ反映する。
+  Future<RemoteHistoryMergeResult> mergeKakuyomuReadingHistories(
+    List<KakuyomuHistoryEntry> entries,
+  ) async {
+    var inserted = 0;
+    var updated = 0;
+    final syncedAt = DateTime.now().millisecondsSinceEpoch;
+
+    for (final entry in entries) {
+      final episodeId = entry.episodeId;
+      if (episodeId == null || episodeId.isEmpty) continue;
+      final existing = await customSelect(
+        'SELECT last_read_at FROM remote_reading_histories '
+        'WHERE source = ? AND work_id = ? AND episode_id = ?',
+        variables: [
+          Variable.withString(entry.source.dbId),
+          Variable.withString(entry.workId),
+          Variable.withString(episodeId),
+        ],
+      ).getSingleOrNull();
+      final previous = existing?.read<int?>('last_read_at');
+      final incoming = entry.lastReadAt?.millisecondsSinceEpoch;
+      final isNewer =
+          previous == null || (incoming != null && incoming > previous);
+
+      await customStatement(
+        'INSERT INTO remote_reading_histories '
+        '(source, work_id, episode_id, last_read_at, synced_at, title, '
+        'episode_title) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?) '
+        'ON CONFLICT(source, work_id, episode_id) DO UPDATE SET '
+        'last_read_at = CASE WHEN excluded.last_read_at IS NULL THEN '
+        'remote_reading_histories.last_read_at WHEN '
+        'remote_reading_histories.last_read_at IS NULL OR '
+        'excluded.last_read_at > remote_reading_histories.last_read_at '
+        'THEN excluded.last_read_at ELSE '
+        'remote_reading_histories.last_read_at END, '
+        'synced_at = excluded.synced_at, '
+        'title = COALESCE(excluded.title, remote_reading_histories.title), '
+        'episode_title = COALESCE(excluded.episode_title, '
+        'remote_reading_histories.episode_title)',
+        [
+          entry.source.dbId,
+          entry.workId,
+          episodeId,
+          incoming,
+          syncedAt,
+          entry.title,
+          entry.episodeTitle,
+        ],
+      );
+      if (existing == null) {
+        inserted++;
+      } else if (isNewer) {
+        updated++;
+      }
+
+      if (incoming == null) continue;
+      final episodes = await getEpisodes(entry.source, entry.workId);
+      final localEpisode = episodes.where((episode) {
+        final url = episode.url;
+        return url != null &&
+            extractKakuyomuEpisodeId(workId: entry.workId, url: url) ==
+                episodeId;
+      }).firstOrNull;
+      final localEpisodeId = localEpisode?.index;
+      if (localEpisodeId == null || localEpisodeId < 1) continue;
+      final local = await customSelect(
+        'SELECT viewed_at FROM reading_history '
+        'WHERE source = ? AND work_id = ?',
+        variables: [
+          Variable.withString(entry.source.dbId),
+          Variable.withString(entry.workId),
+        ],
+      ).getSingleOrNull();
+      final localViewedAt = local?.read<int>('viewed_at');
+      if (localViewedAt != null && localViewedAt >= incoming) continue;
+      await customStatement(
+        'INSERT INTO reading_history '
+        '(source, work_id, last_episode_id, viewed_at, updated_at) '
+        'VALUES (?, ?, ?, ?, ?) ON CONFLICT(source, work_id) DO UPDATE SET '
+        'last_episode_id = excluded.last_episode_id, '
+        'viewed_at = excluded.viewed_at, '
+        'updated_at = excluded.updated_at',
+        [entry.source.dbId, entry.workId, localEpisodeId, incoming, syncedAt],
+      );
+    }
+    return RemoteHistoryMergeResult(inserted: inserted, updated: updated);
   }
 
   /// 履歴の取得（JOIN）

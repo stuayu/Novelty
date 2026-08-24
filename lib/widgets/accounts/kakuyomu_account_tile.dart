@@ -31,7 +31,7 @@ class KakuyomuAccountTile extends ConsumerWidget {
           children: [
             ListTile(
               leading: const Icon(Icons.sync),
-              title: const Text('フォロー作品を同期'),
+              title: const Text('フォロー作品・閲覧履歴を同期'),
               subtitle: const Text('カクヨムでフォロー中の作品をNoveltyへ追加します'),
               onTap: () => _syncFollowedWorks(context, ref),
             ),
@@ -61,7 +61,6 @@ class KakuyomuAccountTile extends ConsumerWidget {
   }
 
   Future<void> _login(BuildContext context, WidgetRef ref) async {
-    final messenger = ScaffoldMessenger.of(context);
     final success = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
         builder: (context) => const KakuyomuLoginPage(),
@@ -69,9 +68,7 @@ class KakuyomuAccountTile extends ConsumerWidget {
     );
     ref.invalidate(kakuyomuSessionValidProvider);
     if (success != true || !context.mounted) return;
-    messenger.showSnackBar(
-      const SnackBar(content: Text('カクヨムにログインしました')),
-    );
+    await _syncFollowedWorks(context, ref);
   }
 
   Future<void> _syncFollowedWorks(BuildContext context, WidgetRef ref) async {
@@ -82,7 +79,7 @@ class KakuyomuAccountTile extends ConsumerWidget {
           .pullLibrary();
       if (!context.mounted) return;
       messenger.showSnackBar(
-        SnackBar(content: Text('$count 件のフォロー作品を追加しました')),
+        SnackBar(content: Text('$count 件の作品を同期しました')),
       );
     } on KakuyomuSessionExpiredException {
       try {
@@ -100,7 +97,7 @@ class KakuyomuAccountTile extends ConsumerWidget {
     } on Exception {
       if (!context.mounted) return;
       messenger.showSnackBar(
-        const SnackBar(content: Text('フォロー作品の同期に失敗しました')),
+        const SnackBar(content: Text('カクヨム作品・閲覧履歴の同期に失敗しました')),
       );
     }
   }

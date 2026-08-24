@@ -50,20 +50,30 @@ class HistoryPage extends ConsumerWidget {
                     final workId = item.workId;
                     final title = item.title ?? 'タイトルなし';
                     final lastEpisode = item.lastEpisode;
-                    final updatedAt = item.updatedAt != 0
-                        ? DateTime.fromMillisecondsSinceEpoch(item.updatedAt)
+                    final viewedAt = item.viewedAt != 0
+                        ? DateTime.fromMillisecondsSinceEpoch(item.viewedAt)
                         : null;
 
                     return ListTile(
-                      title: Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium,
+                      title: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Chip(
+                            label: Text(item.source.label),
+                            visualDensity: VisualDensity.compact,
+                            labelStyle: Theme.of(context).textTheme.labelSmall,
+                          ),
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ],
                       ),
                       subtitle: Text(
                         '第$lastEpisode章 - '
-                        '${updatedAt != null ? formatTimeHm(updatedAt) : ''}',
+                        '${viewedAt != null ? formatTimeHm(viewedAt) : ''}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       trailing: IconButton(
