@@ -251,6 +251,12 @@ Disallow: /conv/pdf/
 |評価、設定、しおり、感想等|不適合|`mode=rating_input`、`ss_config`、`siori2_`、`review_vote`等に該当するため取得しない|
 |縦書き|不適合|`mode=ss_detail3`に該当するため取得しない|
 |PDF変換|不適合|`/conv/pdf/`に該当するため取得しない|
+
+## ログイン・アカウント連携の追記（2026-08-25）
+
+公開ログインHTMLを `curl` で取得した。`https://syosetu.org/?mode=login` は `?mode=login_entry&auth_failed=1` へ遷移し、フォームは `POST ./`、入力名は `id`、`pass`、hiddenの `mode=login_entry_end`、`redirect_mode`。CAPTCHAの文字列は同HTMLで未確認、2要素認証は未確認。GETで `uaid` と空値の `uu` が発行されたが、ログイン成功後のCookieとは断定しない。
+
+robots.txt の `User-agent: *` に `/?mode=favo_` と `/?mode=siori2_` がある。お気に入り・しおりの一覧、追加、削除、更新に関係し得るためアクセスしない。公開作品HTMLの集計表示はアカウント同期の操作仕様ではない。公式代替API、閲覧履歴、自動ログイン、第三者アプリ、非公式クライアントに関する明示条項は未確認。現条件では `AccountSyncAdapter` の4メソッドを実装不可と判定する。
 |GPTBot等としての取得|不適合|該当User-agentに`Disallow: /`|
 
 ## 利用規約

@@ -41,3 +41,9 @@ https://novelup.plus/robots.txtはHTTP 200、text/plain。全文は test/fixture
 ## 結論
 
 公開HTMLを低頻度で読む調査はrobots.txtの許可パス内で実施した。一方、Noveltyの本文キャッシュ・オフライン読書は、規約上の明示許諾を確認できず、現段階では要注意。年齢制限回避、/api/・/my/等のrobots禁止パス利用、サーバー負荷を伴う取得は不適合。実装・配布判断はプロジェクトオーナーが行う。
+
+## ログイン・アカウント連携の追記（2026-08-25）
+
+公開ログインHTMLを `curl` で取得した。フォームは `POST https://novelup.plus/login`、入力名は `mail`、`password`、任意の `remember`、hiddenの `_token`。CAPTCHAの文字列は同HTMLで未確認、2要素認証は未確認。GETで `XSRF-TOKEN` と `_s` のCookie名・期限表示を観察したが、ログイン成功後のCookieとは断定しない。
+
+HTMLには `/my/bookmark`（ブックマーク）と `/my/guidebook`（しおりを付けた作品）のリンクがある。しかし `robots.txt` の `User-agent: *` は `/my/` と `/api/` を禁止しているため、これらのページや内部APIへアクセスしない。追加・削除・読書位置更新・閲覧履歴のエンドポイントとCSRF仕様も未確認。自動ログイン、第三者アプリへのアカウント情報提供、非公式クライアントを明示的に許可・禁止する条項は既存確認範囲では未確認。現条件では4メソッドを実装不可と判定する。

@@ -62,3 +62,9 @@ robots.txt が 404 で存在しないため、robots.txt による許可・禁�
 
 - 運営による外部アプリ・本文保存への個別許諾の有無
 - 第10条3項と Novelty の機能の最終的な法的評価
+
+## ログイン・アカウント連携の追記（2026-08-25）
+
+公開ログイン導線を `curl` で取得した。`https://estar.jp/login` は認証ホストへ遷移し、`https://auth.estar.jp/auth/sign_in` でメール・パスワードフォーム `POST /auth/sign_in`（`authenticity_token`、`user[email]`、`user[password]`、`commit`）を確認した。LINE、Twitter、Google、D account、Appleの連携フォームも確認した。CAPTCHAの文字列は公開HTMLで未確認、2要素認証は未確認。`estar_session` と `_tama_auth_session` のCookie名・期限表示は観察したが、ログイン成功後の状態ではない。
+
+ログイン後の本棚・お気に入り・フォロー一覧、追加削除、しおり、閲覧履歴のエンドポイント、OAuth code交換、state/nonce、CSRF仕様は未確認。robots.txt はHTTP 404で規則を取得できず、許可とは判定しない。自動ログイン、第三者アプリへのアカウント情報提供、非公式クライアントに関する明示条項は既存確認範囲では未確認。4メソッドは現時点で実装可能とは判定しない。
