@@ -19,6 +19,7 @@ version: 1.4.0+146
 environment:
   sdk: ^3.11.3
 workspace:
+  - packages/alphapolis_parser
   - packages/kakuyomu_parser
   - packages/narou_parser
   - packages/novel_parser_core
@@ -30,6 +31,8 @@ workspace:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  alphapolis_parser:
+    path: packages/alphapolis_parser
   archive: ^4.0.7
   dio: ^5.11.0
   drift: ^2.34.0
