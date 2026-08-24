@@ -155,7 +155,7 @@ void main() {
       },
     );
 
-    test('3サイトの同じworkIdをsource別に集計する', () async {
+    test('全サイトの同じworkIdをsource別に集計する', () async {
       const workId = 'shared-work';
       for (final source in NovelSource.values) {
         await database
@@ -184,13 +184,14 @@ void main() {
 
       final summaries = await database.watchCompletedDownloads().first;
 
-      expect(summaries, hasLength(3));
+      expect(summaries, hasLength(4));
       expect(
         summaries.map((summary) => (summary.source, summary.workId)).toSet(),
         {
           (NovelSource.narou, workId),
           (NovelSource.kakuyomu, workId),
           (NovelSource.alphapolis, workId),
+          (NovelSource.hameln, workId),
         },
       );
     });

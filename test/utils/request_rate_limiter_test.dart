@@ -102,13 +102,22 @@ void main() {
     final alphapolis2 = container.read(
       siteRateLimiterProvider(NovelSource.alphapolis),
     );
+    final hameln1 = container.read(
+      siteRateLimiterProvider(NovelSource.hameln),
+    );
+    final hameln2 = container.read(
+      siteRateLimiterProvider(NovelSource.hameln),
+    );
 
     expect(kakuyomu2, same(kakuyomu1));
     expect(alphapolis2, same(alphapolis1));
+    expect(hameln2, same(hameln1));
     expect(narou, isNot(same(kakuyomu1)));
     expect(alphapolis1, isNot(same(kakuyomu1)));
+    expect(hameln1, isNot(same(kakuyomu1)));
     expect(kakuyomu1.interval, const Duration(seconds: 1));
     expect(alphapolis1.interval, const Duration(seconds: 1));
+    expect(hameln1.interval, const Duration(seconds: 3));
     expect(narou.interval, const Duration(milliseconds: 250));
   });
 }

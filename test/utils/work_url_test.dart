@@ -51,5 +51,19 @@ void main() {
         throwsA(isA<FormatException>()),
       );
     });
+
+    test('ハーメルンは数字のworkIdから作品URLを組み立てる', () {
+      expect(
+        buildWorkUrl(NovelSource.hameln, workId: '328453'),
+        'https://syosetu.org/novel/328453/',
+      );
+    });
+
+    test('ハーメルンはworkIdがnullならFormatExceptionを投げる', () {
+      expect(
+        () => buildWorkUrl(NovelSource.hameln),
+        throwsA(isA<FormatException>()),
+      );
+    });
   });
 }

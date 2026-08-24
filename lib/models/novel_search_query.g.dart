@@ -121,4 +121,5 @@ const _$NovelSourceEnumMap = {
   NovelSource.narou: 'narou',
   NovelSource.kakuyomu: 'kakuyomu',
   NovelSource.alphapolis: 'alphapolis',
+  NovelSource.hameln: 'hameln',
 };

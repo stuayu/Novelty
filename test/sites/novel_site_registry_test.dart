@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/sites/alphapolis/alphapolis_site.dart';
+import 'package:novelty/sites/hameln/hameln_site.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/narou/narou_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
@@ -28,8 +29,13 @@ void main() {
       );
     });
 
-    test('登録エントリは3件', () {
-      expect(defaultNovelSiteRegistry, hasLength(3));
+    test('hameln が登録されており実装は HamelnSite', () {
+      expect(defaultNovelSiteRegistry.keys, contains(NovelSource.hameln));
+      expect(defaultNovelSiteRegistry[NovelSource.hameln], isA<HamelnSite>());
+    });
+
+    test('登録エントリは4件', () {
+      expect(defaultNovelSiteRegistry, hasLength(4));
     });
 
     test('登録済みエントリのキーと実装の source が一致する', () {

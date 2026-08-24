@@ -14,7 +14,10 @@ enum NovelSource {
     'alphapolis',
     'アルファポリス',
     'https://www.alphapolis.co.jp',
-  );
+  ),
+
+  /// ハーメルン。
+  hameln('hameln', 'ハーメルン', 'https://syosetu.org');
 
   /// コンストラクタ。
   const NovelSource(this.dbId, this.label, this.baseUrl);
