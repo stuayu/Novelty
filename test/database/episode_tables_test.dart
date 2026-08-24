@@ -182,6 +182,9 @@ void main() {
             (list) => !list.single.isDownloaded,
           ),
           predicate<List<Episode>>(
+            (list) => !list.single.isDownloaded,
+          ),
+          predicate<List<Episode>>(
             (list) => list.single.isDownloaded,
           ),
         ]),
@@ -194,6 +197,49 @@ void main() {
         episodeId: 1,
         content: [NovelContentElement.plainText('本文テキスト')],
         fetchedAt: 222,
+      );
+
+      await expectation;
+    });
+
+    test('watchEpisodesRangeが本文保存時の目次更新を検知すること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+
+      await db.upsertEpisodes([
+        const EpisodeListEntriesCompanion(
+          source: Value(NovelSource.narou),
+          workId: Value(ncode),
+          episodeId: Value(1),
+          subtitle: Value('更新前'),
+        ),
+      ]);
+
+      final expectation = expectLater(
+        db.watchEpisodesRange(NovelSource.narou, ncode, 1, 100),
+        emitsInOrder([
+          predicate<List<Episode>>(
+            (list) =>
+                list.single.subtitle == '更新前' && !list.single.isDownloaded,
+          ),
+          predicate<List<Episode>>(
+            (list) =>
+                list.single.subtitle == '更新後' && !list.single.isDownloaded,
+          ),
+          predicate<List<Episode>>(
+            (list) => list.single.subtitle == '更新後' && list.single.isDownloaded,
+          ),
+        ]),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      await db.updateEpisodeContent(
+        source: NovelSource.narou,
+        workId: ncode,
+        episodeId: 1,
+        content: [NovelContentElement.plainText('本文テキスト')],
+        fetchedAt: 222,
+        subtitle: '更新後',
       );
 
       await expectation;

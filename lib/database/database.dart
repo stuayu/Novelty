@@ -1641,14 +1641,21 @@ class AppDatabase extends _$AppDatabase {
       ).getSingleOrNull();
       final localViewedAt = local?.read<int>('viewed_at');
       if (localViewedAt != null && localViewedAt >= incoming) continue;
-      await customStatement(
+      await customUpdate(
         'INSERT INTO reading_history '
         '(source, work_id, last_episode_id, viewed_at, updated_at) '
         'VALUES (?, ?, ?, ?, ?) ON CONFLICT(source, work_id) DO UPDATE SET '
         'last_episode_id = excluded.last_episode_id, '
         'viewed_at = excluded.viewed_at, '
         'updated_at = excluded.updated_at',
-        [entry.source.dbId, entry.workId, localEpisodeId, incoming, syncedAt],
+        variables: [
+          Variable.withString(entry.source.dbId),
+          Variable.withString(entry.workId),
+          Variable.withInt(localEpisodeId),
+          Variable.withInt(incoming),
+          Variable.withInt(syncedAt),
+        ],
+        updates: {readingHistory},
       );
     }
     return RemoteHistoryMergeResult(inserted: inserted, updated: updated);
@@ -1767,7 +1774,7 @@ class AppDatabase extends _$AppDatabase {
   }) async {
     // メタデータが指定されている場合は目次テーブルも更新する
     // 指定されなかった項目は既存の値を保持する
-    await customStatement(
+    await customUpdate(
       '''
       INSERT INTO episode_list_entries
         (source, work_id, episode_id, subtitle, url, published_at, revised_at)
@@ -1780,7 +1787,16 @@ class AppDatabase extends _$AppDatabase {
         revised_at =
           COALESCE(excluded.revised_at, episode_list_entries.revised_at);
     ''',
-      [source.dbId, workId, episodeId, subtitle, url, publishedAt, revisedAt],
+      variables: [
+        Variable.withString(source.dbId),
+        Variable.withString(workId),
+        Variable.withInt(episodeId),
+        Variable(subtitle),
+        Variable(url),
+        Variable(publishedAt),
+        Variable(revisedAt),
+      ],
+      updates: {episodeListEntries},
     );
 
     // 本文テーブルを更新する
