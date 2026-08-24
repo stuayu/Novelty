@@ -2,8 +2,11 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod/riverpod.dart';
 
 final _numericIdPattern = RegExp(r'^\d+$');
@@ -89,6 +92,9 @@ final kakuyomuReadingProgressServiceProvider =
     Provider<KakuyomuReadingProgressService>((ref) {
       return KakuyomuReadingProgressService(
         sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
+        rateLimiter: ref.watch(
+          siteRateLimiterProvider(NovelSource.kakuyomu),
+        ),
       );
     });
 
@@ -104,8 +110,13 @@ class KakuyomuReadingProgressService {
     Dio? dio,
     KakuyomuReadingProgressTransport? transport,
     KakuyomuRemoteReadingStateFetcher? remoteStateFetcher,
+    RequestRateLimiter? rateLimiter,
   }) : _sessionRepository = sessionRepository,
-       _dio = dio ?? createNoveltyDio(),
+       _dio = _createRateLimitedDio(
+         dio,
+         rateLimiter ??
+             RequestRateLimiter(interval: const Duration(seconds: 1)),
+       ),
        _transport = transport,
        _remoteStateFetcher = remoteStateFetcher;
 
@@ -113,6 +124,15 @@ class KakuyomuReadingProgressService {
   final Dio _dio;
   final KakuyomuReadingProgressTransport? _transport;
   final KakuyomuRemoteReadingStateFetcher? _remoteStateFetcher;
+
+  static Dio _createRateLimitedDio(
+    Dio? dio,
+    RequestRateLimiter rateLimiter,
+  ) {
+    return dio == null
+        ? createNoveltyDio(rateLimiter: rateLimiter)
+        : attachNoveltyRateLimiter(dio, rateLimiter);
+  }
 
   /// 指定したremote episodeの読書位置を記録する。
   ///
@@ -227,7 +247,7 @@ class KakuyomuReadingProgressService {
       options: Options(
         headers: <String, Object>{
           'Cookie': cookieHeader,
-          'User-Agent': noveltyUserAgent,
+          'User-Agent': 'Mozilla/5.0',
         },
         followRedirects: true,
         validateStatus: (status) => status != null && status < 600,

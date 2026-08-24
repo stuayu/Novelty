@@ -9,8 +9,11 @@ import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/novel_search_result.dart';
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/ncode_utils.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'api_service.g.dart';
@@ -42,14 +45,25 @@ class OfflineException implements Exception {
 /// なろう小説APIの制限値（最大500件）を最大限活用
 const int allTimeRankingLimit = 500;
 
+/// User-Agent 基本的には最新になるようにする
+const String userAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
+
 @Riverpod(keepAlive: true)
 /// APIサービスのプロバイダー
-ApiService apiService(Ref ref) => ApiService();
+ApiService apiService(Ref ref) => ApiService(
+  rateLimiter: ref.watch(siteRateLimiterProvider(NovelSource.narou)),
+);
 
 /// APIサービスクラス。
 class ApiService {
   /// [dio] を外部から注入可能にする。テスト時はモックを渡すことができる。
-  ApiService({Dio? dio}) : _dio = dio ?? createNoveltyDio();
+  ApiService({Dio? dio, RequestRateLimiter? rateLimiter})
+    : _dio =
+          dio ??
+          createNoveltyDio(
+            rateLimiter: rateLimiter,
+          );
 
   final Dio _dio;
 
@@ -58,7 +72,7 @@ class ApiService {
       url,
       options: Options(
         headers: {
-          'User-Agent': noveltyUserAgent,
+          'User-Agent': userAgent,
         },
         responseType: ResponseType.plain,
       ),
@@ -523,7 +537,7 @@ class ApiService {
       url,
       options: Options(
         headers: {
-          'User-Agent': noveltyUserAgent,
+          'User-Agent': userAgent,
         },
         responseType: ResponseType.bytes,
       ),

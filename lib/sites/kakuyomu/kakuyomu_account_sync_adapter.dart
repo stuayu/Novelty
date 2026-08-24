@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
 import 'package:novelty/services/http_client.dart';
 import 'package:novelty/services/kakuyomu_follow_service.dart';
@@ -17,6 +18,7 @@ import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/kakuyomu_uri.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 
 export 'kakuyomu_session_exception.dart';
 
@@ -97,6 +99,9 @@ final kakuyomuAccountSyncAdapterProvider = Provider<KakuyomuAccountSyncAdapter>(
       fetchRemoteReadingState: readingProgressService.fetchRemoteState,
       episodeListResolver: kakuyomuSite.fetchToc,
       historyResolver: ref.watch(kakuyomuHistoryClientProvider).fetchAll,
+      rateLimiter: ref.watch(
+        siteRateLimiterProvider(NovelSource.kakuyomu),
+      ),
     );
   },
 );
@@ -121,7 +126,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     KakuyomuRemoteReadingStateOperation? fetchRemoteReadingState,
     KakuyomuEpisodeListResolver? episodeListResolver,
     KakuyomuHistoryResolver? historyResolver,
-    KakuyomuRateLimiter? rateLimiter,
+    RequestRateLimiter? rateLimiter,
   }) : _sessionRepository = sessionRepository,
        _db = db,
        _dio = dio ?? createNoveltyDio(),
@@ -134,7 +139,9 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
        _fetchRemoteReadingState = fetchRemoteReadingState,
        _episodeListResolver = episodeListResolver,
        _historyResolver = historyResolver,
-       _rateLimiter = rateLimiter ?? KakuyomuRateLimiter();
+       _rateLimiter = rateLimiter ?? KakuyomuRateLimiter() {
+    attachNoveltyRateLimiter(_dio, _rateLimiter);
+  }
 
   final KakuyomuSessionRepository _sessionRepository;
   final AppDatabase _db;
@@ -148,7 +155,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
   final KakuyomuRemoteReadingStateOperation? _fetchRemoteReadingState;
   final KakuyomuEpisodeListResolver? _episodeListResolver;
   final KakuyomuHistoryResolver? _historyResolver;
-  final KakuyomuRateLimiter _rateLimiter;
+  final RequestRateLimiter _rateLimiter;
 
   @override
   NovelSource get source => NovelSource.kakuyomu;
@@ -158,10 +165,11 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     String cookieHeader,
   ) async {
     final override = _pageFetcher;
-    if (override != null) return override(url, cookieHeader);
+    if (override != null) {
+      await _rateLimiter.wait();
+      return override(url, cookieHeader);
+    }
 
-    // 実サイトへの連続アクセスは既存のカクヨム取得処理と同じ1秒間隔にする。
-    await _rateLimiter.wait();
     final response = await _dio.get<String>(
       url.toString(),
       options: Options(

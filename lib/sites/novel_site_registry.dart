@@ -1,3 +1,4 @@
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/narou/narou_site.dart';
 import 'package:novelty/sites/novel_site.dart';
@@ -21,4 +22,11 @@ final Map<NovelSource, NovelSite> defaultNovelSiteRegistry =
 /// カクヨム等のサイト実装を差し替えられるようにする。
 @riverpod
 Map<NovelSource, NovelSite> novelSiteRegistry(Ref ref) =>
-    defaultNovelSiteRegistry;
+    <NovelSource, NovelSite>{
+      NovelSource.narou: const NarouSite(),
+      NovelSource.kakuyomu: KakuyomuSite(
+        rateLimiter: ref.watch(
+          siteRateLimiterProvider(NovelSource.kakuyomu),
+        ),
+      ),
+    };

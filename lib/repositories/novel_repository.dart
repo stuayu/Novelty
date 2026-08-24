@@ -35,6 +35,7 @@ NovelRepository novelRepository(Ref ref) {
     apiService: apiService,
     settings: settings,
     db: db,
+    sites: ref.watch(novelSiteRegistryProvider),
   );
 
   ref.onDispose(repository.dispose);

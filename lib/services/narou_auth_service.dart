@@ -1,7 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as parser;
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'narou_auth_service.g.dart';
@@ -9,10 +12,19 @@ part 'narou_auth_service.g.dart';
 const _loginUrl = 'https://syosetu.com/login/login/';
 const _bookmarkListUrl = 'https://syosetu.com/favnovelmain/list/';
 
+/// なろうへのHTTPリクエストで使用するUser-Agent。
+const narouUserAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/126.0.0.0 Safari/537.36';
+
 @Riverpod(keepAlive: true)
 /// なろう認証サービスのプロバイダー。
 NarouAuthService narouAuthService(Ref ref) {
-  return NarouAuthService(authRepository: ref.watch(authRepositoryProvider));
+  return NarouAuthService(
+    authRepository: ref.watch(authRepositoryProvider),
+    rateLimiter: ref.watch(siteRateLimiterProvider(NovelSource.narou)),
+  );
 }
 
 /// なろうへのログイン・セッション管理を行うサービス。
@@ -23,8 +35,15 @@ NarouAuthService narouAuthService(Ref ref) {
 /// - 小説API (`api.syosetu.com`)、小説本文取得、検索では認証Cookieを使用しない。
 class NarouAuthService {
   /// コンストラクタ。
-  NarouAuthService({required this.authRepository, Dio? dio})
-    : _dio = dio ?? createNoveltyDio();
+  NarouAuthService({
+    required this.authRepository,
+    Dio? dio,
+    RequestRateLimiter? rateLimiter,
+  }) : _dio =
+           dio ??
+           createNoveltyDio(
+             rateLimiter: rateLimiter,
+           );
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
@@ -41,12 +60,11 @@ class NarouAuthService {
     try {
       final response = await _dio.post<String>(
         _loginUrl,
-        data:
-            'narouid=${Uri.encodeQueryComponent(narouid)}'
+        data: 'narouid=${Uri.encodeQueryComponent(narouid)}'
             '&pass=${Uri.encodeQueryComponent(password)}',
         options: Options(
           headers: {
-            'User-Agent': noveltyUserAgent,
+            'User-Agent': narouUserAgent,
             'Content-Type': 'application/x-www-form-urlencoded',
             'Referer': 'https://syosetu.com/login/input/',
           },
@@ -107,7 +125,7 @@ class NarouAuthService {
         _bookmarkListUrl,
         options: Options(
           headers: {
-            'User-Agent': noveltyUserAgent,
+            'User-Agent': narouUserAgent,
             'Cookie': cookieHeader,
           },
           followRedirects: false,
@@ -143,7 +161,7 @@ class NarouAuthService {
         _bookmarkListUrl,
         options: Options(
           headers: {
-            'User-Agent': noveltyUserAgent,
+            'User-Agent': narouUserAgent,
             'Cookie': 'ks2=$ks2; ses=$ses; userl=$userl',
           },
           responseType: ResponseType.plain,
@@ -184,13 +202,13 @@ class NarouAuthService {
 class NarouLoginResult {
   /// ログイン成功。
   const NarouLoginResult.success({required this.username})
-    : isSuccess = true,
-      error = null;
+      : isSuccess = true,
+        error = null;
 
   /// ログイン失敗。
   const NarouLoginResult.failure(String this.error)
-    : isSuccess = false,
-      username = null;
+      : isSuccess = false,
+        username = null;
 
   /// 成功したか否か。
   final bool isSuccess;
