@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kakuyomu_parser/kakuyomu_parser.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -104,6 +105,17 @@ KakuyomuSite _createSite(_FixtureAdapter adapter) {
 
 void main() {
   group('KakuyomuSite', () {
+    test('エピソード本文をカクヨムパーサでパースする', () {
+      final site = _createSite(_FixtureAdapter(<String, String>{}));
+
+      final content = site.parseEpisodeBody('<p>カクヨム本文</p>');
+
+      expect(content, hasLength(2));
+      expect(content.first, isA<PlainText>());
+      expect((content.first as PlainText).text, 'カクヨム本文');
+      expect(content.last, isA<NewLine>());
+    });
+
     group('fetchNovelInfo', () {
       test('作品ページの__NEXT_DATA__から作品情報をパースできる', () async {
         final adapter = _FixtureAdapter(<String, String>{

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:kakuyomu_parser/kakuyomu_parser.dart';
 import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
@@ -94,6 +95,12 @@ class KakuyomuSite implements NovelSite {
 
   @override
   NovelSource get source => NovelSource.kakuyomu;
+
+  /// カクヨムのエピソード本文HTMLをパースする。
+  @override
+  List<NovelContentElement> parseEpisodeBody(String html) {
+    return parseKakuyomuEpisodeBody(html);
+  }
 
   /// カクヨムのメタ情報（★レビューポイント表記）。
   @override

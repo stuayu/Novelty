@@ -5,7 +5,6 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:narou_parser/narou_parser.dart';
-// ignore: depend_on_referenced_packages, reason: workspace パッケージのため
 import 'package:novel_parser_core/novel_parser_core.dart';
 import 'package:novelty/database/migration_helper.dart';
 import 'package:novelty/models/episode.dart';
