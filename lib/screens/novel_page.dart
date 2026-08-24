@@ -6,7 +6,6 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/novel_repository.dart';
-import 'package:novelty/sites/account_sync_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/settings_provider.dart';
 import 'package:novelty/widgets/gesture_shield.dart';
@@ -220,24 +219,14 @@ class NovelPage extends HookConsumerWidget {
     unawaited(
       ref
           .read(novelRepositoryProvider)
-          .addToHistory(
+          .updateReadingProgress(
             source: source,
             workId: workId,
             title: novelInfo.title ?? '',
             writer: novelInfo.writer ?? '',
-            lastEpisode: episode,
+            episode: episode,
           ),
     );
-
-    final adapter = ref.read(accountSyncRegistryProvider)[source];
-    if (adapter != null) {
-      unawaited(
-        adapter.pushReadingProgress(
-          workId: workId,
-          episode: episode,
-        ),
-      );
-    }
   }
 
   /// PageViewのアイテム数を決定する。

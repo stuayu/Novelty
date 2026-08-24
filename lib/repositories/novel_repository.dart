@@ -331,6 +331,35 @@ class NovelRepository {
     );
   }
 
+  /// ローカル履歴を更新し、許可されている場合だけリモートへ読書位置を送信する。
+  Future<void> updateReadingProgress({
+    required NovelSource source,
+    required String workId,
+    required String title,
+    required String writer,
+    required int episode,
+  }) async {
+    await addToHistory(
+      source: source,
+      workId: workId,
+      title: title,
+      writer: writer,
+      lastEpisode: episode,
+    );
+
+    final currentSettings = settings.value;
+    if ((currentSettings?.isIncognito ?? false) ||
+        (currentSettings?.isOfflineMode ?? false)) {
+      return;
+    }
+
+    final adapter = ref.read(accountSyncRegistryProvider)[source];
+    await adapter?.pushReadingProgress(
+      workId: workId,
+      episode: episode,
+    );
+  }
+
   /// 指定した作品の閲覧履歴を削除する。
   Future<void> deleteHistory(NovelSource source, String workId) async {
     await _db.deleteHistory(source, workId);
