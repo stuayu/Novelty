@@ -47,6 +47,7 @@ class NarouAuthService {
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
+  /// HTTPクライアント。レート制限とタイムアウトは共通ファクトリで設定する。
   final Dio _dio;
 
   /// ログインPOSTリクエストを送信し、セッションCookieを取得・保存する。
@@ -60,7 +61,8 @@ class NarouAuthService {
     try {
       final response = await _dio.post<String>(
         _loginUrl,
-        data: 'narouid=${Uri.encodeQueryComponent(narouid)}'
+        data:
+            'narouid=${Uri.encodeQueryComponent(narouid)}'
             '&pass=${Uri.encodeQueryComponent(password)}',
         options: Options(
           headers: {
@@ -98,11 +100,13 @@ class NarouAuthService {
           await _fetchUsername(ks2: ks2, ses: ses, userl: userl) ?? narouid;
 
       // 認証情報を安全に保存する
-      await Future.wait([
-        authRepository.saveNarouid(narouid),
-        authRepository.saveUsername(username),
-        authRepository.saveSessionCookies(ks2: ks2, ses: ses, userl: userl),
-      ]);
+      await authRepository.saveNarouid(narouid);
+      await authRepository.saveUsername(username);
+      await authRepository.saveSessionCookies(
+        ks2: ks2,
+        ses: ses,
+        userl: userl,
+      );
 
       return NarouLoginResult.success(username: username);
     } on DioException catch (e) {
@@ -202,13 +206,13 @@ class NarouAuthService {
 class NarouLoginResult {
   /// ログイン成功。
   const NarouLoginResult.success({required this.username})
-      : isSuccess = true,
-        error = null;
+    : isSuccess = true,
+      error = null;
 
   /// ログイン失敗。
   const NarouLoginResult.failure(String this.error)
-      : isSuccess = false,
-        username = null;
+    : isSuccess = false,
+      username = null;
 
   /// 成功したか否か。
   final bool isSuccess;

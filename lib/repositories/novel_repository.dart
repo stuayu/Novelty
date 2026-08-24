@@ -419,6 +419,24 @@ class NovelRepository {
     return all.sublist(start, end);
   }
 
+  /// エピソード本文をパースし、取得できなかった場合は例外を投げる。
+  ///
+  /// パースはサイト実装へ委譲する。本文が無い、またはパース結果が空の場合は
+  /// ダウンロード失敗として扱い、改稿日時を更新させない。
+  List<NovelContentElement> _parseRequiredEpisodeBody(
+    NovelSource source,
+    String? body,
+  ) {
+    if (body == null) {
+      throw const FormatException('エピソード本文が見つかりません');
+    }
+    final content = _sites[source]!.parseEpisodeBody(body);
+    if (content.isEmpty) {
+      throw const FormatException('エピソード本文が空です');
+    }
+    return content;
+  }
+
   /// 単一エピソードのダウンロードを実行するメソッド。
   ///
   /// 既にダウンロード成功済み（contentが空でない）の場合はスキップする。
@@ -446,9 +464,7 @@ class NovelRepository {
     try {
       // エピソードをフェッチ (Metadata + Content)
       final ep = await _fetchEpisode(source, workId, episode);
-      final content = ep.body != null
-          ? _sites[source]!.parseEpisodeBody(ep.body!)
-          : <NovelContentElement>[];
+      final content = _parseRequiredEpisodeBody(source, ep.body);
 
       // データベースに保存（成功）
       await _db.updateEpisodeContent(
@@ -476,7 +492,6 @@ class NovelRepository {
           episodeId: episode,
           content: const [], // 空の本文
           fetchedAt: now,
-          revisedAt: revised,
         );
       } on Exception catch (_) {
         // 二次的な失敗は無視する
@@ -523,9 +538,7 @@ class NovelRepository {
     // 3. オンラインかつ更新が必要な場合のみ取得
     try {
       final ep = await _fetchEpisode(source, workId, episode);
-      final content = ep.body != null
-          ? _sites[source]!.parseEpisodeBody(ep.body!)
-          : <NovelContentElement>[];
+      final content = _parseRequiredEpisodeBody(source, ep.body);
 
       await _db.updateEpisodeContent(
         source: source,
@@ -557,7 +570,6 @@ class NovelRepository {
           episodeId: episode,
           content: const [],
           fetchedAt: DateTime.now().millisecondsSinceEpoch,
-          revisedAt: revised,
         );
       } on Exception catch (_) {}
       rethrow;
@@ -950,10 +962,10 @@ class NovelRepository {
           source: Value(source),
           workId: Value(workId),
           episodeId: Value(e.index ?? 0),
-          subtitle: Value(e.subtitle ?? ''),
-          url: Value(e.url ?? ''),
-          publishedAt: Value(e.update ?? ''),
-          revisedAt: Value(e.revised ?? ''),
+          subtitle: Value(e.subtitle),
+          url: Value(e.url),
+          publishedAt: Value(e.update),
+          revisedAt: Value(e.revised),
         );
       }).toList();
       await _db.upsertEpisodes(companions);

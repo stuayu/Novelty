@@ -98,6 +98,47 @@ void main() {
       expect(episodes.single.subtitle, '第1話(改稿)');
     });
 
+    test('目次の再取得でURLが欠けても既存URLを保持すること', () async {
+      const workId = '16818023211929539879';
+      const episodeUrl =
+          'https://kakuyomu.jp/works/$workId/episodes/16818023211929635009';
+      await db.insertNovel(
+        const NovelsCompanion(
+          source: Value(NovelSource.kakuyomu),
+          workId: Value(workId),
+          title: Value('dummy title'),
+          writer: Value('dummy writer'),
+        ),
+      );
+      await db.upsertEpisodes([
+        const EpisodeListEntriesCompanion(
+          source: Value(NovelSource.kakuyomu),
+          workId: Value(workId),
+          episodeId: Value(1),
+          subtitle: Value('第1話'),
+          url: Value(episodeUrl),
+        ),
+      ]);
+
+      await db.upsertEpisodes([
+        const EpisodeListEntriesCompanion(
+          source: Value(NovelSource.kakuyomu),
+          workId: Value(workId),
+          episodeId: Value(1),
+          subtitle: Value('第1話（更新）'),
+          url: Value(null),
+        ),
+      ]);
+
+      final url = await db.getEpisodeUrl(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+      );
+      expect(url, episodeUrl);
+      expect(url, isNotEmpty);
+    });
+
     test('本文の保存と取得ができること', () async {
       const ncode = 'n1234ab';
       await insertDummyNovel(ncode);
@@ -241,6 +282,42 @@ void main() {
         fetchedAt: 222,
         subtitle: '更新後',
       );
+
+      await expectation;
+    });
+
+    test('watchEpisodesRangeが目次のupsertを検知すること', () async {
+      const ncode = 'n1234ab';
+      await insertDummyNovel(ncode);
+
+      await db.upsertEpisodes([
+        const EpisodeListEntriesCompanion(
+          source: Value(NovelSource.narou),
+          workId: Value(ncode),
+          episodeId: Value(1),
+          subtitle: Value('第1話'),
+        ),
+      ]);
+
+      final stream = db.watchEpisodesRange(NovelSource.narou, ncode, 1, 100);
+      final expectation = expectLater(
+        stream,
+        emitsInOrder([
+          predicate<List<Episode>>((list) => list.length == 1),
+          predicate<List<Episode>>((list) => list.length == 2),
+        ]),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      // 本文を伴わない目次のみの更新でもストリームへ通知されること
+      await db.upsertEpisodes([
+        const EpisodeListEntriesCompanion(
+          source: Value(NovelSource.narou),
+          workId: Value(ncode),
+          episodeId: Value(2),
+          subtitle: Value('第2話'),
+        ),
+      ]);
 
       await expectation;
     });
