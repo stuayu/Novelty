@@ -20,6 +20,7 @@ environment:
   sdk: ^3.11.3
 workspace:
   - packages/alphapolis_parser
+  - packages/estar_parser
   - packages/hameln_parser
   - packages/kakuyomu_parser
   - packages/narou_parser
@@ -38,6 +39,8 @@ dependencies:
   dio: ^5.11.0
   drift: ^2.34.0
   dynamic_color: ^1.7.0
+  estar_parser:
+    path: packages/estar_parser
   file_picker: ^10.3.7
   flutter:
     sdk: flutter
