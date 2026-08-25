@@ -42,6 +42,31 @@ void main() {
 
         expect(find.text('小説家になろう'), findsOneWidget);
       });
+
+      // サイトを追加したときにバッジ表示が漏れないよう、全サイトを網羅する。
+      for (final source in NovelSource.values) {
+        testWidgets('${source.label}のサイトBadgeを表示する', (tester) async {
+          final item = NovelInfo(
+            source: source,
+            workId: 'dummy-work-id',
+            title: 'テスト作品',
+            writer: 'テスト作者',
+            end: 1,
+          );
+
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(body: NovelListTile(item: item)),
+            ),
+          );
+
+          expect(
+            find.text(source.label),
+            findsOneWidget,
+            reason: '${source.dbId} のサイトBadgeが表示されていない',
+          );
+        });
+      }
     });
 
     group('status display', () {
