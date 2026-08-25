@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
@@ -20,7 +21,7 @@ import 'novel_info_offline_test.mocks.dart';
 /// 固定の [RankingPage] を返すだけの最小のサイト実装。
 ///
 /// ランキング以外のメソッドはテストで使用しない。
-class _StubRankingSite extends NovelSite {
+class _StubRankingSite extends NovelSite implements RankingCacheControl {
   _StubRankingSite(this._pages);
 
   /// ページ番号（1始まり）に対応する [RankingPage] の一覧。
@@ -28,6 +29,9 @@ class _StubRankingSite extends NovelSite {
 
   /// fetchRanking が呼ばれた回数。
   int callCount = 0;
+
+  /// refreshRanking が呼ばれた回数。
+  int refreshCallCount = 0;
 
   @override
   NovelSource get source => NovelSource.kakuyomu;
@@ -51,6 +55,16 @@ class _StubRankingSite extends NovelSite {
     int page = 1,
   }) async {
     callCount++;
+    final index = (page - 1).clamp(0, _pages.length - 1);
+    return _pages[index];
+  }
+
+  @override
+  Future<RankingPage> refreshRanking(
+    String rankingType, {
+    int page = 1,
+  }) async {
+    refreshCallCount++;
     final index = (page - 1).clamp(0, _pages.length - 1);
     return _pages[index];
   }
@@ -156,6 +170,32 @@ void main() {
   });
 
   group('RankingNotifier（破棄時の安全性）', () {
+    test('表示から300ミリ秒以内に離れたランキングは取得しない', () async {
+      final mockApiService = MockApiService();
+      when(
+        mockApiService.searchNovels(any),
+      ).thenAnswer(
+        (_) async => const NovelSearchResult(novels: [], allCount: 0),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(mockApiService),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final subscription = container.listen(
+        rankingProvider(NovelSource.narou, 'm'),
+        (_, _) {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      subscription.close();
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      verifyNever(mockApiService.searchNovels(any));
+    });
+
     test('プロバイダ破棄後にfetchNextPageが完了しても例外を投げない', () async {
       final mockApiService = MockApiService();
       final completer = Completer<NovelSearchResult>();
@@ -176,8 +216,7 @@ void main() {
         (_, _) {},
       );
       // fetchNextPage がAPI await中になるまで進める
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 350));
 
       // タブ切替等でプロバイダが破棄される
       subscription.close();
@@ -195,6 +234,126 @@ void main() {
   });
 
   group('RankingNotifier（カクヨムのサイト実装経路）', () {
+    test('明示更新はサイトのランキングキャッシュを迂回する', () async {
+      final site = _StubRankingSite(<RankingPage>[
+        const RankingPage(
+          novels: <NovelInfo>[NovelInfo(title: '作品A', ncode: 'n1')],
+          hasNextPage: false,
+        ),
+      ]);
+      final container = ProviderContainer(
+        overrides: [
+          novelSiteRegistryProvider.overrideWithValue(
+            <NovelSource, NovelSite>{NovelSource.kakuyomu: site},
+          ),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+      final subscription = container.listen(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+        (_, _) {},
+      );
+      addTearDown(subscription.close);
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      await container
+          .read(rankingProvider(NovelSource.kakuyomu, 'daily').notifier)
+          .refresh();
+
+      expect(site.callCount, 1);
+      expect(site.refreshCallCount, 1);
+    });
+
+    test('取得済みランキングはタブを離れて戻っても再取得しない', () async {
+      final site = _StubRankingSite(<RankingPage>[
+        const RankingPage(
+          novels: <NovelInfo>[NovelInfo(title: '作品A', ncode: 'n1')],
+          hasNextPage: false,
+        ),
+      ]);
+      final container = ProviderContainer(
+        overrides: [
+          novelSiteRegistryProvider.overrideWithValue(
+            <NovelSource, NovelSite>{NovelSource.kakuyomu: site},
+          ),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final firstSubscription = container.listen(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+        (_, _) {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      expect(site.callCount, 1);
+      firstSubscription.close();
+      await Future<void>.delayed(Duration.zero);
+
+      final secondSubscription = container.listen(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+        (_, _) {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      expect(site.callCount, 1);
+      expect(
+        container
+            .read(rankingProvider(NovelSource.kakuyomu, 'daily'))
+            .novels
+            .single
+            .title,
+        '作品A',
+      );
+      secondSubscription.close();
+    });
+
+    test('取得済みランキングは10分経過後に破棄して次回表示で再取得する', () {
+      fakeAsync((async) {
+        void elapseAndFlush(Duration duration) {
+          async
+            ..elapse(duration)
+            ..flushMicrotasks();
+        }
+
+        final site = _StubRankingSite(<RankingPage>[
+          const RankingPage(
+            novels: <NovelInfo>[NovelInfo(title: '作品A', ncode: 'n1')],
+            hasNextPage: false,
+          ),
+        ]);
+        final container = ProviderContainer(
+          overrides: [
+            novelSiteRegistryProvider.overrideWithValue(
+              <NovelSource, NovelSite>{NovelSource.kakuyomu: site},
+            ),
+            isOfflineModeProvider.overrideWithValue(false),
+          ],
+        );
+
+        final firstSubscription = container.listen(
+          rankingProvider(NovelSource.kakuyomu, 'daily'),
+          (_, _) {},
+        );
+        elapseAndFlush(const Duration(milliseconds: 300));
+        expect(site.callCount, 1);
+        firstSubscription.close();
+        async.flushMicrotasks();
+
+        elapseAndFlush(const Duration(minutes: 10));
+        final secondSubscription = container.listen(
+          rankingProvider(NovelSource.kakuyomu, 'daily'),
+          (_, _) {},
+        );
+        elapseAndFlush(const Duration(milliseconds: 300));
+
+        expect(site.callCount, 2);
+        secondSubscription.close();
+        container.dispose();
+      });
+    });
+
     test('hasNextPage=false ならhasMoreがfalseになりそれ以上取得しない', () async {
       final site = _StubRankingSite(<RankingPage>[
         const RankingPage(
@@ -219,8 +378,7 @@ void main() {
         (_, _) {},
       );
       // fetchNextPage の完了を待つ
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 350));
 
       final state = container.read(
         rankingProvider(NovelSource.kakuyomu, 'daily'),
@@ -268,8 +426,7 @@ void main() {
         (_, _) {},
       );
       // 1ページ目取得
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 350));
       expect(site.callCount, 1);
 
       // 次のページを取得

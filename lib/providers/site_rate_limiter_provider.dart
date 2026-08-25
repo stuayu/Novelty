@@ -7,7 +7,7 @@ const Map<NovelSource, Duration> siteRequestIntervals = <NovelSource, Duration>{
   NovelSource.narou: Duration(milliseconds: 250),
   NovelSource.kakuyomu: Duration(seconds: 1),
   NovelSource.alphapolis: Duration(seconds: 1),
-  NovelSource.hameln: Duration(seconds: 3),
+  NovelSource.hameln: Duration(seconds: 5),
   NovelSource.estar: Duration(seconds: 1),
   // 規約第13条22号に配慮し、確認時の下限1秒より保守的な間隔にする。
   NovelSource.novelup: Duration(seconds: 2),

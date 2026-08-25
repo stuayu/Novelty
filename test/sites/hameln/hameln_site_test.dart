@@ -13,9 +13,13 @@ String _fixture(String name) =>
     File('test/fixtures/hameln/$name').readAsStringSync();
 
 class _FixtureAdapter implements HttpClientAdapter {
-  _FixtureAdapter(this.fixtures);
+  _FixtureAdapter(
+    this.fixtures, {
+    this.statusCodes = const <String, int>{},
+  });
 
   final Map<String, String> fixtures;
+  final Map<String, int> statusCodes;
   final List<RequestOptions> requests = <RequestOptions>[];
 
   @override
@@ -32,7 +36,7 @@ class _FixtureAdapter implements HttpClientAdapter {
     }
     return ResponseBody.fromString(
       body,
-      200,
+      statusCodes[uri.toString()] ?? statusCodes[uri.path] ?? 200,
       headers: <String, List<String>>{
         Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
       },
@@ -339,6 +343,34 @@ void main() {
           _createSite(adapter).fetchRanking('rank_day'),
           throwsA(isA<HamelnCloudflareChallengeException>()),
         );
+      });
+
+      test('HTTP 403をアクセス制限の例外にする', () async {
+        const url = 'https://syosetu.org/?mode=rank_day';
+        final adapter = _FixtureAdapter(
+          <String, String>{url: 'Forbidden'},
+          statusCodes: const <String, int>{url: 403},
+        );
+
+        await expectLater(
+          _createSite(adapter).fetchRanking('rank_day'),
+          throwsA(isA<HamelnCloudflareChallengeException>()),
+        );
+      });
+
+      test('明示更新は取得済みHTMLを使わず再取得する', () async {
+        final adapter = _FixtureAdapter(<String, String>{
+          'https://syosetu.org/?mode=rank_day': _fixture('ranking.html'),
+        });
+        final site = _createSite(adapter);
+
+        await site.fetchRanking('rank_day');
+        await site.fetchRanking('rank_day');
+        expect(adapter.requests, hasLength(1));
+
+        await site.refreshRanking('rank_day');
+
+        expect(adapter.requests, hasLength(2));
       });
 
       test('未確認の2ページ目以降はHTTP取得せず空で終端する', () async {

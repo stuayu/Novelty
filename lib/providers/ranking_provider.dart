@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:novelty/domain/ranking_filter_state.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
+import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/settings_provider.dart';
@@ -20,8 +22,6 @@ part 'ranking_provider.g.dart';
 void _logRanking(String message) {
   debugPrint('[Novelty][Ranking] $message');
 }
-
-
 
 /// ランキングの状態を管理するクラス
 @immutable
@@ -107,19 +107,37 @@ class RankingState {
 ///
 /// familyキーは `(source, rankingType)`。
 class RankingNotifier extends _$RankingNotifier {
+  static const Duration _initialFetchDelay = Duration(milliseconds: 300);
+  static const Duration _cacheLifetime = Duration(minutes: 10);
+
+  VoidCallback? _closeCache;
+  Timer? _cacheExpirationTimer;
+
   @override
   RankingState build(NovelSource source, String rankingType) {
     // Watch filter state to trigger rebuild when it changes
     ref.watch(rankingFilterStateProvider(source, rankingType));
 
-
-    // Initial fetch
-    unawaited(Future.microtask(fetchNextPage));
-    return const RankingState();
+    // 通過しただけのタブでは取得を始めない。
+    final initialFetchTimer = Timer(
+      _initialFetchDelay,
+      () {
+        if (!ref.mounted) {
+          return;
+        }
+        state = state.copyWith(isLoading: false);
+        unawaited(fetchNextPage());
+      },
+    );
+    ref.onDispose(() {
+      initialFetchTimer.cancel();
+      _cacheExpirationTimer?.cancel();
+    });
+    return const RankingState(isLoading: true);
   }
 
   /// 次のページを取得する
-  Future<void> fetchNextPage() async {
+  Future<void> fetchNextPage({bool forceRefresh = false}) async {
     final currentState = state;
     _logRanking(
       'fetchNextPage: source=$source rankingType=$rankingType '
@@ -152,7 +170,14 @@ class RankingNotifier extends _$RankingNotifier {
       if (source == NovelSource.narou) {
         await _fetchNarouRanking(filter, currentState);
       } else {
-        await _fetchSiteRanking(filter, currentState);
+        await _fetchSiteRanking(
+          filter,
+          currentState,
+          forceRefresh: forceRefresh,
+        );
+      }
+      if (ref.mounted) {
+        _retainCache();
       }
     } on Object catch (e, stackTrace) {
       _logRanking(
@@ -169,6 +194,16 @@ class RankingNotifier extends _$RankingNotifier {
         error: Value<Object?>(e),
       );
     }
+  }
+
+  void _retainCache() {
+    _closeCache?.call();
+    _closeCache = ref.keepAlive().close;
+    _cacheExpirationTimer?.cancel();
+    _cacheExpirationTimer = Timer(_cacheLifetime, () {
+      _closeCache?.call();
+      _closeCache = null;
+    });
   }
 
   /// なろうのランキングを検索APIで取得する（従来フロー）。
@@ -247,17 +282,26 @@ class RankingNotifier extends _$RankingNotifier {
   /// カクヨム等のサイト実装からランキングを取得する。
   Future<void> _fetchSiteRanking(
     RankingFilterState filter,
-    RankingState currentState,
-  ) async {
+    RankingState currentState, {
+    required bool forceRefresh,
+  }) async {
     final site = ref.read(novelSiteRegistryProvider)[source]!;
     _logRanking(
       'fetchNextPage(${source.dbId}): ランキング取得 page=${currentState.page} '
       'mounted=${ref.mounted}',
     );
-    final result = await site.fetchRanking(
-      rankingType,
-      page: currentState.page,
-    );
+    final RankingPage result;
+    if (forceRefresh && site is RankingCacheControl) {
+      result = await (site as RankingCacheControl).refreshRanking(
+        rankingType,
+        page: currentState.page,
+      );
+    } else {
+      result = await site.fetchRanking(
+        rankingType,
+        page: currentState.page,
+      );
+    }
 
     // タブ切替等でプロバイダが破棄された場合は中断する
     if (!ref.mounted) {
@@ -296,7 +340,7 @@ class RankingNotifier extends _$RankingNotifier {
   /// データをリフレッシュする
   Future<void> refresh() async {
     state = const RankingState();
-    await fetchNextPage();
+    await fetchNextPage(forceRefresh: true);
   }
 
   String _mapRankingTypeToOrder(String type) {

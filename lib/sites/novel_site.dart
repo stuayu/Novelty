@@ -177,3 +177,13 @@ abstract class NovelSite {
     throw UnsupportedError('${source.label} はランキングに対応していません');
   }
 }
+
+/// ランキングの明示更新時にHTMLキャッシュを迂回できるサイト。
+// ignore: one_member_abstracts
+abstract interface class RankingCacheControl {
+  /// キャッシュを使わずランキングを取得する。
+  Future<RankingPage> refreshRanking(String rankingType, {int page = 1});
+}
+
+/// サイト側のアクセス制限により取得できないことを表す例外。
+abstract interface class AccessRestrictedException implements Exception {}

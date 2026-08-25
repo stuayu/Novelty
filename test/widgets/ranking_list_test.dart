@@ -7,7 +7,9 @@ import 'package:novelty/domain/ranking_filter_state.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/novel_search_result.dart';
+import 'package:novelty/providers/ranking_provider.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/sites/hameln/hameln_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/widgets/ranking_list.dart';
 
@@ -20,6 +22,39 @@ void main() {
 
     setUp(() {
       mockApiService = MockApiService();
+    });
+
+    testWidgets('アクセス制限時は待ってから再試行する説明を表示する', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rankingProvider(
+              NovelSource.hameln,
+              'rank_day',
+            ).overrideWithValue(
+              const RankingState(
+                error: HamelnCloudflareChallengeException(
+                  'https://syosetu.org/?mode=rank_day',
+                ),
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: RankingList(
+                source: NovelSource.hameln,
+                rankingType: 'rank_day',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        find.text('アクセスが制限されています。しばらく待ってから再度お試しください'),
+        findsOneWidget,
+      );
+      expect(find.text('読み込みに失敗しました'), findsNothing);
     });
 
     testWidgets('should display ranking list items', (

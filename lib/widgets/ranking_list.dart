@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:novelty/providers/ranking_provider.dart';
+import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/widgets/novel_list_tile.dart';
 
@@ -55,11 +56,14 @@ class RankingList extends HookConsumerWidget {
 
     // 初回ロード失敗時のリトライボタン
     if (rankingState.error != null && rankingState.novels.isEmpty) {
+      final errorMessage = rankingState.error is AccessRestrictedException
+          ? 'アクセスが制限されています。しばらく待ってから再度お試しください'
+          : '読み込みに失敗しました';
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('読み込みに失敗しました'),
+            Text(errorMessage, textAlign: TextAlign.center),
             const SizedBox(height: 8),
             ElevatedButton(
               onPressed: () {

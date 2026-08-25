@@ -320,6 +320,24 @@ void main() {
           'https://novelup.plus/ranking/all/day?p=2',
         );
       });
+
+      test('明示更新は取得済みHTMLを使わず再取得する', () async {
+        final adapter = _FixtureAdapter(<String, ({String body, int status})>{
+          '/ranking/all/day': (
+            body: _fixture('ranking_page.html'),
+            status: 200,
+          ),
+        });
+        final site = _createSite(adapter);
+
+        await site.fetchRanking('all');
+        await site.fetchRanking('all');
+        expect(adapter.requests, hasLength(1));
+
+        await site.refreshRanking('all');
+
+        expect(adapter.requests, hasLength(2));
+      });
     });
 
     group('searchNovels', () {

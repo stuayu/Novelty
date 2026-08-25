@@ -53,8 +53,8 @@ class HamelnAgeConfirmationException implements Exception {
   String toString() => 'HamelnAgeConfirmationException: $url';
 }
 
-/// CloudflareのJavaScriptチャレンジによりHTMLを取得できない場合の例外。
-class HamelnCloudflareChallengeException implements Exception {
+/// HTTP 403またはCloudflareチャレンジによりHTMLを取得できない場合の例外。
+class HamelnCloudflareChallengeException implements AccessRestrictedException {
   /// コンストラクタ。
   const HamelnCloudflareChallengeException(this.url);
 
@@ -66,12 +66,12 @@ class HamelnCloudflareChallengeException implements Exception {
 }
 
 /// ハーメルンのサイト定義。
-class HamelnSite implements NovelSite {
+class HamelnSite implements NovelSite, RankingCacheControl {
   /// コンストラクタ。
   HamelnSite({Dio? dio, RequestRateLimiter? rateLimiter})
     : _dio = _createRateLimitedDio(
         dio,
-        rateLimiter ?? RequestRateLimiter(interval: const Duration(seconds: 3)),
+        rateLimiter ?? RequestRateLimiter(interval: const Duration(seconds: 5)),
       );
 
   final Dio _dio;
@@ -337,7 +337,18 @@ class HamelnSite implements NovelSite {
   }
 
   @override
-  Future<RankingPage> fetchRanking(String rankingType, {int page = 1}) async {
+  Future<RankingPage> fetchRanking(String rankingType, {int page = 1}) =>
+      _fetchRanking(rankingType, page: page);
+
+  @override
+  Future<RankingPage> refreshRanking(String rankingType, {int page = 1}) =>
+      _fetchRanking(rankingType, page: page, forceRefresh: true);
+
+  Future<RankingPage> _fetchRanking(
+    String rankingType, {
+    required int page,
+    bool forceRefresh = false,
+  }) async {
     if (page < 1) {
       throw ArgumentError.value(page, 'page', '1以上で指定してください');
     }
@@ -352,6 +363,9 @@ class HamelnSite implements NovelSite {
       return const RankingPage(novels: <NovelInfo>[], hasNextPage: false);
     }
     final url = Uri.parse(source.baseUrl).resolve(type.urlPath).toString();
+    if (forceRefresh) {
+      _htmlCache.remove(url);
+    }
     final document = html_parser.parse(await _getHtml(url));
     final items = document.querySelectorAll('div.section3[id^="nid_"]');
     if (items.isEmpty) {
@@ -493,6 +507,9 @@ class HamelnSite implements NovelSite {
         validateStatus: (_) => true,
       ),
     );
+    if (response.statusCode == 403) {
+      throw HamelnCloudflareChallengeException(url);
+    }
     if (response.statusCode != 200) {
       throw HamelnHttpException(response.statusCode ?? -1, url);
     }

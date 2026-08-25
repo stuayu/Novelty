@@ -44,7 +44,7 @@ class NovelupWorkNotFoundException implements NovelNotFoundException {
 }
 
 /// ノベルアップ＋のサイト定義。
-class NovelupSite implements NovelSite {
+class NovelupSite implements NovelSite, RankingCacheControl {
   /// コンストラクタ。
   NovelupSite({Dio? dio, RequestRateLimiter? rateLimiter})
     : _dio = _createRateLimitedDio(
@@ -356,7 +356,18 @@ class NovelupSite implements NovelSite {
   }
 
   @override
-  Future<RankingPage> fetchRanking(String rankingType, {int page = 1}) async {
+  Future<RankingPage> fetchRanking(String rankingType, {int page = 1}) =>
+      _fetchRanking(rankingType, page: page);
+
+  @override
+  Future<RankingPage> refreshRanking(String rankingType, {int page = 1}) =>
+      _fetchRanking(rankingType, page: page, forceRefresh: true);
+
+  Future<RankingPage> _fetchRanking(
+    String rankingType, {
+    required int page,
+    bool forceRefresh = false,
+  }) async {
     if (page < 1) {
       throw ArgumentError.value(page, 'page', '1以上で指定してください');
     }
@@ -371,6 +382,9 @@ class NovelupSite implements NovelSite {
         .replace(
           queryParameters: page > 1 ? <String, String>{'p': '$page'} : null,
         );
+    if (forceRefresh) {
+      _htmlCache.remove(uri.toString());
+    }
     final document = html_parser.parse(await _fetchHtml(uri.toString()));
     final items = document.querySelectorAll('.one_set.ranking');
     if (items.isEmpty) {

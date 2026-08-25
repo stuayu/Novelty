@@ -125,7 +125,7 @@ void main() {
     expect(novelup1, isNot(same(kakuyomu1)));
     expect(kakuyomu1.interval, const Duration(seconds: 1));
     expect(alphapolis1.interval, const Duration(seconds: 1));
-    expect(hameln1.interval, const Duration(seconds: 3));
+    expect(hameln1.interval, const Duration(seconds: 5));
     expect(novelup1.interval, const Duration(seconds: 2));
     expect(narou.interval, const Duration(milliseconds: 250));
   });
