@@ -1,3 +1,4 @@
+import 'package:novelty/models/account_auth_state.dart';
 import 'package:novelty/sites/novel_source.dart';
 
 /// 外部サイトとのアカウント同期結果。
@@ -19,6 +20,15 @@ enum AccountSyncOutcome {
 abstract interface class AccountSyncAdapter {
   /// 対象サイト。
   NovelSource get source;
+
+  /// サイト横断の認証状態を取得する。
+  Future<AccountAuthState> getAuthState();
+
+  /// ログイン済みか確認する。
+  Future<bool> isLoggedIn();
+
+  /// 保存済みの認証情報を破棄する。
+  Future<void> logout();
 
   /// リモートのライブラリをローカルへ取り込む。
   ///

@@ -1,10 +1,22 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/database/database.dart';
+import 'package:novelty/repositories/auth_repository.dart';
+import 'package:novelty/services/narou_auth_service.dart';
 import 'package:novelty/services/narou_sync_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/sites/narou/narou_account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
+
+/// なろうのアカウント同期アダプター。
+final narouAccountSyncAdapterProvider = Provider<NarouAccountSyncAdapter>(
+  (ref) => NarouAccountSyncAdapter(
+    syncService: ref.watch(narouSyncServiceProvider),
+    db: ref.watch(appDatabaseProvider),
+    authRepository: ref.watch(authRepositoryProvider),
+    authService: ref.watch(narouAuthServiceProvider),
+  ),
+);
 
 /// サイトごとのアカウント同期アダプターを提供するレジストリ。
 ///
@@ -13,10 +25,7 @@ import 'package:novelty/sites/novel_source.dart';
 final accountSyncRegistryProvider =
     Provider<Map<NovelSource, AccountSyncAdapter>>(
       (ref) => <NovelSource, AccountSyncAdapter>{
-        NovelSource.narou: NarouAccountSyncAdapter(
-          syncService: ref.watch(narouSyncServiceProvider),
-          db: ref.watch(appDatabaseProvider),
-        ),
+        NovelSource.narou: ref.watch(narouAccountSyncAdapterProvider),
         NovelSource.kakuyomu: ref.watch(kakuyomuAccountSyncAdapterProvider),
       },
     );

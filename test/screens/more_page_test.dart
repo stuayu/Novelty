@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novelty/models/account_auth_state.dart';
 import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/screens/more_page.dart';
+import 'package:novelty/sites/novel_source.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// path_providerのモック実装
@@ -17,14 +20,15 @@ class FakePathProviderPlatform extends Fake
   }
 }
 
-/// テスト用のフェイクAuth。
-///
-/// 実機のsecure storage・ネットワークアクセスを避けるため、
-/// 常に「未ログイン」を返す。
-class FakeAuth extends Auth {
-  @override
-  Future<NarouUser?> build() async => null;
-}
+final List<Override> _authOverrides = [
+  accountAuthStateProvider(NovelSource.narou).overrideWith(
+    (ref) async => const AccountAuthState.loggedOut(source: NovelSource.narou),
+  ),
+  accountAuthStateProvider(NovelSource.kakuyomu).overrideWith(
+    (ref) async =>
+        const AccountAuthState.loggedOut(source: NovelSource.kakuyomu),
+  ),
+];
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -42,7 +46,7 @@ void main() {
   testWidgets('オフラインモードスイッチが表示される', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [authProvider.overrideWith(FakeAuth.new)],
+        overrides: _authOverrides,
         child: const MaterialApp(
           home: MorePage(),
         ),
@@ -57,7 +61,7 @@ void main() {
   testWidgets('オフラインモードスイッチを切り替えると設定が永続化される', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [authProvider.overrideWith(FakeAuth.new)],
+        overrides: _authOverrides,
         child: const MaterialApp(
           home: MorePage(),
         ),

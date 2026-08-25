@@ -3,11 +3,12 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'dart:async' as _i4;
+import 'dart:async' as _i5;
 
 import 'package:mockito/mockito.dart' as _i1;
-import 'package:novelty/sites/account_sync_adapter.dart' as _i2;
-import 'package:novelty/sites/novel_source.dart' as _i3;
+import 'package:novelty/models/account_auth_state.dart' as _i2;
+import 'package:novelty/sites/account_sync_adapter.dart' as _i3;
+import 'package:novelty/sites/novel_source.dart' as _i4;
 
 // ignore_for_file: type=lint
 // ignore_for_file: avoid_redundant_argument_values
@@ -24,57 +25,100 @@ import 'package:novelty/sites/novel_source.dart' as _i3;
 // ignore_for_file: subtype_of_sealed_class
 // ignore_for_file: invalid_use_of_internal_member
 
+class _FakeAccountAuthState_0 extends _i1.SmartFake
+    implements _i2.AccountAuthState {
+  _FakeAccountAuthState_0(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
 /// A class which mocks [AccountSyncAdapter].
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockAccountSyncAdapter extends _i1.Mock
-    implements _i2.AccountSyncAdapter {
+    implements _i3.AccountSyncAdapter {
   @override
-  _i3.NovelSource get source =>
+  _i4.NovelSource get source =>
       (super.noSuchMethod(
             Invocation.getter(#source),
-            returnValue: _i3.NovelSource.narou,
-            returnValueForMissingStub: _i3.NovelSource.narou,
+            returnValue: _i4.NovelSource.narou,
+            returnValueForMissingStub: _i4.NovelSource.narou,
           )
-          as _i3.NovelSource);
+          as _i4.NovelSource);
 
   @override
-  _i4.Future<int> pullLibrary() =>
+  _i5.Future<_i2.AccountAuthState> getAuthState() =>
+      (super.noSuchMethod(
+            Invocation.method(#getAuthState, []),
+            returnValue: _i5.Future<_i2.AccountAuthState>.value(
+              _FakeAccountAuthState_0(
+                this,
+                Invocation.method(#getAuthState, []),
+              ),
+            ),
+            returnValueForMissingStub: _i5.Future<_i2.AccountAuthState>.value(
+              _FakeAccountAuthState_0(
+                this,
+                Invocation.method(#getAuthState, []),
+              ),
+            ),
+          )
+          as _i5.Future<_i2.AccountAuthState>);
+
+  @override
+  _i5.Future<bool> isLoggedIn() =>
+      (super.noSuchMethod(
+            Invocation.method(#isLoggedIn, []),
+            returnValue: _i5.Future<bool>.value(false),
+            returnValueForMissingStub: _i5.Future<bool>.value(false),
+          )
+          as _i5.Future<bool>);
+
+  @override
+  _i5.Future<void> logout() =>
+      (super.noSuchMethod(
+            Invocation.method(#logout, []),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<int> pullLibrary() =>
       (super.noSuchMethod(
             Invocation.method(#pullLibrary, []),
-            returnValue: _i4.Future<int>.value(0),
-            returnValueForMissingStub: _i4.Future<int>.value(0),
+            returnValue: _i5.Future<int>.value(0),
+            returnValueForMissingStub: _i5.Future<int>.value(0),
           )
-          as _i4.Future<int>);
+          as _i5.Future<int>);
 
   @override
-  _i4.Future<_i2.AccountSyncOutcome> addToRemoteLibrary(String? workId) =>
+  _i5.Future<_i3.AccountSyncOutcome> addToRemoteLibrary(String? workId) =>
       (super.noSuchMethod(
             Invocation.method(#addToRemoteLibrary, [workId]),
-            returnValue: _i4.Future<_i2.AccountSyncOutcome>.value(
-              _i2.AccountSyncOutcome.success,
+            returnValue: _i5.Future<_i3.AccountSyncOutcome>.value(
+              _i3.AccountSyncOutcome.success,
             ),
-            returnValueForMissingStub: _i4.Future<_i2.AccountSyncOutcome>.value(
-              _i2.AccountSyncOutcome.success,
+            returnValueForMissingStub: _i5.Future<_i3.AccountSyncOutcome>.value(
+              _i3.AccountSyncOutcome.success,
             ),
           )
-          as _i4.Future<_i2.AccountSyncOutcome>);
+          as _i5.Future<_i3.AccountSyncOutcome>);
 
   @override
-  _i4.Future<_i2.AccountSyncOutcome> removeFromRemoteLibrary(String? workId) =>
+  _i5.Future<_i3.AccountSyncOutcome> removeFromRemoteLibrary(String? workId) =>
       (super.noSuchMethod(
             Invocation.method(#removeFromRemoteLibrary, [workId]),
-            returnValue: _i4.Future<_i2.AccountSyncOutcome>.value(
-              _i2.AccountSyncOutcome.success,
+            returnValue: _i5.Future<_i3.AccountSyncOutcome>.value(
+              _i3.AccountSyncOutcome.success,
             ),
-            returnValueForMissingStub: _i4.Future<_i2.AccountSyncOutcome>.value(
-              _i2.AccountSyncOutcome.success,
+            returnValueForMissingStub: _i5.Future<_i3.AccountSyncOutcome>.value(
+              _i3.AccountSyncOutcome.success,
             ),
           )
-          as _i4.Future<_i2.AccountSyncOutcome>);
+          as _i5.Future<_i3.AccountSyncOutcome>);
 
   @override
-  _i4.Future<bool> pushReadingProgress({
+  _i5.Future<bool> pushReadingProgress({
     required String? workId,
     required int? episode,
     String? position,
@@ -85,8 +129,8 @@ class MockAccountSyncAdapter extends _i1.Mock
               #episode: episode,
               #position: position,
             }),
-            returnValue: _i4.Future<bool>.value(false),
-            returnValueForMissingStub: _i4.Future<bool>.value(false),
+            returnValue: _i5.Future<bool>.value(false),
+            returnValueForMissingStub: _i5.Future<bool>.value(false),
           )
-          as _i4.Future<bool>);
+          as _i5.Future<bool>);
 }

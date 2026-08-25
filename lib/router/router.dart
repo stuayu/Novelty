@@ -6,6 +6,7 @@ import 'package:novelty/screens/data_storage_page.dart';
 import 'package:novelty/screens/download_manager_page.dart';
 import 'package:novelty/screens/explore_page.dart';
 import 'package:novelty/screens/history_page.dart';
+import 'package:novelty/screens/kakuyomu_login_page.dart';
 import 'package:novelty/screens/library_page.dart';
 import 'package:novelty/screens/login_page.dart';
 import 'package:novelty/screens/more_page.dart';
@@ -69,6 +70,7 @@ final router = GoRouter(
             TypedGoRoute<AboutRoute>(path: 'about'),
             TypedGoRoute<DownloadsRoute>(path: 'downloads'),
             TypedGoRoute<LoginRoute>(path: 'login'),
+            TypedGoRoute<KakuyomuLoginRoute>(path: 'kakuyomu-login'),
           ],
         ),
       ],
@@ -225,6 +227,17 @@ class LoginRoute extends GoRouteData with $LoginRoute {
   @override
   Widget build(BuildContext context, GoRouterState state) {
     return const LoginPage();
+  }
+}
+
+/// カクヨムアカウントログイン画面のルート。
+class KakuyomuLoginRoute extends GoRouteData with $KakuyomuLoginRoute {
+  /// コンストラクタ。
+  const KakuyomuLoginRoute();
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return const KakuyomuLoginPage();
   }
 }
 

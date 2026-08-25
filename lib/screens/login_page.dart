@@ -31,7 +31,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
-    final result = await ref.read(authProvider.notifier).login(
+    final result = await ref.read(narouLoginProvider.notifier).login(
           narouid: _narouidController.text.trim(),
           password: _passwordController.text,
         );

@@ -3,15 +3,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/services/kakuyomu_auth_service.dart';
 import 'package:novelty/services/kakuyomu_web_cookie_service.dart';
-import 'package:novelty/utils/kakuyomu_uri.dart';
+import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/kakuyomu_webview_support.dart';
 
 const _kakuyomuLoginUrl = 'https://kakuyomu.jp/auth/login';
 
 /// カクヨム公式ログイン画面を表示し、ログイン済み Cookie を保存する画面。
 class KakuyomuLoginPage extends ConsumerStatefulWidget {
+  /// コンストラクタ。
   const KakuyomuLoginPage({super.key});
 
   @override
@@ -37,7 +39,9 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
   Future<void> _prepareSession() async {
     try {
       await ref.read(kakuyomuWebCookieServiceProvider).restoreToWebView();
-    } on Exception {}
+    } on Exception {
+      // WebView側Cookieを復元できなくても、新規ログインは続行できる。
+    }
 
     if (!mounted) return;
     setState(() => _isPreparing = false);
@@ -62,7 +66,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
       if (!isValid) return;
 
       _isCompleted = true;
-      ref.invalidate(kakuyomuSessionValidProvider);
+      ref.invalidate(accountAuthStateProvider(NovelSource.kakuyomu));
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -110,9 +114,10 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
                     onLoadStop: (controller, url) async {
                       await _tryCompleteLogin(url);
                     },
-                    onUpdateVisitedHistory: (controller, url, androidIsReload) async {
-                      await _tryCompleteLogin(url);
-                    },
+                    onUpdateVisitedHistory:
+                        (controller, url, androidIsReload) async {
+                          await _tryCompleteLogin(url);
+                        },
                   ),
           ),
         ],

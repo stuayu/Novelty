@@ -116,8 +116,3 @@ class KakuyomuAuthService {
     await _sessionRepository.clearAll();
   }
 }
-
-/// カクヨムの保存済みセッション状態を監視するプロバイダー。
-final kakuyomuSessionValidProvider = FutureProvider<bool>((ref) async {
-  return ref.watch(kakuyomuAuthServiceProvider).isSessionValid();
-});

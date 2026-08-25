@@ -80,6 +80,11 @@ RouteBase get $appShellRouteData => StatefulShellRouteData.$route(
               hasOverriddenOnExit: false,
               factory: $LoginRoute._fromState,
             ),
+            GoRouteData.$route(
+              path: 'kakuyomu-login',
+              hasOverriddenOnExit: false,
+              factory: $KakuyomuLoginRoute._fromState,
+            ),
           ],
         ),
       ],
@@ -281,6 +286,27 @@ mixin $LoginRoute on GoRouteData {
 
   @override
   String get location => GoRouteData.$location('/more/login');
+
+  @override
+  void go(BuildContext context) => context.go(location);
+
+  @override
+  Future<T?> push<T>(BuildContext context) => context.push<T>(location);
+
+  @override
+  void pushReplacement(BuildContext context) =>
+      context.pushReplacement(location);
+
+  @override
+  void replace(BuildContext context) => context.replace(location);
+}
+
+mixin $KakuyomuLoginRoute on GoRouteData {
+  static KakuyomuLoginRoute _fromState(GoRouterState state) =>
+      const KakuyomuLoginRoute();
+
+  @override
+  String get location => GoRouteData.$location('/more/kakuyomu-login');
 
   @override
   void go(BuildContext context) => context.go(location);

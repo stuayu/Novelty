@@ -1,11 +1,44 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
+import 'package:novelty/repositories/auth_repository.dart';
+import 'package:novelty/services/narou_auth_service.dart';
 import 'package:novelty/services/narou_sync_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/narou/narou_account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
 
 import '../../repositories/library_status_toggle_test.mocks.dart';
+
+class _FakeAuthRepository extends AuthRepository {
+  bool hasSession = true;
+  bool cleared = false;
+
+  @override
+  Future<bool> hasSessionCookies() async => hasSession;
+
+  @override
+  Future<String?> getNarouid() async => 'test-id';
+
+  @override
+  Future<String?> getUsername() async => 'テストユーザー';
+
+  @override
+  Future<void> clearAll() async => cleared = true;
+}
+
+class _FakeNarouAuthService extends NarouAuthService {
+  _FakeNarouAuthService(AuthRepository authRepository)
+    : super(authRepository: authRepository);
+
+  bool sessionValid = true;
+  bool loggedOut = false;
+
+  @override
+  Future<bool> isSessionValid() async => sessionValid;
+
+  @override
+  Future<void> logout() async => loggedOut = true;
+}
 
 void main() {
   group('NarouAccountSyncAdapter', () {
@@ -23,6 +56,55 @@ void main() {
 
     test('sourceはnarouを返す', () {
       expect(adapter.source, NovelSource.narou);
+    });
+
+    test('ログイン中のアカウント識別子と表示名を共通状態で返す', () async {
+      final repository = _FakeAuthRepository();
+      final authService = _FakeNarouAuthService(repository);
+      final authAdapter = NarouAccountSyncAdapter(
+        syncService: syncService,
+        db: db,
+        authRepository: repository,
+        authService: authService,
+      );
+
+      final state = await authAdapter.getAuthState();
+
+      expect(state.source, NovelSource.narou);
+      expect(state.isLoggedIn, isTrue);
+      expect(state.accountId, 'test-id');
+      expect(state.displayName, 'テストユーザー');
+      expect(await authAdapter.isLoggedIn(), isTrue);
+    });
+
+    test('セッションCookieが無い場合は未ログインを返す', () async {
+      final repository = _FakeAuthRepository()..hasSession = false;
+      final authAdapter = NarouAccountSyncAdapter(
+        syncService: syncService,
+        db: db,
+        authRepository: repository,
+        authService: _FakeNarouAuthService(repository),
+      );
+
+      final state = await authAdapter.getAuthState();
+
+      expect(state.isLoggedIn, isFalse);
+      expect(await authAdapter.isLoggedIn(), isFalse);
+    });
+
+    test('logoutはなろう認証サービスへ委譲する', () async {
+      final repository = _FakeAuthRepository();
+      final authService = _FakeNarouAuthService(repository);
+      final authAdapter = NarouAccountSyncAdapter(
+        syncService: syncService,
+        db: db,
+        authRepository: repository,
+        authService: authService,
+      );
+
+      await authAdapter.logout();
+
+      expect(authService.loggedOut, isTrue);
     });
 
     test('pullLibraryは同期した作品数を返す', () async {

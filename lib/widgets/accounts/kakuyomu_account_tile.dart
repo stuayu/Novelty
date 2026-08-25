@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:novelty/screens/kakuyomu_login_page.dart';
-import 'package:novelty/services/kakuyomu_auth_service.dart';
+import 'package:novelty/providers/auth_provider.dart';
+import 'package:novelty/router/router.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
+import 'package:novelty/sites/novel_source.dart';
 
 /// 「もっと」画面に表示するカクヨムアカウント欄。
 class KakuyomuAccountTile extends ConsumerWidget {
@@ -11,10 +12,11 @@ class KakuyomuAccountTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sessionAsync = ref.watch(kakuyomuSessionValidProvider);
+    const source = NovelSource.kakuyomu;
+    final sessionAsync = ref.watch(accountAuthStateProvider(source));
     return sessionAsync.when(
-      data: (isLoggedIn) {
-        if (!isLoggedIn) {
+      data: (authState) {
+        if (!authState.isLoggedIn) {
           return ListTile(
             leading: const Icon(Icons.login),
             title: const Text('カクヨム'),
@@ -54,19 +56,15 @@ class KakuyomuAccountTile extends ConsumerWidget {
         subtitle: const Text('認証状態を確認できませんでした'),
         trailing: IconButton(
           icon: const Icon(Icons.refresh),
-          onPressed: () => ref.invalidate(kakuyomuSessionValidProvider),
+          onPressed: () => ref.invalidate(accountAuthStateProvider(source)),
         ),
       ),
     );
   }
 
   Future<void> _login(BuildContext context, WidgetRef ref) async {
-    final success = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        builder: (context) => const KakuyomuLoginPage(),
-      ),
-    );
-    ref.invalidate(kakuyomuSessionValidProvider);
+    final success = await const KakuyomuLoginRoute().push<bool>(context);
+    ref.invalidate(accountAuthStateProvider(NovelSource.kakuyomu));
     if (success != true || !context.mounted) return;
     await _syncFollowedWorks(context, ref);
   }
@@ -83,11 +81,11 @@ class KakuyomuAccountTile extends ConsumerWidget {
       );
     } on KakuyomuSessionExpiredException {
       try {
-        await ref.read(kakuyomuAuthServiceProvider).logout();
+        await ref.read(kakuyomuAccountSyncAdapterProvider).logout();
       } on Exception {
         // 永続Cookieの削除に失敗しても認証状態は再評価する。
       }
-      ref.invalidate(kakuyomuSessionValidProvider);
+      ref.invalidate(accountAuthStateProvider(NovelSource.kakuyomu));
       if (!context.mounted) return;
       messenger.showSnackBar(
         const SnackBar(
@@ -104,8 +102,8 @@ class KakuyomuAccountTile extends ConsumerWidget {
 
   Future<void> _logout(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
-    await ref.read(kakuyomuAuthServiceProvider).logout();
-    ref.invalidate(kakuyomuSessionValidProvider);
+    await ref.read(kakuyomuAccountSyncAdapterProvider).logout();
+    ref.invalidate(accountAuthStateProvider(NovelSource.kakuyomu));
     if (!context.mounted) return;
     messenger.showSnackBar(
       const SnackBar(content: Text('カクヨムからログアウトしました')),

@@ -1,50 +1,30 @@
-import 'package:novelty/repositories/auth_repository.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:novelty/models/account_auth_state.dart';
 import 'package:novelty/services/narou_auth_service.dart';
 import 'package:novelty/sites/account_sync_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:riverpod/misc.dart' show FutureProviderFamily;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'auth_provider.g.dart';
 
-/// 認証ユーザー情報。
-class NarouUser {
-  /// コンストラクタ。
-  const NarouUser({
-    required this.narouid,
-    required this.username,
-  });
-
-  /// ログインID。
-  final String narouid;
-
-  /// ユーザー名（表示名）。
-  final String username;
-}
+/// サイトを指定して共通認証状態を取得するプロバイダー。
+final FutureProviderFamily<AccountAuthState, NovelSource>
+accountAuthStateProvider = FutureProvider.family<AccountAuthState, NovelSource>(
+  (ref, source) async {
+    final adapter = ref.watch(accountSyncRegistryProvider)[source];
+    if (adapter == null) {
+      return AccountAuthState.loggedOut(source: source);
+    }
+    return adapter.getAuthState();
+  },
+);
 
 @riverpod
-/// なろうの認証状態を管理するプロバイダー。
-///
-/// `null` = 未ログイン、`NarouUser` = ログイン済み。
-class Auth extends _$Auth {
+/// なろうのログイン処理を管理するコントローラー。
+class NarouLogin extends _$NarouLogin {
   @override
-  Future<NarouUser?> build() async {
-    final repo = ref.watch(authRepositoryProvider);
-    final hasSession = await repo.hasSessionCookies();
-    if (!hasSession) return null;
-
-    final authService = ref.read(narouAuthServiceProvider);
-    final isValid = await authService.isSessionValid();
-    if (!isValid) {
-      await repo.clearAll();
-      return null;
-    }
-
-    final narouid = await repo.getNarouid();
-    final username = await repo.getUsername();
-    if (narouid == null || username == null) return null;
-
-    return NarouUser(narouid: narouid, username: username);
-  }
+  Future<void> build() async {}
 
   /// ログインしてセッションを確立する。
   Future<NarouLoginResult> login({
@@ -59,37 +39,14 @@ class Auth extends _$Auth {
     );
 
     if (result.isSuccess) {
-      state = AsyncValue.data(
-        NarouUser(
-          narouid: narouid,
-          username: result.username!,
-        ),
-      );
+      state = const AsyncValue.data(null);
       // ログイン成功後に、なろうのリモートライブラリを同期する。
-      final adapter = ref.read(accountSyncRegistryProvider)[NovelSource.narou];
-      if (adapter != null) {
-        await adapter.pullLibrary();
-      }
+      final adapter = ref.read(narouAccountSyncAdapterProvider);
+      await adapter.pullLibrary();
+      ref.invalidate(accountAuthStateProvider(adapter.source));
     } else {
       state = const AsyncValue.data(null);
     }
     return result;
-  }
-
-  /// ログアウトしてセッションを破棄する。
-  Future<void> logout() async {
-    state = const AsyncValue.loading();
-    final authService = ref.read(narouAuthServiceProvider);
-    await authService.logout();
-    state = const AsyncValue.data(null);
-  }
-
-  /// ブックマークを手動でなろうから同期する。
-  Future<int> syncBookmarks() async {
-    final adapter = ref.read(accountSyncRegistryProvider)[NovelSource.narou];
-    if (adapter == null) {
-      return 0;
-    }
-    return adapter.pullLibrary();
   }
 }

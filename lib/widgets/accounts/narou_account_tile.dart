@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/router/router.dart';
+import 'package:novelty/sites/account_sync_registry.dart';
+import 'package:novelty/sites/novel_source.dart';
 
 /// 「もっと」画面に表示する小説家になろうアカウント欄。
 class NarouAccountTile extends ConsumerWidget {
@@ -10,10 +12,11 @@ class NarouAccountTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final authAsync = ref.watch(authProvider);
+    const source = NovelSource.narou;
+    final authAsync = ref.watch(accountAuthStateProvider(source));
     return authAsync.when(
-      data: (user) {
-        if (user == null) {
+      data: (authState) {
+        if (!authState.isLoggedIn) {
           return ListTile(
             leading: const Icon(Icons.login),
             title: const Text('小説家になろう'),
@@ -26,16 +29,15 @@ class NarouAccountTile extends ConsumerWidget {
         return ExpansionTile(
           leading: const Icon(Icons.account_circle),
           title: const Text('小説家になろう'),
-          subtitle: Text(user.username),
+          subtitle: Text(authState.displayName ?? 'ログイン済み'),
           children: [
             ListTile(
               leading: const Icon(Icons.sync),
               title: const Text('ブックマークを同期'),
               onTap: () async {
                 final messenger = ScaffoldMessenger.of(context);
-                final count = await ref
-                    .read(authProvider.notifier)
-                    .syncBookmarks();
+                final adapter = ref.read(accountSyncRegistryProvider)[source];
+                final count = await adapter?.pullLibrary() ?? 0;
                 messenger.showSnackBar(
                   SnackBar(content: Text('$count 件のブックマークを同期しました')),
                 );
@@ -46,7 +48,9 @@ class NarouAccountTile extends ConsumerWidget {
               title: const Text('ログアウト'),
               onTap: () async {
                 final messenger = ScaffoldMessenger.of(context);
-                await ref.read(authProvider.notifier).logout();
+                final adapter = ref.read(accountSyncRegistryProvider)[source];
+                await adapter?.logout();
+                ref.invalidate(accountAuthStateProvider(source));
                 if (!context.mounted) return;
                 messenger.showSnackBar(
                   const SnackBar(content: Text('ログアウトしました')),

@@ -7,6 +7,7 @@ import 'package:novelty/database/database.dart';
 import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
+import 'package:novelty/services/kakuyomu_auth_service.dart';
 import 'package:novelty/services/kakuyomu_reading_progress_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
@@ -18,8 +19,30 @@ class _FakeSessionRepository extends KakuyomuSessionRepository {
 
   final String? cookieHeader;
 
+  bool cleared = false;
+
   @override
   Future<String?> buildCookieHeader() async => cookieHeader;
+
+  @override
+  Future<String?> getUsername() async => null;
+
+  @override
+  Future<void> clearAll() async => cleared = true;
+}
+
+class _FakeKakuyomuAuthService extends KakuyomuAuthService {
+  _FakeKakuyomuAuthService(KakuyomuSessionRepository sessionRepository)
+    : super(sessionRepository: sessionRepository);
+
+  bool sessionValid = true;
+  bool loggedOut = false;
+
+  @override
+  Future<bool> isSessionValid() async => sessionValid;
+
+  @override
+  Future<void> logout() async => loggedOut = true;
 }
 
 RequestRateLimiter _noWaitLimiter() =>
@@ -38,6 +61,54 @@ void main() {
 
     tearDown(() async {
       await db.close();
+    });
+
+    test('表示名なしのログイン状態を共通状態で返す', () async {
+      final repository = _FakeSessionRepository('session=test');
+      final authService = _FakeKakuyomuAuthService(repository);
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: repository,
+        authService: authService,
+        db: db,
+      );
+
+      final state = await adapter.getAuthState();
+
+      expect(state.source, NovelSource.kakuyomu);
+      expect(state.isLoggedIn, isTrue);
+      expect(state.accountId, isNull);
+      expect(state.displayName, isNull);
+      expect(await adapter.isLoggedIn(), isTrue);
+    });
+
+    test('セッションが無効な場合は未ログインを返す', () async {
+      final repository = _FakeSessionRepository('session=test');
+      final authService = _FakeKakuyomuAuthService(repository)
+        ..sessionValid = false;
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: repository,
+        authService: authService,
+        db: db,
+      );
+
+      final state = await adapter.getAuthState();
+
+      expect(state.isLoggedIn, isFalse);
+      expect(await adapter.isLoggedIn(), isFalse);
+    });
+
+    test('logoutはカクヨム認証サービスへ委譲する', () async {
+      final repository = _FakeSessionRepository('session=test');
+      final authService = _FakeKakuyomuAuthService(repository);
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: repository,
+        authService: authService,
+        db: db,
+      );
+
+      await adapter.logout();
+
+      expect(authService.loggedOut, isTrue);
     });
 
     test('Cookieが無い場合はHTTP取得せずセッション切れを返す', () async {

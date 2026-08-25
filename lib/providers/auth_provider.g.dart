@@ -8,56 +8,49 @@ part of 'auth_provider.dart';
 
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
-/// なろうの認証状態を管理するプロバイダー。
-///
-/// `null` = 未ログイン、`NarouUser` = ログイン済み。
+/// なろうのログイン処理を管理するコントローラー。
 
-@ProviderFor(Auth)
-final authProvider = AuthProvider._();
+@ProviderFor(NarouLogin)
+final narouLoginProvider = NarouLoginProvider._();
 
-/// なろうの認証状態を管理するプロバイダー。
-///
-/// `null` = 未ログイン、`NarouUser` = ログイン済み。
-final class AuthProvider extends $AsyncNotifierProvider<Auth, NarouUser?> {
-  /// なろうの認証状態を管理するプロバイダー。
-  ///
-  /// `null` = 未ログイン、`NarouUser` = ログイン済み。
-  AuthProvider._()
+/// なろうのログイン処理を管理するコントローラー。
+final class NarouLoginProvider
+    extends $AsyncNotifierProvider<NarouLogin, void> {
+  /// なろうのログイン処理を管理するコントローラー。
+  NarouLoginProvider._()
     : super(
         from: null,
         argument: null,
         retry: null,
-        name: r'authProvider',
+        name: r'narouLoginProvider',
         isAutoDispose: true,
         dependencies: null,
         $allTransitiveDependencies: null,
       );
 
   @override
-  String debugGetCreateSourceHash() => _$authHash();
+  String debugGetCreateSourceHash() => _$narouLoginHash();
 
   @$internal
   @override
-  Auth create() => Auth();
+  NarouLogin create() => NarouLogin();
 }
 
-String _$authHash() => r'53492c06411995471f5a431840e5e3fb810f7221';
+String _$narouLoginHash() => r'611cac2acb3cdb42bab26f4eaa4accff3bf2f1d5';
 
-/// なろうの認証状態を管理するプロバイダー。
-///
-/// `null` = 未ログイン、`NarouUser` = ログイン済み。
+/// なろうのログイン処理を管理するコントローラー。
 
-abstract class _$Auth extends $AsyncNotifier<NarouUser?> {
-  FutureOr<NarouUser?> build();
+abstract class _$NarouLogin extends $AsyncNotifier<void> {
+  FutureOr<void> build();
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
-    final ref = this.ref as $Ref<AsyncValue<NarouUser?>, NarouUser?>;
+    final ref = this.ref as $Ref<AsyncValue<void>, void>;
     final element =
         ref.element
             as $ClassProviderElement<
-              AnyNotifier<AsyncValue<NarouUser?>, NarouUser?>,
-              AsyncValue<NarouUser?>,
+              AnyNotifier<AsyncValue<void>, void>,
+              AsyncValue<void>,
               Object?,
               Object?
             >;

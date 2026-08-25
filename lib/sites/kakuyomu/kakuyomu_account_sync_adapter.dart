@@ -3,11 +3,13 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/database/database.dart';
+import 'package:novelty/models/account_auth_state.dart';
 import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/kakuyomu_session_repository.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/services/kakuyomu_auth_service.dart';
 import 'package:novelty/services/kakuyomu_follow_service.dart';
 import 'package:novelty/services/kakuyomu_reading_progress_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
@@ -92,6 +94,7 @@ final kakuyomuAccountSyncAdapterProvider = Provider<KakuyomuAccountSyncAdapter>(
     )[NovelSource.kakuyomu]!;
     return KakuyomuAccountSyncAdapter(
       sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
+      authService: ref.watch(kakuyomuAuthServiceProvider),
       db: ref.watch(appDatabaseProvider),
       followWork: followService.followWork,
       unfollowWork: followService.unfollowWork,
@@ -116,6 +119,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
   KakuyomuAccountSyncAdapter({
     required KakuyomuSessionRepository sessionRepository,
     required AppDatabase db,
+    KakuyomuAuthService? authService,
     Dio? dio,
     KakuyomuFollowedWorksParser? parser,
     KakuyomuFollowedWorksPageFetcher? pageFetcher,
@@ -129,6 +133,9 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     RequestRateLimiter? rateLimiter,
   }) : _sessionRepository = sessionRepository,
        _db = db,
+       _authService =
+           authService ??
+           KakuyomuAuthService(sessionRepository: sessionRepository),
        _dio = dio ?? createNoveltyDio(),
        _parser = parser ?? KakuyomuFollowedWorksParser(),
        _pageFetcher = pageFetcher,
@@ -145,6 +152,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
 
   final KakuyomuSessionRepository _sessionRepository;
   final AppDatabase _db;
+  final KakuyomuAuthService _authService;
   final Dio _dio;
   final KakuyomuFollowedWorksParser _parser;
   final KakuyomuFollowedWorksPageFetcher? _pageFetcher;
@@ -159,6 +167,24 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
 
   @override
   NovelSource get source => NovelSource.kakuyomu;
+
+  @override
+  Future<AccountAuthState> getAuthState() async {
+    if (!await _authService.isSessionValid()) {
+      return AccountAuthState.loggedOut(source: source);
+    }
+
+    return AccountAuthState.loggedIn(
+      source: source,
+      displayName: await _sessionRepository.getUsername(),
+    );
+  }
+
+  @override
+  Future<bool> isLoggedIn() async => (await getAuthState()).isLoggedIn;
+
+  @override
+  Future<void> logout() => _authService.logout();
 
   Future<KakuyomuFollowedWorksHttpResponse> _fetchPage(
     Uri url,
