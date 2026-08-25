@@ -12,3 +12,8 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+# デバッグ用の署名鍵だけは共有する。
+# 開発者間とCIでデバッグ署名を一致させるため（OAuth の SHA-1 登録が安定する）。
+# Android の慣例どおりパスワードは公開値のため秘密情報ではない。
+# リリース鍵（key.properties / upload-keystore.jks）は引き続き除外する。
+!app/debug.keystore

@@ -36,6 +36,15 @@ android {
     }
 
     signingConfigs {
+        // デバッグ署名はリポジトリ同梱の鍵に固定する。
+        // 既定の ~/.android/debug.keystore はCIランナーごとに新規生成され、
+        // ビルドのたびに署名が変わってしまうため。
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         create("release") {
             if (keystorePropertiesFile.exists()) {
                 keyAlias = keystoreProperties.getProperty("keyAlias")
