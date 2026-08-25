@@ -4,9 +4,9 @@ import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/auth_failure_message.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-
 part 'narou_auth_service.g.dart';
 
 const _loginUrl = 'https://syosetu.com/login/login/';
@@ -118,7 +118,7 @@ class NarouAuthService {
       // DioException 以外（Secure Storage の失敗や解析エラー等）も
       // 失敗として返す。ここで throw すると呼び出し元の進捗表示が
       // 解除されず、画面が固まったままになる。
-      return NarouLoginResult.failure('ログインに失敗しました: $e');
+      return NarouLoginResult.failure(describeAuthFailure(e));
     }
   }
 

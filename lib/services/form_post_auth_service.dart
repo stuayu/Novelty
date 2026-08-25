@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:novelty/repositories/form_auth_session_repository.dart';
+import 'package:novelty/utils/auth_failure_message.dart';
 
 /// フォームPOSTログインのサイト別仕様。
 class FormPostAuthConfiguration {
@@ -126,8 +127,10 @@ class FormPostAuthService {
       return FormAuthLoginResult.failure(
         error.message ?? 'ネットワークエラーが発生しました',
       );
-    } on Exception {
-      return const FormAuthLoginResult.failure('ログイン状態を確認できませんでした');
+    } on Object catch (error) {
+      // Secure Storage の失敗など DioException 以外も失敗として返す。
+      // ここで throw すると呼び出し元の進捗表示が解除されない。
+      return FormAuthLoginResult.failure(describeAuthFailure(error));
     }
   }
 
