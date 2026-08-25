@@ -6,6 +6,7 @@ import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/narou/narou_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/sites/novelup/novelup_site.dart';
 import 'package:riverpod/riverpod.dart';
 
 void main() {
@@ -47,8 +48,19 @@ void main() {
       );
     });
 
-    test('登録エントリは5件', () {
-      expect(defaultNovelSiteRegistry, hasLength(5));
+    test('novelup が既定レジストリとプロバイダに登録されている', () {
+      expect(defaultNovelSiteRegistry[NovelSource.novelup], isA<NovelupSite>());
+
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      expect(
+        container.read(novelSiteRegistryProvider)[NovelSource.novelup],
+        isA<NovelupSite>(),
+      );
+    });
+
+    test('登録エントリは6件', () {
+      expect(defaultNovelSiteRegistry, hasLength(6));
     });
 
     test('登録済みエントリのキーと実装の source が一致する', () {

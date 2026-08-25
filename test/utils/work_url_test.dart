@@ -79,5 +79,19 @@ void main() {
         throwsA(isA<FormatException>()),
       );
     });
+
+    test('ノベルアップ＋は数字のworkIdから作品URLを組み立てる', () {
+      expect(
+        buildWorkUrl(NovelSource.novelup, workId: '258567814'),
+        'https://novelup.plus/story/258567814',
+      );
+    });
+
+    test('ノベルアップ＋はworkIdがnullならFormatExceptionを投げる', () {
+      expect(
+        () => buildWorkUrl(NovelSource.novelup),
+        throwsA(isA<FormatException>()),
+      );
+    });
   });
 }

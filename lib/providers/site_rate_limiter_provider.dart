@@ -9,6 +9,8 @@ const Map<NovelSource, Duration> siteRequestIntervals = <NovelSource, Duration>{
   NovelSource.alphapolis: Duration(seconds: 1),
   NovelSource.hameln: Duration(seconds: 3),
   NovelSource.estar: Duration(seconds: 1),
+  // 規約第13条22号に配慮し、確認時の下限1秒より保守的な間隔にする。
+  NovelSource.novelup: Duration(seconds: 2),
 };
 
 final _narouRateLimiterProvider = Provider<RequestRateLimiter>((ref) {
@@ -37,6 +39,12 @@ final _estarRateLimiterProvider = Provider<RequestRateLimiter>((ref) {
   return RequestRateLimiter(interval: siteRequestIntervals[NovelSource.estar]!);
 });
 
+final _novelupRateLimiterProvider = Provider<RequestRateLimiter>((ref) {
+  return RequestRateLimiter(
+    interval: siteRequestIntervals[NovelSource.novelup]!,
+  );
+});
+
 /// アプリ内でサイトごとに単一のレートリミッターを提供する。
 Provider<RequestRateLimiter> siteRateLimiterProvider(NovelSource source) {
   return switch (source) {
@@ -45,5 +53,6 @@ Provider<RequestRateLimiter> siteRateLimiterProvider(NovelSource source) {
     NovelSource.alphapolis => _alphapolisRateLimiterProvider,
     NovelSource.hameln => _hamelnRateLimiterProvider,
     NovelSource.estar => _estarRateLimiterProvider,
+    NovelSource.novelup => _novelupRateLimiterProvider,
   };
 }

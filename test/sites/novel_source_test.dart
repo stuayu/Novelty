@@ -4,8 +4,8 @@ import 'package:novelty/sites/novel_source.dart';
 
 void main() {
   group('NovelSource', () {
-    test('定義されているサイト種別は5つ', () {
-      expect(NovelSource.values, hasLength(5));
+    test('定義されているサイト種別は6つ', () {
+      expect(NovelSource.values, hasLength(6));
       expect(
         NovelSource.values.map((source) => source.name),
         containsAll(<String>[
@@ -14,6 +14,7 @@ void main() {
           'alphapolis',
           'hameln',
           'estar',
+          'novelup',
         ]),
       );
     });
@@ -57,6 +58,15 @@ void main() {
       expect(source.label, 'エブリスタ');
       expect(source.baseUrl, 'https://estar.jp');
       expect(siteRequestIntervals[source], const Duration(seconds: 1));
+    });
+
+    test('novelup のメタデータと取得間隔が仕様どおり', () {
+      const source = NovelSource.novelup;
+
+      expect(source.dbId, 'novelup');
+      expect(source.label, 'ノベルアップ＋');
+      expect(source.baseUrl, 'https://novelup.plus');
+      expect(siteRequestIntervals[source], const Duration(seconds: 2));
     });
 
     test('dbId は enum 名と同一', () {

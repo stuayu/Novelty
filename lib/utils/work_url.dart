@@ -3,6 +3,7 @@ import 'package:novelty/utils/alphapolis_uri.dart';
 import 'package:novelty/utils/estar_uri.dart';
 import 'package:novelty/utils/hameln_uri.dart';
 import 'package:novelty/utils/ncode_utils.dart';
+import 'package:novelty/utils/novelup_uri.dart';
 
 /// 作品ページのURLを組み立てる。
 ///
@@ -25,5 +26,7 @@ String buildWorkUrl(
       return buildHamelnWorkUrl(workId ?? '');
     case NovelSource.estar:
       return buildEstarWorkUrl(workId ?? '');
+    case NovelSource.novelup:
+      return buildNovelupWorkUrl(workId ?? '');
   }
 }
