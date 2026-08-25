@@ -23,6 +23,7 @@ class AccountTileConfiguration {
     required this.logoutMessage,
     this.syncSubtitle,
     this.syncAfterLogin = false,
+    this.syncEnabled = true,
   });
 
   /// 対象サイト。
@@ -54,6 +55,9 @@ class AccountTileConfiguration {
 
   /// ログイン成功直後に同期するか。
   final bool syncAfterLogin;
+
+  /// 同期操作を表示するか。
+  final bool syncEnabled;
 }
 
 Future<bool?> _openNarouLogin(BuildContext context) async {
@@ -63,6 +67,15 @@ Future<bool?> _openNarouLogin(BuildContext context) async {
 
 Future<bool?> _openKakuyomuLogin(BuildContext context) =>
     const KakuyomuLoginRoute().push<bool>(context);
+
+Future<bool?> _openAlphapolisLogin(BuildContext context) =>
+    const AlphapolisLoginRoute().push<bool>(context);
+
+Future<bool?> _openHamelnLogin(BuildContext context) =>
+    const HamelnLoginRoute().push<bool>(context);
+
+Future<bool?> _openNovelupLogin(BuildContext context) =>
+    const NovelupLoginRoute().push<bool>(context);
 
 /// ログイン画面が実装済みのサイトに対するアカウントタイル設定。
 const Map<NovelSource, AccountTileConfiguration> _accountTileConfigurations = {
@@ -87,6 +100,39 @@ const Map<NovelSource, AccountTileConfiguration> _accountTileConfigurations = {
     sessionExpiredMessage: 'カクヨムのログイン期限が切れました。再ログインしてください',
     logoutMessage: 'カクヨムからログアウトしました',
     syncAfterLogin: true,
+  ),
+  NovelSource.alphapolis: AccountTileConfiguration(
+    source: NovelSource.alphapolis,
+    login: _openAlphapolisLogin,
+    loggedOutSubtitle: '未ログイン・フォーム認証',
+    syncLabel: '同期未対応',
+    syncSuccessNoun: '件',
+    syncFailureMessage: 'アルファポリスの同期機能は未対応です',
+    sessionExpiredMessage: 'アルファポリスのログイン期限が切れました',
+    logoutMessage: 'アルファポリスからログアウトしました',
+    syncEnabled: false,
+  ),
+  NovelSource.hameln: AccountTileConfiguration(
+    source: NovelSource.hameln,
+    login: _openHamelnLogin,
+    loggedOutSubtitle: '未ログイン・フォーム認証',
+    syncLabel: '同期未対応',
+    syncSuccessNoun: '件',
+    syncFailureMessage: 'ハーメルンの同期機能は未対応です',
+    sessionExpiredMessage: 'ハーメルンのログイン期限が切れました',
+    logoutMessage: 'ハーメルンからログアウトしました',
+    syncEnabled: false,
+  ),
+  NovelSource.novelup: AccountTileConfiguration(
+    source: NovelSource.novelup,
+    login: _openNovelupLogin,
+    loggedOutSubtitle: '未ログイン・フォーム認証',
+    syncLabel: '同期未対応',
+    syncSuccessNoun: '件',
+    syncFailureMessage: 'ノベルアップ＋の同期機能は未対応です',
+    sessionExpiredMessage: 'ノベルアップ＋のログイン期限が切れました',
+    logoutMessage: 'ノベルアップ＋からログアウトしました',
+    syncEnabled: false,
   ),
 };
 
@@ -125,14 +171,15 @@ class AccountTile extends ConsumerWidget {
           title: Text(source.label),
           subtitle: Text(authState.displayName ?? 'ログイン済み'),
           children: [
-            ListTile(
-              leading: const Icon(Icons.sync),
-              title: Text(configuration.syncLabel),
-              subtitle: configuration.syncSubtitle == null
-                  ? null
-                  : Text(configuration.syncSubtitle!),
-              onTap: () => _sync(context, ref),
-            ),
+            if (configuration.syncEnabled)
+              ListTile(
+                leading: const Icon(Icons.sync),
+                title: Text(configuration.syncLabel),
+                subtitle: configuration.syncSubtitle == null
+                    ? null
+                    : Text(configuration.syncSubtitle!),
+                onTap: () => _sync(context, ref),
+              ),
             ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('ログアウト'),

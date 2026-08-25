@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:novelty/screens/about_page.dart';
+import 'package:novelty/screens/alphapolis_login_page.dart';
 import 'package:novelty/screens/author_novels_page.dart';
 import 'package:novelty/screens/data_storage_page.dart';
 import 'package:novelty/screens/download_manager_page.dart';
 import 'package:novelty/screens/explore_page.dart';
+import 'package:novelty/screens/hameln_login_page.dart';
 import 'package:novelty/screens/history_page.dart';
 import 'package:novelty/screens/kakuyomu_login_page.dart';
 import 'package:novelty/screens/library_page.dart';
@@ -12,6 +14,7 @@ import 'package:novelty/screens/login_page.dart';
 import 'package:novelty/screens/more_page.dart';
 import 'package:novelty/screens/novel_detail_page.dart';
 import 'package:novelty/screens/novel_page.dart';
+import 'package:novelty/screens/novelup_login_page.dart';
 import 'package:novelty/screens/scaffold_page.dart';
 import 'package:novelty/screens/settings/appearance_settings_page.dart';
 import 'package:novelty/screens/settings/reader_settings_page.dart';
@@ -71,6 +74,9 @@ final router = GoRouter(
             TypedGoRoute<DownloadsRoute>(path: 'downloads'),
             TypedGoRoute<LoginRoute>(path: 'login'),
             TypedGoRoute<KakuyomuLoginRoute>(path: 'kakuyomu-login'),
+            TypedGoRoute<AlphapolisLoginRoute>(path: 'alphapolis-login'),
+            TypedGoRoute<HamelnLoginRoute>(path: 'hameln-login'),
+            TypedGoRoute<NovelupLoginRoute>(path: 'novelup-login'),
           ],
         ),
       ],
@@ -238,6 +244,39 @@ class KakuyomuLoginRoute extends GoRouteData with $KakuyomuLoginRoute {
   @override
   Widget build(BuildContext context, GoRouterState state) {
     return const KakuyomuLoginPage();
+  }
+}
+
+/// アルファポリスログイン画面のルート。
+class AlphapolisLoginRoute extends GoRouteData with $AlphapolisLoginRoute {
+  /// コンストラクタ。
+  const AlphapolisLoginRoute();
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return const AlphapolisLoginPage();
+  }
+}
+
+/// ハーメルンログイン画面のルート。
+class HamelnLoginRoute extends GoRouteData with $HamelnLoginRoute {
+  /// コンストラクタ。
+  const HamelnLoginRoute();
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return const HamelnLoginPage();
+  }
+}
+
+/// ノベルアップ＋ログイン画面のルート。
+class NovelupLoginRoute extends GoRouteData with $NovelupLoginRoute {
+  /// コンストラクタ。
+  const NovelupLoginRoute();
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return const NovelupLoginPage();
   }
 }
 

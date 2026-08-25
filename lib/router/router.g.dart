@@ -85,6 +85,21 @@ RouteBase get $appShellRouteData => StatefulShellRouteData.$route(
               hasOverriddenOnExit: false,
               factory: $KakuyomuLoginRoute._fromState,
             ),
+            GoRouteData.$route(
+              path: 'alphapolis-login',
+              hasOverriddenOnExit: false,
+              factory: $AlphapolisLoginRoute._fromState,
+            ),
+            GoRouteData.$route(
+              path: 'hameln-login',
+              hasOverriddenOnExit: false,
+              factory: $HamelnLoginRoute._fromState,
+            ),
+            GoRouteData.$route(
+              path: 'novelup-login',
+              hasOverriddenOnExit: false,
+              factory: $NovelupLoginRoute._fromState,
+            ),
           ],
         ),
       ],
@@ -307,6 +322,69 @@ mixin $KakuyomuLoginRoute on GoRouteData {
 
   @override
   String get location => GoRouteData.$location('/more/kakuyomu-login');
+
+  @override
+  void go(BuildContext context) => context.go(location);
+
+  @override
+  Future<T?> push<T>(BuildContext context) => context.push<T>(location);
+
+  @override
+  void pushReplacement(BuildContext context) =>
+      context.pushReplacement(location);
+
+  @override
+  void replace(BuildContext context) => context.replace(location);
+}
+
+mixin $AlphapolisLoginRoute on GoRouteData {
+  static AlphapolisLoginRoute _fromState(GoRouterState state) =>
+      const AlphapolisLoginRoute();
+
+  @override
+  String get location => GoRouteData.$location('/more/alphapolis-login');
+
+  @override
+  void go(BuildContext context) => context.go(location);
+
+  @override
+  Future<T?> push<T>(BuildContext context) => context.push<T>(location);
+
+  @override
+  void pushReplacement(BuildContext context) =>
+      context.pushReplacement(location);
+
+  @override
+  void replace(BuildContext context) => context.replace(location);
+}
+
+mixin $HamelnLoginRoute on GoRouteData {
+  static HamelnLoginRoute _fromState(GoRouterState state) =>
+      const HamelnLoginRoute();
+
+  @override
+  String get location => GoRouteData.$location('/more/hameln-login');
+
+  @override
+  void go(BuildContext context) => context.go(location);
+
+  @override
+  Future<T?> push<T>(BuildContext context) => context.push<T>(location);
+
+  @override
+  void pushReplacement(BuildContext context) =>
+      context.pushReplacement(location);
+
+  @override
+  void replace(BuildContext context) => context.replace(location);
+}
+
+mixin $NovelupLoginRoute on GoRouteData {
+  static NovelupLoginRoute _fromState(GoRouterState state) =>
+      const NovelupLoginRoute();
+
+  @override
+  String get location => GoRouteData.$location('/more/novelup-login');
 
   @override
   void go(BuildContext context) => context.go(location);

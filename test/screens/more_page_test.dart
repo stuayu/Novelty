@@ -65,6 +65,14 @@ final List<Override> _authOverrides = [
     (ref) async =>
         const AccountAuthState.loggedOut(source: NovelSource.kakuyomu),
   ),
+  for (final source in [
+    NovelSource.alphapolis,
+    NovelSource.hameln,
+    NovelSource.novelup,
+  ])
+    accountAuthStateProvider(source).overrideWith(
+      (ref) async => AccountAuthState.loggedOut(source: source),
+    ),
 ];
 
 void main() {
@@ -114,7 +122,7 @@ void main() {
     expect(find.text(NovelSource.alphapolis.label), findsNothing);
   });
 
-  testWidgets('ログインルート未登録サイトはアダプター登録済みでも表示しない', (tester) async {
+  testWidgets('共通タイルに既存2サイトとフォーム認証3サイトが並ぶ', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -129,11 +137,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text(NovelSource.narou.label), findsOneWidget);
-    expect(find.text(NovelSource.kakuyomu.label), findsOneWidget);
-    for (final source in NovelSource.values.skip(2)) {
-      expect(find.text(source.label), findsNothing);
+    for (final source in [
+      NovelSource.narou,
+      NovelSource.kakuyomu,
+      NovelSource.alphapolis,
+      NovelSource.hameln,
+      NovelSource.novelup,
+    ]) {
+      expect(find.text(source.label), findsOneWidget);
     }
+    expect(find.text(NovelSource.estar.label), findsNothing);
   });
 
   testWidgets('オフラインモードスイッチを切り替えると設定が永続化される', (tester) async {
