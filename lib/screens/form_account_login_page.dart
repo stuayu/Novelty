@@ -57,12 +57,21 @@ class _FormAccountLoginPageState extends ConsumerState<FormAccountLoginPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
-    final result = await widget.login(
-      _accountController.text.trim(),
-      _passwordController.text,
-    );
+    // 例外が出てもインジケータを必ず解除する。
+    // finally が無いとログイン失敗時に進捗表示が回り続ける。
+    FormAuthLoginResult result;
+    try {
+      result = await widget.login(
+        _accountController.text.trim(),
+        _passwordController.text,
+      );
+    } on Object catch (e) {
+      result = FormAuthLoginResult.failure('ログインに失敗しました: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+
     if (!mounted) return;
-    setState(() => _isLoading = false);
 
     if (result.isSuccess) {
       ref.invalidate(accountAuthStateProvider(widget.source));

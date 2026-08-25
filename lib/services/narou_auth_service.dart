@@ -47,6 +47,7 @@ class NarouAuthService {
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
+
   /// HTTPクライアント。レート制限とタイムアウトは共通ファクトリで設定する。
   final Dio _dio;
 
@@ -113,6 +114,11 @@ class NarouAuthService {
       return NarouLoginResult.failure(
         e.message ?? 'ネットワークエラーが発生しました',
       );
+    } on Object catch (e) {
+      // DioException 以外（Secure Storage の失敗や解析エラー等）も
+      // 失敗として返す。ここで throw すると呼び出し元の進捗表示が
+      // 解除されず、画面が固まったままになる。
+      return NarouLoginResult.failure('ログインに失敗しました: $e');
     }
   }
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/models/account_auth_state.dart';
 import 'package:novelty/services/narou_auth_service.dart';
@@ -33,20 +34,29 @@ class NarouLogin extends _$NarouLogin {
   }) async {
     state = const AsyncValue.loading();
     final authService = ref.read(narouAuthServiceProvider);
-    final result = await authService.login(
-      narouid: narouid,
-      password: password,
-    );
+    try {
+      final result = await authService.login(
+        narouid: narouid,
+        password: password,
+      );
 
-    if (result.isSuccess) {
-      state = const AsyncValue.data(null);
-      // ログイン成功後に、なろうのリモートライブラリを同期する。
-      final adapter = ref.read(narouAccountSyncAdapterProvider);
-      await adapter.pullLibrary();
-      ref.invalidate(accountAuthStateProvider(adapter.source));
-    } else {
+      if (result.isSuccess) {
+        // ログイン成功後に、なろうのリモートライブラリを同期する。
+        // 同期の失敗でログイン自体を失敗にはしない。
+        final adapter = ref.read(narouAccountSyncAdapterProvider);
+        try {
+          await adapter.pullLibrary();
+        } on Object catch (e) {
+          debugPrint('[Novelty][Auth] ログイン後の同期に失敗: $e');
+        }
+        ref.invalidate(accountAuthStateProvider(adapter.source));
+      }
+      return result;
+    } on Object catch (e) {
+      return NarouLoginResult.failure('ログインに失敗しました: $e');
+    } finally {
+      // 例外の有無にかかわらずローディングを解除する。
       state = const AsyncValue.data(null);
     }
-    return result;
   }
 }

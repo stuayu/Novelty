@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/providers/auth_provider.dart';
+import 'package:novelty/services/narou_auth_service.dart';
 
 /// なろうアカウントのログイン画面。
 class LoginPage extends ConsumerStatefulWidget {
@@ -31,13 +32,23 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
-    final result = await ref.read(narouLoginProvider.notifier).login(
-          narouid: _narouidController.text.trim(),
-          password: _passwordController.text,
-        );
+    // 例外が出てもインジケータを必ず解除する。
+    // finally が無いとログイン失敗時に進捗表示が回り続ける。
+    NarouLoginResult result;
+    try {
+      result = await ref
+          .read(narouLoginProvider.notifier)
+          .login(
+            narouid: _narouidController.text.trim(),
+            password: _passwordController.text,
+          );
+    } on Object catch (e) {
+      result = NarouLoginResult.failure('ログインに失敗しました: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
 
     if (!mounted) return;
-    setState(() => _isLoading = false);
 
     if (result.isSuccess) {
       Navigator.of(context).pop();
@@ -73,16 +84,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 Text(
                   'ログイン',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'なろうアカウントでログインすると、ブックマークの同期やしおりの連携ができます。',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color:
-                            Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 32),
                 TextFormField(
@@ -145,9 +155,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 Text(
                   'パスワードはデバイスのキーチェーン（Keychain / Android Keystore）に安全に保存されます。',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color:
-                            Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ],
