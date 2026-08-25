@@ -25,6 +25,7 @@ workspace:
   - packages/kakuyomu_parser
   - packages/narou_parser
   - packages/novel_parser_core
+  - packages/novelup_parser
   - packages/tategaki
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -64,6 +65,8 @@ dependencies:
     path: packages/narou_parser
   novel_parser_core:
     path: packages/novel_parser_core
+  novelup_parser:
+    path: packages/novelup_parser
   path: ^1.9.0
   path_provider: ^2.1.6
   riverpod: ^3.3.2

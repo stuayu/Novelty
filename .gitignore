@@ -72,3 +72,7 @@ coverage/
 # End of https://www.toptal.com/developers/gitignore/api/flutter
 novelty_backup*.db
 /package.json
+
+# 解析用に取得したAndroidアプリのパッケージ。リポジトリには含めない。
+*.apk
+*.xapk
