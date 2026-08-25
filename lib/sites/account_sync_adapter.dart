@@ -13,6 +13,15 @@ enum AccountSyncOutcome {
   failed,
 }
 
+/// 保存済みの認証セッションが失効した場合の共通例外。
+class AccountSessionExpiredException implements Exception {
+  /// コンストラクタ。
+  const AccountSessionExpiredException();
+
+  @override
+  String toString() => 'AccountSessionExpiredException';
+}
+
 /// 小説提供サイトのアカウント同期を抽象化するインターフェース。
 ///
 /// UI やサイト固有の認証情報を公開せず、ライブラリと読書進捗の

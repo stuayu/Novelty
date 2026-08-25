@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:novelty/router/router.dart';
+import 'package:novelty/sites/account_sync_registry.dart';
+import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/settings_provider.dart';
-import 'package:novelty/widgets/accounts/kakuyomu_account_tile.dart';
-import 'package:novelty/widgets/accounts/narou_account_tile.dart';
+import 'package:novelty/widgets/accounts/account_tile.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// "もっと"ページ（設定ハブ）のウィジェット。
@@ -108,13 +109,24 @@ class _MorePageState extends ConsumerState<MorePage> {
   }
 
   Widget _buildAccountSection() {
+    final registry = ref.watch(accountSyncRegistryProvider);
+    final accountTiles = NovelSource.values
+        .where(registry.containsKey)
+        .map(accountTileConfigurationFor)
+        .nonNulls
+        .map<Widget>(
+          (configuration) => AccountTile(configuration: configuration),
+        )
+        .toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionHeader('アカウント'),
-        const NarouAccountTile(),
-        const Divider(indent: 56),
-        const KakuyomuAccountTile(),
+        for (final (index, tile) in accountTiles.indexed) ...[
+          if (index > 0) const Divider(indent: 56),
+          tile,
+        ],
       ],
     );
   }

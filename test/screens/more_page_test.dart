@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/models/account_auth_state.dart';
 import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/screens/more_page.dart';
+import 'package:novelty/sites/account_sync_adapter.dart';
+import 'package:novelty/sites/account_sync_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
@@ -18,6 +20,41 @@ class FakePathProviderPlatform extends Fake
   Future<String?> getApplicationDocumentsPath() async {
     return '/mock/documents';
   }
+}
+
+class _FakeAccountSyncAdapter implements AccountSyncAdapter {
+  _FakeAccountSyncAdapter(this.source);
+
+  @override
+  final NovelSource source;
+
+  @override
+  Future<AccountAuthState> getAuthState() async =>
+      AccountAuthState.loggedOut(source: source);
+
+  @override
+  Future<bool> isLoggedIn() async => false;
+
+  @override
+  Future<void> logout() async {}
+
+  @override
+  Future<int> pullLibrary() async => 0;
+
+  @override
+  Future<AccountSyncOutcome> addToRemoteLibrary(String workId) async =>
+      AccountSyncOutcome.notLoggedIn;
+
+  @override
+  Future<AccountSyncOutcome> removeFromRemoteLibrary(String workId) async =>
+      AccountSyncOutcome.notLoggedIn;
+
+  @override
+  Future<bool> pushReadingProgress({
+    required String workId,
+    required int episode,
+    String? position,
+  }) async => false;
 }
 
 final List<Override> _authOverrides = [
@@ -56,6 +93,47 @@ void main() {
 
     expect(find.text('オフラインモード'), findsOneWidget);
     expect(find.text('通信を行わず、保存済みのコンテンツのみ利用します'), findsOneWidget);
+  });
+
+  testWidgets('アカウント同期アダプターが登録されたサイトだけを表示する', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          ..._authOverrides,
+          accountSyncRegistryProvider.overrideWithValue({
+            NovelSource.narou: _FakeAccountSyncAdapter(NovelSource.narou),
+          }),
+        ],
+        child: const MaterialApp(home: MorePage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(NovelSource.narou.label), findsOneWidget);
+    expect(find.text(NovelSource.kakuyomu.label), findsNothing);
+    expect(find.text(NovelSource.alphapolis.label), findsNothing);
+  });
+
+  testWidgets('ログインルート未登録サイトはアダプター登録済みでも表示しない', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          ..._authOverrides,
+          accountSyncRegistryProvider.overrideWithValue({
+            for (final source in NovelSource.values)
+              source: _FakeAccountSyncAdapter(source),
+          }),
+        ],
+        child: const MaterialApp(home: MorePage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(NovelSource.narou.label), findsOneWidget);
+    expect(find.text(NovelSource.kakuyomu.label), findsOneWidget);
+    for (final source in NovelSource.values.skip(2)) {
+      expect(find.text(source.label), findsNothing);
+    }
   });
 
   testWidgets('オフラインモードスイッチを切り替えると設定が永続化される', (tester) async {
