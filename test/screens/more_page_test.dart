@@ -68,6 +68,7 @@ final List<Override> _authOverrides = [
   for (final source in [
     NovelSource.alphapolis,
     NovelSource.hameln,
+    NovelSource.estar,
     NovelSource.novelup,
   ])
     accountAuthStateProvider(source).overrideWith(
@@ -122,7 +123,7 @@ void main() {
     expect(find.text(NovelSource.alphapolis.label), findsNothing);
   });
 
-  testWidgets('共通タイルに既存2サイトとフォーム認証3サイトが並ぶ', (tester) async {
+  testWidgets('共通タイルに認証対応6サイトが並ぶ', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -142,11 +143,11 @@ void main() {
       NovelSource.kakuyomu,
       NovelSource.alphapolis,
       NovelSource.hameln,
+      NovelSource.estar,
       NovelSource.novelup,
     ]) {
       expect(find.text(source.label), findsOneWidget);
     }
-    expect(find.text(NovelSource.estar.label), findsNothing);
   });
 
   testWidgets('オフラインモードスイッチを切り替えると設定が永続化される', (tester) async {

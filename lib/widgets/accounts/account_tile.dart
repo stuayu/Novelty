@@ -74,6 +74,9 @@ Future<bool?> _openAlphapolisLogin(BuildContext context) =>
 Future<bool?> _openHamelnLogin(BuildContext context) =>
     const HamelnLoginRoute().push<bool>(context);
 
+Future<bool?> _openEstarLogin(BuildContext context) =>
+    const EstarLoginRoute().push<bool>(context);
+
 Future<bool?> _openNovelupLogin(BuildContext context) =>
     const NovelupLoginRoute().push<bool>(context);
 
@@ -121,6 +124,17 @@ const Map<NovelSource, AccountTileConfiguration> _accountTileConfigurations = {
     syncFailureMessage: 'ハーメルンの同期機能は未対応です',
     sessionExpiredMessage: 'ハーメルンのログイン期限が切れました',
     logoutMessage: 'ハーメルンからログアウトしました',
+    syncEnabled: false,
+  ),
+  NovelSource.estar: AccountTileConfiguration(
+    source: NovelSource.estar,
+    login: _openEstarLogin,
+    loggedOutSubtitle: '未ログイン・公式ログイン画面を使用します',
+    syncLabel: '同期未対応',
+    syncSuccessNoun: '件',
+    syncFailureMessage: 'エブリスタの同期機能は未対応です',
+    sessionExpiredMessage: 'エブリスタのログイン期限が切れました',
+    logoutMessage: 'エブリスタからログアウトしました',
     syncEnabled: false,
   ),
   NovelSource.novelup: AccountTileConfiguration(

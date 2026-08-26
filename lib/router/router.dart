@@ -5,6 +5,7 @@ import 'package:novelty/screens/alphapolis_login_page.dart';
 import 'package:novelty/screens/author_novels_page.dart';
 import 'package:novelty/screens/data_storage_page.dart';
 import 'package:novelty/screens/download_manager_page.dart';
+import 'package:novelty/screens/estar_login_page.dart';
 import 'package:novelty/screens/explore_page.dart';
 import 'package:novelty/screens/hameln_login_page.dart';
 import 'package:novelty/screens/history_page.dart';
@@ -76,6 +77,7 @@ final router = GoRouter(
             TypedGoRoute<KakuyomuLoginRoute>(path: 'kakuyomu-login'),
             TypedGoRoute<AlphapolisLoginRoute>(path: 'alphapolis-login'),
             TypedGoRoute<HamelnLoginRoute>(path: 'hameln-login'),
+            TypedGoRoute<EstarLoginRoute>(path: 'estar-login'),
             TypedGoRoute<NovelupLoginRoute>(path: 'novelup-login'),
           ],
         ),
@@ -266,6 +268,17 @@ class HamelnLoginRoute extends GoRouteData with $HamelnLoginRoute {
   @override
   Widget build(BuildContext context, GoRouterState state) {
     return const HamelnLoginPage();
+  }
+}
+
+/// エブリスタログイン画面のルート。
+class EstarLoginRoute extends GoRouteData with $EstarLoginRoute {
+  /// コンストラクタ。
+  const EstarLoginRoute();
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return const EstarLoginPage();
   }
 }
 

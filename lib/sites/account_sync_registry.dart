@@ -3,12 +3,14 @@ import 'package:novelty/database/database.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/repositories/form_auth_session_repository.dart';
 import 'package:novelty/services/alphapolis_auth_service.dart';
+import 'package:novelty/services/estar_auth_service.dart';
 import 'package:novelty/services/hameln_auth_service.dart';
 import 'package:novelty/services/narou_auth_service.dart';
 import 'package:novelty/services/narou_sync_service.dart';
 import 'package:novelty/services/novelup_auth_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/alphapolis/alphapolis_account_sync_adapter.dart';
+import 'package:novelty/sites/estar/estar_account_sync_adapter.dart';
 import 'package:novelty/sites/hameln/hameln_account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/sites/narou/narou_account_sync_adapter.dart';
@@ -56,6 +58,13 @@ final novelupAccountSyncAdapterProvider = Provider<NovelupAccountSyncAdapter>(
   ),
 );
 
+/// エブリスタのアカウント認証アダプター。
+final estarAccountSyncAdapterProvider = Provider<EstarAccountSyncAdapter>(
+  (ref) => EstarAccountSyncAdapter(
+    authService: ref.watch(estarAuthServiceProvider),
+  ),
+);
+
 /// サイトごとのアカウント同期アダプターを提供するレジストリ。
 ///
 /// 対応していないサイトは Map に登録しない。呼び出し側は `registry[source]`
@@ -69,6 +78,7 @@ final accountSyncRegistryProvider =
           alphapolisAccountSyncAdapterProvider,
         ),
         NovelSource.hameln: ref.watch(hamelnAccountSyncAdapterProvider),
+        NovelSource.estar: ref.watch(estarAccountSyncAdapterProvider),
         NovelSource.novelup: ref.watch(novelupAccountSyncAdapterProvider),
       },
     );

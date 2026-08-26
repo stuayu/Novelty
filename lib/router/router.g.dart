@@ -96,6 +96,11 @@ RouteBase get $appShellRouteData => StatefulShellRouteData.$route(
               factory: $HamelnLoginRoute._fromState,
             ),
             GoRouteData.$route(
+              path: 'estar-login',
+              hasOverriddenOnExit: false,
+              factory: $EstarLoginRoute._fromState,
+            ),
+            GoRouteData.$route(
               path: 'novelup-login',
               hasOverriddenOnExit: false,
               factory: $NovelupLoginRoute._fromState,
@@ -364,6 +369,27 @@ mixin $HamelnLoginRoute on GoRouteData {
 
   @override
   String get location => GoRouteData.$location('/more/hameln-login');
+
+  @override
+  void go(BuildContext context) => context.go(location);
+
+  @override
+  Future<T?> push<T>(BuildContext context) => context.push<T>(location);
+
+  @override
+  void pushReplacement(BuildContext context) =>
+      context.pushReplacement(location);
+
+  @override
+  void replace(BuildContext context) => context.replace(location);
+}
+
+mixin $EstarLoginRoute on GoRouteData {
+  static EstarLoginRoute _fromState(GoRouterState state) =>
+      const EstarLoginRoute();
+
+  @override
+  String get location => GoRouteData.$location('/more/estar-login');
 
   @override
   void go(BuildContext context) => context.go(location);

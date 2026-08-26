@@ -8,6 +8,7 @@ import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/account_sync_registry.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_session_exception.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/widgets/accounts/account_tile.dart';
 import 'package:novelty/widgets/accounts/kakuyomu_account_tile.dart';
 import 'package:novelty/widgets/accounts/narou_account_tile.dart';
 
@@ -99,6 +100,36 @@ void main() {
     await tester.tap(find.text('ログイン済み'));
     await tester.pumpAndSettle();
     expect(find.text('フォロー作品・閲覧履歴を同期'), findsOneWidget);
+  });
+
+  testWidgets('エブリスタタイルは表示されるが同期操作を出さない', (tester) async {
+    final adapter = _FakeAccountSyncAdapter(source: NovelSource.estar);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          accountSyncRegistryProvider.overrideWithValue({
+            NovelSource.estar: adapter,
+          }),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: AccountTile(
+              configuration: accountTileConfigurationFor(
+                NovelSource.estar,
+              )!,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('エブリスタ'), findsOneWidget);
+    await tester.tap(find.text('ログイン済み'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('ログアウト'), findsOneWidget);
+    expect(find.byIcon(Icons.sync), findsNothing);
   });
 
   testWidgets('カクヨムのログイン操作はrouter経由で画面を開く', (tester) async {
