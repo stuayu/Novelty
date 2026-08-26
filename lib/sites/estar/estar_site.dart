@@ -111,7 +111,7 @@ class EstarUnavailableEpisodeException implements Exception {
 }
 
 /// エブリスタのサイト定義。
-class EstarSite implements NovelSite {
+class EstarSite implements NovelSite, RankingCacheControl {
   /// コンストラクタ。
   EstarSite({Dio? dio, RequestRateLimiter? rateLimiter})
     : _dio = _createRateLimitedDio(
@@ -169,7 +169,37 @@ class EstarSite implements NovelSite {
   ];
 
   @override
-  List<RankingTypeMaster> get rankingTypes => const <RankingTypeMaster>[];
+  List<RankingTypeMaster> get rankingTypes => const <RankingTypeMaster>[
+    RankingTypeMaster(
+      id: 'all',
+      label: '総合',
+      urlPath:
+          '/novels/ranking?ranking_type=all&ranking_axis_type=general_popular',
+    ),
+    RankingTypeMaster(
+      id: 'kiriban',
+      label: 'スター',
+      urlPath:
+          '/novels/kiriban?ranking_type=all&ranking_axis_type=general_popular',
+    ),
+    RankingTypeMaster(
+      id: 'new_arrivals',
+      label: '新着',
+      urlPath:
+          '/novels/new_arrivals?ranking_type=all&ranking_axis_type=general_popular&type=pickup',
+    ),
+    RankingTypeMaster(
+      id: 'finished',
+      label: '完結',
+      urlPath:
+          '/novels/finished?ranking_type=all&ranking_axis_type=general_popular&type=pickup',
+    ),
+    RankingTypeMaster(
+      id: 'trend',
+      label: 'トレンド',
+      urlPath: '/novels/trend?ranking_type=all&ranking_axis_type=general',
+    ),
+  ];
 
   @override
   Future<NovelInfo> fetchNovelInfo(String workId) async {
@@ -400,13 +430,211 @@ class EstarSite implements NovelSite {
   }
 
   @override
-  Future<NovelSearchResult> searchNovels(NovelSearchQuery query) {
-    throw UnsupportedError('エブリスタの検索は未対応です');
+  Future<NovelSearchResult> searchNovels(NovelSearchQuery query) async {
+    if (query.st < 1) {
+      throw ArgumentError.value(query.st, 'query.st', '1以上で指定してください');
+    }
+    if (query.genreId case final genreIds? when genreIds.isNotEmpty) {
+      throw UnsupportedError(
+        'エブリスタのジャンル検索パラメータは未確認です: ${genreIds.join(',')}',
+      );
+    }
+    final word = query.word?.trim() ?? '';
+    final page = ((query.st - 1) ~/ 30) + 1;
+    final uri = Uri.parse('${source.baseUrl}/novels').replace(
+      queryParameters: <String, String>{
+        if (word.isNotEmpty) 'keyword': word,
+        if (page > 1) 'page': '$page',
+      },
+    );
+    final data = _parseNuxtData(
+      html_parser.parse(await _getHtml(uri.toString())),
+    );
+    final connection = _findNovelConnection(data, requireTotalCount: true);
+    if (connection == null) {
+      throw const FormatException('__NUXT_DATA__に検索結果がありません');
+    }
+    final totalCount = _optionalInt(connection['totalCount']);
+    if (totalCount == null || totalCount < 0) {
+      throw const FormatException('__NUXT_DATA__の検索結果件数が不正です');
+    }
+    final nodes = connection['nodes'] as List<dynamic>;
+    if (totalCount > 0 && nodes.isEmpty) {
+      throw const FormatException('__NUXT_DATA__に検索作品がありません');
+    }
+    return NovelSearchResult(
+      novels: nodes.map(_listingToNovelInfo).toList(),
+      allCount: totalCount,
+    );
   }
 
   @override
-  Future<RankingPage> fetchRanking(String rankingType, {int page = 1}) {
-    throw UnsupportedError('エブリスタのランキングは未対応です');
+  Future<RankingPage> fetchRanking(String rankingType, {int page = 1}) =>
+      _fetchRanking(rankingType, page: page);
+
+  @override
+  Future<RankingPage> refreshRanking(String rankingType, {int page = 1}) =>
+      _fetchRanking(rankingType, page: page, forceRefresh: true);
+
+  Future<RankingPage> _fetchRanking(
+    String rankingType, {
+    required int page,
+    bool forceRefresh = false,
+  }) async {
+    if (page < 1) {
+      throw ArgumentError.value(page, 'page', '1以上で指定してください');
+    }
+    final type = rankingTypes
+        .where((item) => item.id == rankingType)
+        .firstOrNull;
+    if (type == null) {
+      throw ArgumentError.value(rankingType, 'rankingType', '未定義のランキング種別です');
+    }
+    final baseUri = Uri.parse(source.baseUrl).resolve(type.urlPath);
+    final uri = baseUri.replace(
+      queryParameters: <String, String>{
+        ...baseUri.queryParameters,
+        if (page > 1) 'page': '$page',
+      },
+    );
+    if (forceRefresh) {
+      _htmlCache.remove(uri.toString());
+    }
+    final data = _parseNuxtData(
+      html_parser.parse(await _getHtml(uri.toString())),
+    );
+    final connection = _findNovelConnection(data);
+    if (connection == null) {
+      throw const FormatException('__NUXT_DATA__にランキング結果がありません');
+    }
+    final nodes = connection['nodes'] as List<dynamic>;
+    if (nodes.isEmpty) {
+      throw const FormatException('__NUXT_DATA__にランキング作品がありません');
+    }
+    final pageInfo = connection['pageInfo'];
+    final hasNextPage = pageInfo is Map<String, dynamic>
+        ? pageInfo['hasNextPage']
+        : null;
+    if (hasNextPage is! bool) {
+      throw const FormatException('__NUXT_DATA__のランキングページ情報が不正です');
+    }
+    final ranked = nodes.map((node) {
+      if (node is! Map<String, dynamic>) {
+        throw const FormatException('エブリスタランキングの作品情報が不正です');
+      }
+      final rank = _optionalInt(node['rank']);
+      if (rank == null || rank < 1) {
+        throw const FormatException('エブリスタランキングの順位が不正です');
+      }
+      return (rank: rank, novel: _listingToNovelInfo(node));
+    }).toList()..sort((left, right) => left.rank.compareTo(right.rank));
+    return RankingPage(
+      novels: ranked.map((item) => item.novel).toList(),
+      hasNextPage: hasNextPage,
+    );
+  }
+
+  NovelInfo _listingToNovelInfo(Object? rawNode) {
+    if (rawNode is! Map<String, dynamic>) {
+      throw const FormatException('エブリスタの作品情報がオブジェクトではありません');
+    }
+    final workId = rawNode['workId']?.toString();
+    final title = (rawNode['title'] as String?)?.trim();
+    if (workId == null ||
+        !RegExp(r'^\d+$').hasMatch(workId) ||
+        title == null ||
+        title.isEmpty) {
+      throw const FormatException('エブリスタ作品の必須項目が見つかりません');
+    }
+    final user = rawNode['user'];
+    final genre = rawNode['genre'];
+    final episodeCount = _optionalInt(rawNode['episodeCount']);
+    final tags = rawNode['tags'];
+    final tagNames = tags is List<dynamic>
+        ? tags
+              .map(
+                (tag) => switch (tag) {
+                  final String name => name,
+                  final Map<String, dynamic> data => data['name'] as String?,
+                  _ => null,
+                },
+              )
+              .whereType<String>()
+              .map((name) => name.trim())
+              .where((name) => name.isNotEmpty)
+              .toList()
+        : const <String>[];
+    final description = (rawNode['description'] as String?)?.trim();
+    final catchphrase = (rawNode['catchphrase'] as String?)?.trim();
+    return NovelInfo(
+      source: NovelSource.estar,
+      workId: workId,
+      title: title,
+      writer: user is Map<String, dynamic>
+          ? (user['nickname'] as String?)?.trim()
+          : null,
+      story: description?.isNotEmpty == true ? description : null,
+      catchphrase: catchphrase?.isNotEmpty == true ? catchphrase : null,
+      genreId: genre is Map<String, dynamic>
+          ? genre['genreId']?.toString()
+          : null,
+      novelType: switch (episodeCount) {
+        1 => 2,
+        final int count when count > 1 => 1,
+        _ => null,
+      },
+      end: switch (rawNode['writingStatus']) {
+        'finished' => 0,
+        'writing' => 1,
+        _ => null,
+      },
+      generalAllNo: episodeCount != null && episodeCount > 0
+          ? episodeCount
+          : null,
+      totalCharacterCount:
+          _optionalInt(rawNode['bodyCount']) ??
+          _optionalInt(rawNode['publishedBodyCount']),
+      keyword: tagNames.isEmpty ? null : tagNames.join(' '),
+      generalLastup: _normalizeDateTime(rawNode['bodyUpdatedAt'] as String?),
+    );
+  }
+
+  Map<String, dynamic>? _findNovelConnection(
+    Object? value, {
+    bool requireTotalCount = false,
+  }) {
+    if (value is Map<String, dynamic>) {
+      final nodes = value['nodes'];
+      final pageInfo = value['pageInfo'];
+      final hasRequiredCount =
+          !requireTotalCount || value['totalCount'] != null;
+      if (nodes is List<dynamic> &&
+          pageInfo is Map<String, dynamic> &&
+          hasRequiredCount &&
+          (nodes.isEmpty ||
+              nodes.any(
+                (node) =>
+                    node is Map<String, dynamic> && node['workId'] != null,
+              ))) {
+        return value;
+      }
+      for (final child in value.values) {
+        final found = _findNovelConnection(
+          child,
+          requireTotalCount: requireTotalCount,
+        );
+        if (found != null) return found;
+      }
+    } else if (value is List<dynamic>) {
+      for (final child in value) {
+        final found = _findNovelConnection(
+          child,
+          requireTotalCount: requireTotalCount,
+        );
+        if (found != null) return found;
+      }
+    }
+    return null;
   }
 
   Future<String> _getHtml(String url) {
@@ -536,10 +764,20 @@ class EstarSite implements NovelSite {
     final segments = uri.pathSegments
         .where((segment) => segment.isNotEmpty)
         .toList();
-    if ((segments.length != 2 && segments.length != 3) ||
-        segments.first != 'novels' ||
-        !RegExp(r'^\d+$').hasMatch(segments[1]) ||
-        (segments.length == 3 && segments.last != 'viewer')) {
+    const listingPaths = <String>{
+      '/novels',
+      '/novels/ranking',
+      '/novels/kiriban',
+      '/novels/new_arrivals',
+      '/novels/finished',
+      '/novels/trend',
+    };
+    final isWorkPage =
+        (segments.length == 2 || segments.length == 3) &&
+        segments.first == 'novels' &&
+        RegExp(r'^\d+$').hasMatch(segments[1]) &&
+        (segments.length == 2 || segments.last == 'viewer');
+    if (!listingPaths.contains(uri.path) && !isWorkPage) {
       throw StateError('確認済みのエブリスタ公開作品URLではありません: $uri');
     }
   }
@@ -550,10 +788,60 @@ class EstarSite implements NovelSite {
       throw const FormatException('__NUXT_DATA__が見つかりません');
     }
     final decoded = json.decode(script.text);
-    if (decoded is! Map<String, dynamic>) {
+    final normalized = decoded is List<dynamic>
+        ? _decodeNuxtReferences(decoded)
+        : decoded;
+    if (normalized is! Map<String, dynamic>) {
       throw const FormatException('__NUXT_DATA__がオブジェクトではありません');
     }
-    return decoded;
+    return normalized;
+  }
+
+  Object? _decodeNuxtReferences(List<dynamic> values) {
+    if (values.isEmpty) {
+      throw const FormatException('__NUXT_DATA__の参照配列が空です');
+    }
+    final cache = <int, Object?>{};
+
+    Object? resolve(int index) {
+      if (index < 0) {
+        return switch (index) {
+          -1 => null,
+          -2 => double.nan,
+          -3 => double.infinity,
+          -4 => double.negativeInfinity,
+          -5 => -0.0,
+          _ => null,
+        };
+      }
+      if (index >= values.length) {
+        throw const FormatException('__NUXT_DATA__の参照先が範囲外です');
+      }
+      if (cache.containsKey(index)) return cache[index];
+      final raw = values[index];
+      if (raw is Map<String, dynamic>) {
+        final result = <String, dynamic>{};
+        cache[index] = result;
+        for (final entry in raw.entries) {
+          result[entry.key] = entry.value is int
+              ? resolve(entry.value as int)
+              : entry.value;
+        }
+        return result;
+      }
+      if (raw is List<dynamic>) {
+        final result = <dynamic>[];
+        cache[index] = result;
+        result.addAll(
+          raw.map((item) => item is int ? resolve(item) : item),
+        );
+        return result;
+      }
+      cache[index] = raw;
+      return raw;
+    }
+
+    return resolve(0);
   }
 
   int _requiredPositiveInt(Map<String, dynamic> data, String key) {

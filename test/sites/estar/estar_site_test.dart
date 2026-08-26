@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:estar_parser/estar_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/models/novel_info.dart';
+import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/sites/estar/estar_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
@@ -163,7 +164,7 @@ EstarSite _createSite(
 
 void main() {
   group('EstarSite', () {
-    test('本文パーサ・確定済みジャンル・未確定機能の状態を提供する', () {
+    test('本文パーサ・確定済みジャンル・ランキング種別を提供する', () {
       final site = EstarSite(
         dio: Dio(),
         rateLimiter: RequestRateLimiter(interval: Duration.zero),
@@ -175,7 +176,40 @@ void main() {
       expect(content.single, isA<RubyText>());
       expect(site.genres, hasLength(16));
       expect(site.genres.map((genre) => genre.id), contains('1020'));
-      expect(site.rankingTypes, isEmpty);
+      expect(site.genres.every((genre) => genre.bigGenreId == null), isTrue);
+      expect(site.genres.every((genre) => !genre.isBigGenre), isTrue);
+      expect(
+        site.rankingTypes
+            .map((type) => (type.id, type.label, type.urlPath))
+            .toList(),
+        <(String, String, String)>[
+          (
+            'all',
+            '総合',
+            '/novels/ranking?ranking_type=all&ranking_axis_type=general_popular',
+          ),
+          (
+            'kiriban',
+            'スター',
+            '/novels/kiriban?ranking_type=all&ranking_axis_type=general_popular',
+          ),
+          (
+            'new_arrivals',
+            '新着',
+            '/novels/new_arrivals?ranking_type=all&ranking_axis_type=general_popular&type=pickup',
+          ),
+          (
+            'finished',
+            '完結',
+            '/novels/finished?ranking_type=all&ranking_axis_type=general_popular&type=pickup',
+          ),
+          (
+            'trend',
+            'トレンド',
+            '/novels/trend?ranking_type=all&ranking_axis_type=general',
+          ),
+        ],
+      );
       expect(
         site.metaText(const NovelInfo(source: NovelSource.estar)),
         isNull,
@@ -450,6 +484,163 @@ void main() {
           throwsStateError,
         );
         expect(adapter.requests, isEmpty);
+      });
+    });
+
+    group('fetchRanking', () {
+      test('全5種別を定義済みURLから取得しSSRの順位順で作品情報を返す', () async {
+        final seedSite = EstarSite(
+          dio: Dio(),
+          rateLimiter: RequestRateLimiter(interval: Duration.zero),
+        );
+        final adapter = _FixtureAdapter(<String, _FixtureResponse>{
+          for (final type in seedSite.rankingTypes)
+            'GET https://estar.jp${type.urlPath}': _FixtureResponse(
+              _fixture('ranking_page.html'),
+            ),
+        });
+        final limiter = _CountingRateLimiter();
+        final site = _createSite(adapter, rateLimiter: limiter);
+
+        for (final type in site.rankingTypes) {
+          final result = await site.fetchRanking(type.id);
+
+          expect(result.hasNextPage, isTrue);
+          expect(result.novels, hasLength(1));
+          final firstPlace = result.novels.first;
+          expect(firstPlace.source, NovelSource.estar);
+          expect(firstPlace.workId, '26544596');
+          expect(firstPlace.ncode, isNull);
+          expect(
+            firstPlace.title,
+            '交際0日婚したはずなのに冷徹夫からの溺愛がとまりません',
+          );
+          expect(firstPlace.writer, '春野カノン🌻コミカライズ配信中');
+          expect(firstPlace.story, contains('黛彩葉'));
+          expect(firstPlace.genreId, '1020');
+          expect(firstPlace.keyword, contains('交際0日婚'));
+          expect(firstPlace.end, 1);
+          expect(firstPlace.novelType, isNull);
+          expect(firstPlace.generalLastup, '2026-08-26 07:00:17');
+        }
+
+        expect(adapter.requests, hasLength(5));
+        expect(limiter.waitCount, 5);
+      });
+
+      test('2ページ目は既存クエリを保持してpage=2を追加する', () async {
+        const url =
+            'https://estar.jp/novels/ranking?ranking_type=all&ranking_axis_type=general_popular&page=2';
+        final adapter = _FixtureAdapter(<String, _FixtureResponse>{
+          'GET $url': _FixtureResponse(_fixture('ranking_page.html')),
+        });
+
+        final result = await _createSite(adapter).fetchRanking('all', page: 2);
+
+        expect(result.hasNextPage, isTrue);
+        expect(adapter.requests.single.uri.toString(), url);
+      });
+
+      test('未定義種別と1未満のページはHTTP送信前に拒否する', () async {
+        final adapter = _FixtureAdapter(<String, _FixtureResponse>{});
+        final site = _createSite(adapter);
+
+        await expectLater(
+          site.fetchRanking('unknown'),
+          throwsArgumentError,
+        );
+        await expectLater(
+          site.fetchRanking('all', page: 0),
+          throwsArgumentError,
+        );
+        expect(adapter.requests, isEmpty);
+      });
+
+      test('SSRにランキング作品が無ければ空成功にしない', () async {
+        final adapter = _FixtureAdapter(<String, _FixtureResponse>{
+          'GET /novels/ranking': const _FixtureResponse('''
+            <script id="__NUXT_DATA__" type="application/json">
+              {"pageInfo":{"hasNextPage":false},"nodes":[]}
+            </script>
+          '''),
+        });
+
+        await expectLater(
+          _createSite(adapter).fetchRanking('all'),
+          throwsFormatException,
+        );
+      });
+    });
+
+    group('searchNovels', () {
+      test('keywordとst由来のpageを送りSSR検索結果を返す', () async {
+        const url = 'https://estar.jp/novels?keyword=%E6%81%8B%E6%84%9B&page=2';
+        final adapter = _FixtureAdapter(<String, _FixtureResponse>{
+          'GET $url': _FixtureResponse(_fixture('search_page.html')),
+        });
+        final limiter = _CountingRateLimiter();
+
+        final result =
+            await _createSite(
+              adapter,
+              rateLimiter: limiter,
+            ).searchNovels(
+              const NovelSearchQuery(
+                source: NovelSource.estar,
+                word: ' 恋愛 ',
+                st: 31,
+              ),
+            );
+
+        expect(result.allCount, 795);
+        expect(result.novels, hasLength(1));
+        final info = result.novels.single;
+        expect(info.source, NovelSource.estar);
+        expect(info.workId, '9736231');
+        expect(info.ncode, isNull);
+        expect(info.title, 'ペットと彼氏と三角関係');
+        expect(info.writer, 'suiren');
+        expect(info.story, '年上の彼氏と年下のペットと三角関係');
+        expect(info.genreId, '1020');
+        expect(info.end, 0);
+        expect(info.novelType, isNull);
+        expect(info.totalCharacterCount, 72118);
+        expect(info.generalLastup, '2026-08-21 21:58:59');
+        expect(adapter.requests.single.uri.toString(), url);
+        expect(limiter.waitCount, 1);
+      });
+
+      test('未確定のジャンル指定は無視せずHTTP送信前に非対応とする', () async {
+        final adapter = _FixtureAdapter(<String, _FixtureResponse>{});
+
+        await expectLater(
+          _createSite(adapter).searchNovels(
+            const NovelSearchQuery(
+              source: NovelSource.estar,
+              word: '恋愛',
+              genreId: <String>['1020'],
+            ),
+          ),
+          throwsUnsupportedError,
+        );
+        expect(adapter.requests, isEmpty);
+      });
+
+      test('SSRに検索結果件数が無ければ空成功にしない', () async {
+        final adapter = _FixtureAdapter(<String, _FixtureResponse>{
+          'GET /novels': const _FixtureResponse('''
+            <script id="__NUXT_DATA__" type="application/json">
+              {"nodes":[]}
+            </script>
+          '''),
+        });
+
+        await expectLater(
+          _createSite(adapter).searchNovels(
+            const NovelSearchQuery(source: NovelSource.estar),
+          ),
+          throwsFormatException,
+        );
       });
     });
   });

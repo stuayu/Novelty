@@ -128,7 +128,7 @@ void main() {
       expect(find.text('四半期'), findsNothing);
     });
 
-    testWidgets('ランキング未対応サイトでは空タブとフィルターを表示しない', (tester) async {
+    testWidgets('エブリスタでは確定済み5種別のランキングタブを表示する', (tester) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -145,8 +145,11 @@ void main() {
       await tester.tap(find.text('エブリスタ').last);
       await tester.pumpAndSettle();
 
-      expect(find.byType(TabBar), findsNothing);
-      expect(find.byIcon(Icons.filter_list), findsNothing);
+      expect(find.byType(TabBar), findsOneWidget);
+      for (final label in <String>['総合', 'スター', '新着', '完結', 'トレンド']) {
+        expect(find.text(label), findsOneWidget);
+      }
+      expect(find.byIcon(Icons.filter_list), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
