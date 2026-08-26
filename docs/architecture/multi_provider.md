@@ -68,7 +68,7 @@ ExplorePage (source 切替)
 
 - **robots.txt 遵守**: `KakuyomuSite` がリクエスト前に禁止パス（`/read` ページ等）を検証して拒否
 - **レート制限**: サイトごとに単一の `RequestRateLimiter`（`lib/utils/request_rate_limiter.dart`）を
-  `siteRateLimiterProvider` で共有する。間隔はなろう250ms、カクヨム1秒、アルファポリス1秒。
+  `siteRateLimiterProvider` で共有する。間隔はなろう250ms、カクヨム1秒、アルファポリス1秒、ハーメルン5秒、エブリスタ1秒、ノベルアップ＋2秒。
   Future チェーンで直列化しており、並行呼び出しでも間隔が守られる
 - **HTTPクライアント**: `createNoveltyDio()`（`lib/services/http_client.dart`）を共通で使う。
   タイムアウト（接続15秒・送受信30秒）、User-Agent、429/503 の指数バックオフを集約している
@@ -82,6 +82,9 @@ ExplorePage (source 切替)
 | `narou_parser` | なろう本文 | `.p-novel__text` の innerHtml |
 | `kakuyomu_parser` | カクヨム本文 | `widget-episodeBody` の innerHtml |
 | `alphapolis_parser` | アルファポリス本文 | `POST /novel/episode_body` のレスポンス、または `#novelBody` を含むページ |
+| `hameln_parser` | ハーメルン本文 | `#honbun` を含むページ |
+| `estar_parser` | エブリスタ本文 | GraphQL レスポンスの本文プレーンテキスト |
+| `novelup_parser` | ノベルアップ＋本文 | `p#episode_content` を含むページ |
 
 本文表示（`NovelContentView`）は `NovelContentElement` のみに依存するため、パーサーを追加しても表示層は無変更。
 
