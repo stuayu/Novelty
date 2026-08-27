@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:novelty/models/account_auth_state.dart';
 import 'package:novelty/repositories/form_auth_session_repository.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
@@ -19,6 +20,11 @@ class FormAccountSyncAdapter implements AccountSyncAdapter {
   final NovelSource source;
 
   final FormAuthSessionRepository _sessionRepository;
+
+  /// 保存済みセッション。サイト固有の同期処理から参照する。
+  @protected
+  FormAuthSessionRepository get sessionRepository => _sessionRepository;
+
   final Future<bool> Function() _validateSession;
   final Future<void> Function() _clearSession;
 

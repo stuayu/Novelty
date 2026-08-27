@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/database/database.dart';
+import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/repositories/form_auth_session_repository.dart';
 import 'package:novelty/services/alphapolis_auth_service.dart';
@@ -35,6 +36,10 @@ final alphapolisAccountSyncAdapterProvider =
           formAuthSessionRepositoryProvider(NovelSource.alphapolis),
         ),
         authService: ref.watch(alphapolisAuthServiceProvider),
+        db: ref.watch(appDatabaseProvider),
+        rateLimiter: ref.watch(
+          siteRateLimiterProvider(NovelSource.alphapolis),
+        ),
       ),
     );
 
