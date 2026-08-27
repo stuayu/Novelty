@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart' as parser;
 import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/auth_repository.dart';
@@ -78,7 +79,15 @@ class NarouAuthService {
         ),
       );
 
+      debugPrint(
+        '[NarouAuth] login: status=${response.statusCode} '
+        'location=${response.headers.value('location')}',
+      );
+
       final setCookieHeaders = response.headers.map['set-cookie'];
+      debugPrint(
+        '[NarouAuth] login: set-cookie件数=${setCookieHeaders?.length ?? 0}',
+      );
       if (setCookieHeaders == null || setCookieHeaders.isEmpty) {
         return const NarouLoginResult.failure(
           'ログインに失敗しました。IDまたはパスワードが正しくありません。',
@@ -89,6 +98,10 @@ class NarouAuthService {
       final ses = cookies['ses'];
       final ks2 = cookies['ks2'];
       final userl = cookies['userl'];
+      debugPrint(
+        '[NarouAuth] login: Cookie名=${cookies.keys.toList()} '
+        'ses=${ses != null} ks2=${ks2 != null} userl=${userl != null}',
+      );
 
       if (ses == null || ks2 == null || userl == null) {
         return const NarouLoginResult.failure(
@@ -99,6 +112,7 @@ class NarouAuthService {
       // ブックマーク一覧ページからユーザー名を取得する
       final username =
           await _fetchUsername(ks2: ks2, ses: ses, userl: userl) ?? narouid;
+      debugPrint('[NarouAuth] login: ユーザー名取得完了');
 
       // 認証情報を安全に保存する
       await authRepository.saveNarouid(narouid);
@@ -109,12 +123,21 @@ class NarouAuthService {
         userl: userl,
       );
 
+      debugPrint('[NarouAuth] login: 認証情報の保存に成功しました');
+
       return NarouLoginResult.success(username: username);
     } on DioException catch (e) {
+      debugPrint(
+        '[NarouAuth] login: DioException type=${e.type} '
+        'status=${e.response?.statusCode} message=${e.message} '
+        'error=${e.error}',
+      );
       return NarouLoginResult.failure(
         e.message ?? 'ネットワークエラーが発生しました',
       );
-    } on Object catch (e) {
+    } on Object catch (e, stackTrace) {
+      debugPrint('[NarouAuth] login: 例外 ${e.runtimeType}: $e');
+      debugPrint('[NarouAuth] login: $stackTrace');
       // DioException 以外（Secure Storage の失敗や解析エラー等）も
       // 失敗として返す。ここで throw すると呼び出し元の進捗表示が
       // 解除されず、画面が固まったままになる。
@@ -183,7 +206,8 @@ class NarouAuthService {
       // ユーザー名は `.p-up-header-pc__username` から取得
       final nameEl = doc.querySelector('.p-up-header-pc__username');
       return nameEl?.text.trim().replaceAll(RegExp(r'\s+'), ' ');
-    } on Exception {
+    } on Exception catch (e) {
+      debugPrint('[NarouAuth] _fetchUsername: 例外 ${e.runtimeType}: $e');
       return null;
     }
   }
