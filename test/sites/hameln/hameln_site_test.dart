@@ -61,11 +61,13 @@ class _CountingRateLimiter extends RequestRateLimiter {
 HamelnSite _createSite(
   _FixtureAdapter adapter, {
   RequestRateLimiter? rateLimiter,
+  HamelnHtmlFetcher? htmlFetcher,
 }) {
   final dio = Dio()..httpClientAdapter = adapter;
   return HamelnSite(
     dio: dio,
     rateLimiter: rateLimiter ?? RequestRateLimiter(interval: Duration.zero),
+    htmlFetcher: htmlFetcher,
   );
 }
 
@@ -354,6 +356,120 @@ void main() {
 
         await expectLater(
           _createSite(adapter).fetchRanking('rank_day'),
+          throwsA(isA<HamelnCloudflareChallengeException>()),
+        );
+      });
+
+      test('HTTP 403時にWebViewフォールバックHTMLをパースする', () async {
+        const url = 'https://syosetu.org/?mode=rank_day';
+        final adapter = _FixtureAdapter(
+          <String, String>{url: 'Forbidden'},
+          statusCodes: const <String, int>{url: 403},
+        );
+        var fetcherCalls = 0;
+
+        final page = await _createSite(
+          adapter,
+          htmlFetcher: (requestedUrl) async {
+            fetcherCalls++;
+            expect(requestedUrl, url);
+            return _fixture('ranking.html');
+          },
+        ).fetchRanking('rank_day');
+
+        expect(fetcherCalls, 1);
+        expect(page.novels, hasLength(100));
+      });
+
+      test('WebViewフォールバック成功HTMLをキャッシュする', () async {
+        const url = 'https://syosetu.org/?mode=rank_day';
+        final adapter = _FixtureAdapter(
+          <String, String>{url: 'Forbidden'},
+          statusCodes: const <String, int>{url: 403},
+        );
+        var fetcherCalls = 0;
+        final site = _createSite(
+          adapter,
+          htmlFetcher: (_) async {
+            fetcherCalls++;
+            return _fixture('ranking.html');
+          },
+        );
+
+        await site.fetchRanking('rank_day');
+        await site.fetchRanking('rank_day');
+
+        expect(fetcherCalls, 1);
+        expect(adapter.requests, hasLength(1));
+      });
+
+      test('WebViewフォールバック失敗時はCloudflare例外にする', () async {
+        const url = 'https://syosetu.org/?mode=rank_day';
+        final adapter = _FixtureAdapter(
+          <String, String>{url: 'Forbidden'},
+          statusCodes: const <String, int>{url: 403},
+        );
+
+        await expectLater(
+          _createSite(
+            adapter,
+            htmlFetcher: (_) async => throw StateError('WebView unavailable'),
+          ).fetchRanking('rank_day'),
+          throwsA(isA<HamelnCloudflareChallengeException>()),
+        );
+      });
+
+      test('200でCloudflareチャレンジが返ってもWebViewへフォールバックする', () async {
+        // Cloudflareは403だけでなく200でチャレンジページを返すことがある。
+        const url = 'https://syosetu.org/?mode=rank_day';
+        final adapter = _FixtureAdapter(<String, String>{
+          url: _fixture('ranking_cloudflare.html'),
+        });
+        var fetcherCalls = 0;
+
+        final page = await _createSite(
+          adapter,
+          htmlFetcher: (_) async {
+            fetcherCalls++;
+            return _fixture('ranking.html');
+          },
+        ).fetchRanking('rank_day');
+
+        expect(fetcherCalls, 1);
+        expect(page.novels, hasLength(100));
+      });
+
+      test('WebViewが削除済み作品のHTMLを返せば作品なしの例外にする', () async {
+        // WebViewで取得できた内容の判定は通常経路と同じにする。
+        // アクセス制限の例外へ置き換えると削除済みと区別できなくなる。
+        const url = 'https://syosetu.org/?mode=rank_day';
+        final adapter = _FixtureAdapter(
+          <String, String>{url: 'Forbidden'},
+          statusCodes: const <String, int>{url: 403},
+        );
+
+        await expectLater(
+          _createSite(
+            adapter,
+            htmlFetcher: (_) async =>
+                '<html><body>投稿者が削除、もしくは間違ったアドレスを指定しています</body></html>',
+          ).fetchRanking('rank_day'),
+          throwsA(isA<HamelnWorkNotFoundException>()),
+        );
+      });
+
+      test('WebViewがチャレンジHTMLしか返せなければCloudflare例外にする', () async {
+        const url = 'https://syosetu.org/?mode=rank_day';
+        final adapter = _FixtureAdapter(
+          <String, String>{url: 'Forbidden'},
+          statusCodes: const <String, int>{url: 403},
+        );
+
+        await expectLater(
+          _createSite(
+            adapter,
+            htmlFetcher: (_) async => _fixture('ranking_cloudflare.html'),
+          ).fetchRanking('rank_day'),
           throwsA(isA<HamelnCloudflareChallengeException>()),
         );
       });

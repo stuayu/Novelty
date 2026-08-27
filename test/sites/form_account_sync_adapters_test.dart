@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novelty/database/database.dart';
 import 'package:novelty/repositories/form_auth_session_repository.dart';
 import 'package:novelty/services/alphapolis_auth_service.dart';
 import 'package:novelty/services/hameln_auth_service.dart';
@@ -41,6 +42,13 @@ class _MemoryRepository extends FormAuthSessionRepository {
   @override
   Future<String?> buildCookieHeader() async => 'opaque=session';
 
+  // ハーメルンはCloudflare対策でHTTP確認ができず、保存済みCookieの内容で
+  // ログイン状態を判定する。Secure Storageへ触れないようここで返す。
+  @override
+  Future<Map<String, String>> getCookies() async => const <String, String>{
+    'sson': 'session',
+  };
+
   @override
   Future<String?> getAccountId() async => _accountId;
 
@@ -57,6 +65,7 @@ void main() {
         (
           NovelSource,
           AccountSyncAdapter Function(_MemoryRepository repository, Dio dio),
+          bool supportsPullLibrary,
         )
       >[
         (
@@ -67,7 +76,10 @@ void main() {
               sessionRepository: repository,
               dio: dio,
             ),
+            db: AppDatabase.memory(),
+            dio: dio,
           ),
+          true,
         ),
         (
           NovelSource.hameln,
@@ -78,6 +90,7 @@ void main() {
               dio: dio,
             ),
           ),
+          false,
         ),
         (
           NovelSource.novelup,
@@ -88,10 +101,11 @@ void main() {
               dio: dio,
             ),
           ),
+          false,
         ),
       ];
 
-  for (final (source, createAdapter) in cases) {
+  for (final (source, createAdapter, supportsPullLibrary) in cases) {
     group('${source.name} AccountSyncAdapter', () {
       late _MemoryRepository repository;
       late AccountSyncAdapter adapter;
@@ -119,8 +133,10 @@ void main() {
         expect(repository.cleared, isTrue);
       });
 
-      test('未確認の同期4メソッドはUnsupportedError', () async {
-        await expectLater(adapter.pullLibrary(), throwsUnsupportedError);
+      test('未確認の同期メソッドはUnsupportedError', () async {
+        if (!supportsPullLibrary) {
+          await expectLater(adapter.pullLibrary(), throwsUnsupportedError);
+        }
         await expectLater(
           adapter.addToRemoteLibrary('work'),
           throwsUnsupportedError,

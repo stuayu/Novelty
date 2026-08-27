@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/repositories/form_auth_session_repository.dart';
 import 'package:novelty/services/hameln_auth_service.dart';
+import 'package:novelty/services/hameln_web_cookie_service.dart';
 import 'package:novelty/services/novelup_auth_service.dart';
 import 'package:novelty/sites/novel_source.dart';
 
@@ -43,6 +45,9 @@ class _MemoryRepository extends FormAuthSessionRepository {
   }
 
   @override
+  Future<Map<String, String>> getCookies() async => Map.of(savedCookies);
+
+  @override
   Future<String?> buildCookieHeader() async => savedCookies.isEmpty
       ? null
       : savedCookies.entries
@@ -71,6 +76,82 @@ ResponseBody _html(
 
 void main() {
   group('HamelnAuthService', () {
+    test('ログインCookieがあればセッション有効と判定する', () async {
+      // Cloudflareにより素のHTTPでは状態を確認できないため、
+      // WebViewログインで保存したCookieの内容だけで判定する。
+      for (final name in <String>['autologin', 'sson']) {
+        final repository = _MemoryRepository(NovelSource.hameln)
+          ..savedCookies = <String, String>{name: 'value'};
+        final service = HamelnAuthService(sessionRepository: repository);
+
+        expect(
+          await service.isSessionValid(),
+          isTrue,
+          reason: '$name をログイン済みと判定できていない',
+        );
+      }
+    });
+
+    test('未ログインでも付くCookieだけならセッション無効と判定する', () async {
+      final repository = _MemoryRepository(NovelSource.hameln)
+        ..savedCookies = <String, String>{
+          'cf_clearance': 'cloudflare-token',
+          'uaid': 'guest-id',
+          '_ga': 'analytics',
+        };
+      final service = HamelnAuthService(sessionRepository: repository);
+
+      expect(await service.isSessionValid(), isFalse);
+    });
+
+    test('Cookieが無ければセッション無効と判定する', () async {
+      final service = HamelnAuthService(
+        sessionRepository: _MemoryRepository(NovelSource.hameln),
+      );
+
+      expect(await service.isSessionValid(), isFalse);
+    });
+
+    test('セッション確認でHTTPリクエストを送らない', () async {
+      // 素のHTTPは常に403になるうえ、無駄なリクエストでサイトへ負荷をかける。
+      final repository = _MemoryRepository(NovelSource.hameln)
+        ..savedCookies = <String, String>{'sson': 'value'};
+      final adapter = _RecordingAdapter((_) => _html('', 403));
+      final service = HamelnAuthService(
+        sessionRepository: repository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      expect(await service.isSessionValid(), isTrue);
+      expect(adapter.requests, isEmpty);
+    });
+
+    test('logoutでWebViewと保存済みセッションを消す', () async {
+      final repository = _MemoryRepository(NovelSource.hameln);
+      final deleted = <String>[];
+      final webCookieService = HamelnWebCookieService(
+        sessionRepository: repository,
+        cookieReader: (url) async => [
+          Cookie(
+            name: 'cf_clearance',
+            value: 'cloudflare-token',
+            domain: '.syosetu.org',
+            path: '/',
+          ),
+        ],
+        cookieDeleter: (cookie) async => deleted.add(cookie.name),
+      );
+      final service = HamelnAuthService(
+        sessionRepository: repository,
+        webCookieService: webCookieService,
+      );
+
+      await service.logout();
+
+      expect(deleted, ['cf_clearance']);
+      expect(repository.savedCookies, isEmpty);
+    });
+
     test('redirect_modeを抽出し実測済み4フィールドをPOSTする', () async {
       final repository = _MemoryRepository(NovelSource.hameln);
       final adapter = _RecordingAdapter((options) {

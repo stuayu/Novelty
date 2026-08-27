@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hameln_parser/hameln_parser.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
@@ -9,10 +10,14 @@ import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/services/api_service.dart' show NovelNotFoundException;
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/sites/hameln/hameln_html_fetcher.dart';
+import 'package:novelty/sites/hameln/hameln_webview_html_fetcher.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/hameln_uri.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
+
+export 'hameln_html_fetcher.dart';
 
 /// ハーメルンへのHTTP取得に失敗した場合の例外。
 class HamelnHttpException implements Exception {
@@ -68,13 +73,25 @@ class HamelnCloudflareChallengeException implements AccessRestrictedException {
 /// ハーメルンのサイト定義。
 class HamelnSite implements NovelSite, RankingCacheControl {
   /// コンストラクタ。
-  HamelnSite({Dio? dio, RequestRateLimiter? rateLimiter})
-    : _dio = _createRateLimitedDio(
-        dio,
-        rateLimiter ?? RequestRateLimiter(interval: const Duration(seconds: 5)),
-      );
+  HamelnSite({
+    Dio? dio,
+    RequestRateLimiter? rateLimiter,
+    HamelnHtmlFetcher? htmlFetcher,
+    HamelnCookieHeaderFetcher? cookieHeaderFetcher,
+  }) : _htmlFetcher = htmlFetcher ?? defaultHamelnHtmlFetcher,
+       _cookieHeaderFetcher =
+           cookieHeaderFetcher ??
+           (htmlFetcher == null ? defaultHamelnCookieHeaderFetcher : null),
+       _dio = _createRateLimitedDio(
+         dio,
+         rateLimiter ??
+             RequestRateLimiter(interval: const Duration(seconds: 5)),
+       );
 
   final Dio _dio;
+  final HamelnHtmlFetcher _htmlFetcher;
+  final HamelnCookieHeaderFetcher? _cookieHeaderFetcher;
+  String? _cookieHeader;
   final Map<String, ({Future<String> future, DateTime storedAt})> _htmlCache =
       <String, ({Future<String> future, DateTime storedAt})>{};
 
@@ -504,16 +521,58 @@ class HamelnSite implements NovelSite, RankingCacheControl {
       url,
       options: Options(
         responseType: ResponseType.plain,
+        headers: _cookieHeader == null
+            ? null
+            : <String, String>{'Cookie': _cookieHeader!},
         validateStatus: (_) => true,
       ),
     );
     if (response.statusCode == 403) {
-      throw HamelnCloudflareChallengeException(url);
+      return _fetchHtmlWithWebView(url);
     }
     if (response.statusCode != 200) {
       throw HamelnHttpException(response.statusCode ?? -1, url);
     }
     final html = response.data ?? '';
+    // Cloudflareは200でチャレンジページを返すこともある。
+    // 403と同じくWebViewでの解決を試みる。
+    if (_isCloudflareChallenge(html)) {
+      return _fetchHtmlWithWebView(url);
+    }
+    return _validateHtml(url, html);
+  }
+
+  /// WebViewでCloudflareチャレンジを解決してHTMLを取得する。
+  Future<String> _fetchHtmlWithWebView(String url) async {
+    final String html;
+    try {
+      html = await _htmlFetcher(url);
+    } on Object catch (error, stackTrace) {
+      // WebViewを使えない環境・チャレンジ未解決はアクセス制限として扱う。
+      // 原因を握り潰すと切り分けできないため、内容はログに残す。
+      debugPrint('[HamelnWebView] $url の取得に失敗: ${error.runtimeType}: $error');
+      debugPrint('[HamelnWebView] $stackTrace');
+      throw HamelnCloudflareChallengeException(url);
+    }
+    // 取得できたHTMLの内容判定は通常の経路と同じにする。
+    // 削除済み作品やR18確認ページをアクセス制限と取り違えないよう、
+    // ここで出る例外は握り潰さずそのまま呼び出し元へ返す。
+    final validated = _validateHtml(url, html);
+    await _captureCookieHeader(url);
+    return validated;
+  }
+
+  Future<void> _captureCookieHeader(String url) async {
+    final reader = _cookieHeaderFetcher;
+    if (reader == null) return;
+    try {
+      _cookieHeader = await reader(url);
+    } on Object catch (_) {
+      // CookieManager非対応環境でも、WebViewが返したHTMLは利用できる。
+    }
+  }
+
+  String _validateHtml(String url, String html) {
     if (html.contains('投稿者が削除、もしくは間違ったアドレスを指定しています')) {
       throw HamelnWorkNotFoundException(url);
     }
@@ -522,12 +581,14 @@ class HamelnSite implements NovelSite, RankingCacheControl {
         html.contains('cookie_set=r18')) {
       throw HamelnAgeConfirmationException(url);
     }
-    if (html.contains('<title>Just a moment...</title>') &&
-        html.contains('challenge-error-text')) {
+    if (_isCloudflareChallenge(html)) {
       throw HamelnCloudflareChallengeException(url);
     }
     return html;
   }
+
+  /// CloudflareのJavaScriptチャレンジページか判定する。
+  bool _isCloudflareChallenge(String html) => isHamelnChallengeHtml(html);
 
   void _assertAllowed(Uri uri) {
     if (uri.scheme != 'https' ||

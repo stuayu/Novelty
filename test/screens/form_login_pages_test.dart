@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/screens/alphapolis_login_page.dart';
 import 'package:novelty/screens/form_account_login_page.dart';
-import 'package:novelty/screens/hameln_login_page.dart';
 import 'package:novelty/screens/novelup_login_page.dart';
 import 'package:novelty/services/form_post_auth_service.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -11,7 +10,6 @@ import 'package:novelty/sites/novel_source.dart';
 void main() {
   final cases = <(Widget, String, String)>[
     (const AlphapolisLoginPage(), 'アルファポリスにログイン', 'メールアドレス'),
-    (const HamelnLoginPage(), 'ハーメルンにログイン', 'ユーザーID'),
     (const NovelupLoginPage(), 'ノベルアップ＋にログイン', 'メールアドレス'),
   ];
 
