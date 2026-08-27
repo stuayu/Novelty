@@ -599,29 +599,43 @@ class EstarSite implements NovelSite, RankingCacheControl {
     );
   }
 
+  /// 作品一覧のconnectionを探す。
+  ///
+  /// `pageInfo` はconnectionと同じ階層ではなく親側に置かれるため
+  /// （ランキングは `{novels: {nodes}, pageInfo}`）、探索中に直近の
+  /// `pageInfo` を引き継ぎ、connectionが持たない場合はそれを補う。
+  /// 空の `nodes`（未ログインの `selfUser.novels` など）は作品一覧では
+  /// ないため採用しない。
   Map<String, dynamic>? _findNovelConnection(
     Object? value, {
     bool requireTotalCount = false,
+    Map<String, dynamic>? inheritedPageInfo,
   }) {
     if (value is Map<String, dynamic>) {
+      final ownPageInfo = value['pageInfo'];
+      final pageInfo = ownPageInfo is Map<String, dynamic>
+          ? ownPageInfo
+          : inheritedPageInfo;
+
       final nodes = value['nodes'];
-      final pageInfo = value['pageInfo'];
       final hasRequiredCount =
           !requireTotalCount || value['totalCount'] != null;
       if (nodes is List<dynamic> &&
-          pageInfo is Map<String, dynamic> &&
           hasRequiredCount &&
-          (nodes.isEmpty ||
-              nodes.any(
-                (node) =>
-                    node is Map<String, dynamic> && node['workId'] != null,
-              ))) {
-        return value;
+          nodes.any(
+            (node) => node is Map<String, dynamic> && node['workId'] != null,
+          )) {
+        return <String, dynamic>{
+          ...value,
+          'pageInfo': ?pageInfo,
+        };
       }
+
       for (final child in value.values) {
         final found = _findNovelConnection(
           child,
           requireTotalCount: requireTotalCount,
+          inheritedPageInfo: pageInfo,
         );
         if (found != null) return found;
       }
@@ -630,6 +644,7 @@ class EstarSite implements NovelSite, RankingCacheControl {
         final found = _findNovelConnection(
           child,
           requireTotalCount: requireTotalCount,
+          inheritedPageInfo: inheritedPageInfo,
         );
         if (found != null) return found;
       }
@@ -835,13 +850,32 @@ class EstarSite implements NovelSite, RankingCacheControl {
         result.addAll(
           raw.map((item) => item is int ? resolve(item) : item),
         );
-        return result;
+        return _unwrapTaggedValue(result);
       }
       cache[index] = raw;
       return raw;
     }
 
-    return resolve(0);
+    return _unwrapTaggedValue(resolve(0));
+  }
+
+  /// devalueのカスタムタグを剥がす。
+  ///
+  /// エブリスタの`__NUXT_DATA__`は値を `["ShallowReactive", {...}]` や
+  /// `["ModelNovel", {...}]` のようなタグ付き2要素配列で表す。実体は後半の
+  /// 要素なので、タグを取り除いて中身だけを返す。
+  Object? _unwrapTaggedValue(Object? value) {
+    if (value is! List<dynamic> || value.length != 2) return value;
+    final tag = value.first;
+    final content = value.last;
+    if (tag is! String || tag.isEmpty) return value;
+    if (content is! Map<String, dynamic> && content is! List<dynamic>) {
+      return value;
+    }
+    // タグ名はNuxt標準（Reactive等）とサイト定義（Model*）の双方があるため、
+    // 名前を列挙せず「先頭が識別子、後半が構造体」の形だけで判定する。
+    if (!RegExp(r'^[A-Z][A-Za-z0-9_]*$').hasMatch(tag)) return value;
+    return content;
   }
 
   int _requiredPositiveInt(Map<String, dynamic> data, String key) {

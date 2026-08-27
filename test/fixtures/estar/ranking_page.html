@@ -1,27 +1,8 @@
-<!-- 実取得: GET https://estar.jp/novels/ranking?ranking_type=all&ranking_axis_type=general_popular（2026-08-26）。__NUXT_DATA__のランキング結果から、実装に必要な1件とページ情報を抜粋。 -->
+<!--
+     実取得: GET https://estar.jp/novels/ranking?ranking_type=all&ranking_axis_type=general_popular（2026-08-27）。
+     __NUXT_DATA__の参照配列とdevalueのタグ付き値（["ModelNovel", {...}]）の形式をそのまま再現し、作品を1件へ縮小。
+     未ログインで空になる selfUser.novels と extraNovels を残し、空connectionを誤って拾わないことを検証する。
+-->
 <script type="application/json" id="__NUXT_DATA__">
-{
-  "sourceUrl": "https://estar.jp/novels/ranking?ranking_type=all&ranking_axis_type=general_popular",
-  "path": "/novels/ranking?ranking_type=all&ranking_axis_type=general_popular",
-  "rankingType": "all",
-  "rankingAxisType": "general_popular",
-  "perPageCount": 15,
-  "pageInfo": {"hasNextPage": true},
-  "nodes": [{
-    "workId": "26544596",
-    "title": "交際0日婚したはずなのに冷徹夫からの溺愛がとまりません",
-    "user": {"nickname": "春野カノン🌻コミカライズ配信中"},
-    "description": "黛彩葉（まゆずみいろは）は複数の飲食店を経営する飲食業界の大手\"株式会社mayuzumi\"の1人娘でホテル業界を長年牽引してきた大企業\"九十九ホールディングス\"の副社長である九十九海李（つくもかいり）との結婚を控えていた。",
-    "genre": {"genreId": "1020", "name": "恋愛"},
-    "tags": ["溺愛", "切ない", "甘々", "独占欲", "大人の恋", "年上", "ギャップ", "政略結婚", "お見合い", "ハッピーエンド", "交際0日婚"],
-    "episodeCount": 0,
-    "bodyCount": 0,
-    "starNum": 0,
-    "metrics": {"star": 0},
-    "rank": 1,
-    "writingStatus": "writing",
-    "status": "published",
-    "bodyUpdatedAt": "2026-08-26T07:00:17+09:00"
-  }]
-}
+[[1, 2], "ShallowReactive", {"data": 3}, [1, 4], {"novels_ranking": 5}, {"loadAll": 6, "selfUser": 7, "novels": 14, "pageInfo": 52, "genres": 54, "isViolated": 6}, false, [8, 9], "ModelUser", {"novels": 10}, {"nodes": 11, "totalCount": 12, "pageInfo": 13}, [], 0, {}, {"nodes": 15}, [16], [17, 18], "ModelNovel", {"typename": 19, "workId": 20, "title": 21, "user": 22, "description": 25, "genre": 26, "tags": 32, "episodeCount": 12, "bodyCount": 12, "starNum": 12, "metrics": 44, "rank": 45, "writingStatus": 46, "status": 47, "bodyUpdatedAt": 48, "extraNovels": 49}, "", "26544596", "交際0日婚したはずなのに冷徹夫からの溺愛がとまりません", [8, 23], {"nickname": 24}, "春野カノン🌻コミカライズ配信中", "黛彩葉（まゆずみいろは）は複数の飲食店を経営する飲食業界の大手\"株式会社mayuzumi\"の1人娘でホテル業界を長年牽引してきた大企業\"九十九ホールディングス\"の副社長である九十九海李（つくもかいり）との結婚を控えていた。", [27, 28], "ModelGenre", {"genreId": 29, "name": 30, "relatedTags": 31}, "1020", "恋愛", [], [33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43], "溺愛", "切ない", "甘々", "独占欲", "大人の恋", "年上", "ギャップ", "政略結婚", "お見合い", "ハッピーエンド", "交際0日婚", {"star": 12}, 1, "writing", "published", "2026-08-26T07:00:17+09:00", {"nodes": 50, "totalCount": 12, "pageInfo": 51}, [], {}, {"hasNextPage": 53}, true, []]
 </script>

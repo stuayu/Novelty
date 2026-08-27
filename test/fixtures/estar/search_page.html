@@ -1,26 +1,8 @@
-<!-- 実取得: GET https://estar.jp/novels?keyword=%E6%81%8B%E6%84%9B（2026-08-26）。__NUXT_DATA__の検索結果から、実装に必要な1件とページ情報を抜粋。 -->
+<!--
+     実取得: GET https://estar.jp/novels?keyword=%E6%81%8B%E6%84%9B（2026-08-27）。
+     __NUXT_DATA__の参照配列とdevalueのタグ付き値の形式をそのまま再現し、作品を1件へ縮小。
+     totalCountはconnection側、pageInfoは親側に置かれる実構造を保つ。
+-->
 <script type="application/json" id="__NUXT_DATA__">
-{
-  "sourceUrl": "https://estar.jp/novels?keyword=%E6%81%8B%E6%84%9B",
-  "path": "/novels?keyword=%E6%81%8B%E6%84%9B",
-  "keyword": "恋愛",
-  "sort": "score_desc",
-  "perPageCount": 30,
-  "totalCount": 795,
-  "pageInfo": {"hasNextPage": true},
-  "nodes": [{
-    "workId": "9736231",
-    "title": "ペットと彼氏と三角関係",
-    "description": "  年上の彼氏と年下のペットと三角関係",
-    "catchphrase": null,
-    "user": {"nickname": "suiren"},
-    "genre": {"genreId": "1020", "name": "恋愛"},
-    "publishedBodyCount": "72118",
-    "status": "published",
-    "writingStatus": "finished",
-    "isRestricted": false,
-    "workPrice": null,
-    "bodyUpdatedAt": "2026-08-21T21:58:59+09:00"
-  }]
-}
+[[1, 2], "ShallowReactive", {"data": 3}, [1, 4], {"novels": 5}, {"filter": 6, "count": 7, "loadAll": 8, "perPageCount": 9, "selfUser": 10, "novels": 17, "pageInfo": 43, "genres": 45, "noindex": 8, "isViolated": 8}, {}, 795, false, 30, [11, 12], "ModelUser", {"novels": 13}, {"nodes": 14, "totalCount": 15, "pageInfo": 16}, [], 0, {}, {"nodes": 18, "totalCount": 7}, [19], [20, 21], "ModelNovel", {"typename": 22, "workId": 23, "title": 24, "description": 25, "catchphrase": 26, "user": 27, "genre": 30, "publishedBodyCount": 36, "status": 37, "writingStatus": 38, "isRestricted": 8, "workPrice": 26, "bodyUpdatedAt": 39, "extraNovels": 40}, "", "9736231", "ペットと彼氏と三角関係", "  年上の彼氏と年下のペットと三角関係", null, [11, 28], {"nickname": 29}, "suiren", [31, 32], "ModelGenre", {"genreId": 33, "name": 34, "relatedTags": 35}, "1020", "恋愛", [], "72118", "published", "finished", "2026-08-21T21:58:59+09:00", {"nodes": 41, "totalCount": 15, "pageInfo": 42}, [], {}, {"hasNextPage": 44}, true, []]
 </script>
