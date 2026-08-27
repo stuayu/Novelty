@@ -13,6 +13,9 @@ final _configuration = FormPostAuthConfiguration(
   accountField: 'email',
   passwordField: 'password',
   hiddenFields: const ['_token'],
+  // ログイン済みでも `/login` は200でログインフォームを返すため、
+  // セッション確認には未ログイン時に `/login` へ302で戻る要認証URLを使う。
+  sessionCheckUri: Uri.parse('https://www.alphapolis.co.jp/mypage'),
 );
 
 /// アルファポリス認証サービスのプロバイダー。

@@ -258,6 +258,66 @@ void main() {
       expect(await service.isSessionValid(), isFalse);
     });
 
+    test('セッション確認は要認証ページへ保存Cookie付きでアクセスする', () async {
+      final repository = _MemorySessionRepository()
+        ..cookies = {'alpl_v2_front_session': 'valid'};
+      final adapter = _RecordingAdapter(
+        (_) => _html('<h1>マイページ</h1>', 200),
+      );
+      final service = AlphapolisAuthService(
+        sessionRepository: repository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      expect(await service.isSessionValid(), isTrue);
+      expect(
+        adapter.requests.single.uri.toString(),
+        'https://www.alphapolis.co.jp/mypage',
+      );
+      expect(
+        adapter.requests.single.headers['Cookie'],
+        'alpl_v2_front_session=valid',
+      );
+    });
+
+    test('要認証ページに到達できればエラー用classがあってもログイン済み', () async {
+      // マイページ本文に `.error` などが含まれても未ログイン扱いにしない。
+      final repository = _MemorySessionRepository()
+        ..cookies = {'alpl_v2_front_session': 'valid'};
+      final adapter = _RecordingAdapter(
+        (_) => _html(
+          '<div class="error">通信エラー時の非表示要素</div><h1>マイページ</h1>',
+          200,
+        ),
+      );
+      final service = AlphapolisAuthService(
+        sessionRepository: repository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      expect(await service.isSessionValid(), isTrue);
+    });
+
+    test('要認証ページがログインページへredirectすれば未ログイン', () async {
+      final repository = _MemorySessionRepository()
+        ..cookies = {'alpl_v2_front_session': 'expired'};
+      final adapter = _RecordingAdapter(
+        (_) => _html(
+          '',
+          302,
+          headers: {
+            'location': ['https://www.alphapolis.co.jp/login'],
+          },
+        ),
+      );
+      final service = AlphapolisAuthService(
+        sessionRepository: repository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      expect(await service.isSessionValid(), isFalse);
+    });
+
     test('logoutで保存済みセッションを消す', () async {
       final repository = _MemorySessionRepository()
         ..cookies = {'dynamic': 'session'};
