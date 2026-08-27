@@ -23,6 +23,12 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'novel_repository.g.dart';
 
+/// なろう以外のサイトで1回のメタデータ再取得あたりに読む作品数の上限。
+///
+/// なろうは一括APIだが他サイトは作品ページを1件ずつ読むため、
+/// ライブラリが大きいときにサイトへ一度に大量のリクエストを送らないよう制限する。
+const _maxSiteMetadataRefreshPerRun = 10;
+
 @Riverpod(keepAlive: true)
 /// 小説のダウンロードと管理を行うリポジトリ。
 NovelRepository novelRepository(Ref ref) {
@@ -201,54 +207,85 @@ class NovelRepository {
     _metadataRefreshInProgress = true;
 
     try {
-      // メタデータの自動再取得は現状なろうAPIのみ対応のため、
-      // なろうソースの小説に限定する（カクヨム等は対象外）。
-      final libraryNovels = (await _db.getLibraryNovels())
-          .where((novel) => novel.source == NovelSource.narou)
-          .toList();
+      final libraryNovels = await _db.getLibraryNovels();
       final now = DateTime.now().millisecondsSinceEpoch;
       final staleMs = staleAfter.inMilliseconds;
 
-      final staleNcodes = libraryNovels
-          .where((novel) {
-            final cachedAt = novel.cachedAt;
-            final metadataMissing =
-                novel.title == null ||
-                novel.generalAllNo == null ||
-                novel.generalLastup == null;
-            return metadataMissing ||
-                cachedAt == null ||
-                now - cachedAt > staleMs;
-          })
+      bool isStale(Novel novel) {
+        final cachedAt = novel.cachedAt;
+        final metadataMissing =
+            novel.title == null ||
+            novel.generalAllNo == null ||
+            novel.generalLastup == null;
+        return metadataMissing || cachedAt == null || now - cachedAt > staleMs;
+      }
+
+      final staleNovels = libraryNovels.where(isStale).toList();
+      if (staleNovels.isEmpty) return;
+
+      // なろうは一括APIで取得できるが、他サイトは作品ページを1件ずつ
+      // 読むため、1回の実行で取得する件数に上限を設けてサイトへの負荷を抑える。
+      final narouNcodes = staleNovels
+          .where((novel) => novel.source == NovelSource.narou)
           .map((novel) => novel.workId)
           .toList();
+      final otherNovels = staleNovels
+          .where((novel) => novel.source != NovelSource.narou)
+          .take(_maxSiteMetadataRefreshPerRun)
+          .toList();
 
-      if (staleNcodes.isEmpty) return;
+      var refreshed = 0;
 
-      final novelMap = await apiService.fetchMultipleNovelsInfo(staleNcodes);
-      for (final info in novelMap.values) {
-        if (info.ncode != null) {
+      if (narouNcodes.isNotEmpty) {
+        final novelMap = await apiService.fetchMultipleNovelsInfo(narouNcodes);
+        for (final info in novelMap.values) {
+          if (info.ncode == null) continue;
           final existing = libraryNovels
-              .where((novel) => novel.workId == info.ncode)
+              .where(
+                (novel) =>
+                    novel.source == NovelSource.narou &&
+                    novel.workId == info.ncode,
+              )
               .firstOrNull;
           final merged = existing == null
               ? info
               : _mergeMetadata(existing.toModel(), info);
           await _db.insertNovel(merged.toDbCompanion());
+          refreshed++;
+        }
+        if (novelMap.length != narouNcodes.length) {
+          final missing = narouNcodes
+              .where((ncode) => !novelMap.containsKey(ncode))
+              .join(',');
+          debugPrint(
+            '[LibraryMetadataRefresh] APIから取得できなかった作品: $missing',
+          );
         }
       }
+
+      for (final novel in otherNovels) {
+        final site = _sites[novel.source];
+        if (site == null) continue;
+        try {
+          final fresh = await site.fetchNovelInfo(novel.workId);
+          await _db.insertNovel(
+            _mergeMetadata(novel.toModel(), fresh).toDbCompanion(),
+          );
+          refreshed++;
+        } on Object catch (e) {
+          // 1作品の失敗で他サイトの再取得を止めない。
+          debugPrint(
+            '[LibraryMetadataRefresh] '
+            '${novel.source.name}/${novel.workId}の再取得に失敗: $e',
+          );
+        }
+      }
+
+      final attempted = narouNcodes.length + otherNovels.length;
       debugPrint(
-        '[LibraryMetadataRefresh] ${novelMap.length}/${staleNcodes.length}'
+        '[LibraryMetadataRefresh] $refreshed/$attempted'
         '件のメタデータを再取得しました',
       );
-      if (novelMap.length != staleNcodes.length) {
-        final missing = staleNcodes
-            .where((ncode) => !novelMap.containsKey(ncode))
-            .join(',');
-        debugPrint(
-          '[LibraryMetadataRefresh] APIから取得できなかった作品: $missing',
-        );
-      }
     } on Exception catch (e) {
       // 再取得の失敗はサイレントに無視する（次回の定期実行に委ねる）
       debugPrint('[LibraryMetadataRefresh] 再取得に失敗しました: $e');

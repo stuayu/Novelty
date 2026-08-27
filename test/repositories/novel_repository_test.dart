@@ -14,6 +14,8 @@ import 'package:novelty/services/api_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/account_sync_registry.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_history_parser.dart';
+import 'package:novelty/sites/novel_site.dart';
+import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/ncode_utils.dart';
 import 'package:novelty/utils/settings_provider.dart';
@@ -22,6 +24,39 @@ import '../providers/novel_info_offline_test.mocks.dart';
 import 'novel_repository_test.mocks.dart';
 
 @GenerateNiceMocks([MockSpec<AccountSyncAdapter>()])
+
+/// メタデータ再取得のテスト用に fetchNovelInfo だけを持つサイト実装。
+class _FakeMetadataSite extends NovelSite {
+  _FakeMetadataSite(this.source, this._responses);
+
+  @override
+  final NovelSource source;
+
+  final Map<String, NovelInfo Function()> _responses;
+  final requestedWorkIds = <String>[];
+
+  @override
+  List<GenreMaster> get genres => const <GenreMaster>[];
+
+  @override
+  List<RankingTypeMaster> get rankingTypes => const <RankingTypeMaster>[];
+
+  @override
+  String? metaText(NovelInfo info) => null;
+
+  @override
+  List<NovelContentElement> parseEpisodeBody(String html) =>
+      const <NovelContentElement>[];
+
+  @override
+  Future<NovelInfo> fetchNovelInfo(String workId) async {
+    requestedWorkIds.add(workId);
+    final build = _responses[workId];
+    if (build == null) throw StateError('未定義の作品: $workId');
+    return build();
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -872,15 +907,20 @@ void main() {
     setUp(() {
       mockDatabase = MockAppDatabase();
       mockApiService = MockApiService();
+      when(mockDatabase.insertNovel(any)).thenAnswer((_) async => 1);
     });
 
-    ProviderContainer createContainer() {
+    ProviderContainer createContainer({
+      Map<NovelSource, NovelSite>? sites,
+    }) {
       return ProviderContainer(
         overrides: [
           db.appDatabaseProvider.overrideWithValue(mockDatabase),
           apiServiceProvider.overrideWithValue(mockApiService),
           settingsProvider.overrideWith(FakeSettings.new),
           isOfflineModeProvider.overrideWithValue(false),
+          if (sites != null)
+            novelSiteRegistryProvider.overrideWithValue(sites),
         ],
       );
     }
@@ -928,6 +968,116 @@ void main() {
       verify(
         mockApiService.fetchMultipleNovelsInfo(['n2222bb', 'n3333cc']),
       ).called(1);
+    });
+
+    test('なろう以外はサイト実装から再取得してジャンルを保存する', () async {
+      final kakuyomuSite = _FakeMetadataSite(NovelSource.kakuyomu, {
+        'work-1': () => const NovelInfo(
+          source: NovelSource.kakuyomu,
+          workId: 'work-1',
+          title: 'カクヨム作品',
+          writer: '作者',
+          genreId: 'FANTASY',
+          generalAllNo: 12,
+          generalLastup: '2026-08-27 12:00:00',
+        ),
+      });
+      container = createContainer(
+        sites: {NovelSource.kakuyomu: kakuyomuSite},
+      );
+
+      when(mockDatabase.getLibraryNovels()).thenAnswer(
+        (_) async => [
+          // お気に入り同期直後の最小レコード。ジャンルが未取得。
+          const db.Novel(
+            source: NovelSource.kakuyomu,
+            workId: 'work-1',
+            title: 'カクヨム作品',
+            isPrivate: false,
+          ),
+        ],
+      );
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      expect(kakuyomuSite.requestedWorkIds, ['work-1']);
+      verifyNever(mockApiService.fetchMultipleNovelsInfo(any));
+      final saved =
+          verify(mockDatabase.insertNovel(captureAny)).captured.single
+              as db.NovelsCompanion;
+      expect(saved.genreId.value, 'FANTASY');
+      expect(saved.workId.value, 'work-1');
+    });
+
+    test('なろう以外は1回の実行で取得する件数を制限する', () async {
+      final workIds = List.generate(15, (index) => 'work-$index');
+      final site = _FakeMetadataSite(NovelSource.kakuyomu, {
+        for (final workId in workIds)
+          workId: () => NovelInfo(
+            source: NovelSource.kakuyomu,
+            workId: workId,
+            title: workId,
+            genreId: 'FANTASY',
+          ),
+      });
+      container = createContainer(sites: {NovelSource.kakuyomu: site});
+
+      when(mockDatabase.getLibraryNovels()).thenAnswer(
+        (_) async => [
+          for (final workId in workIds)
+            db.Novel(
+              source: NovelSource.kakuyomu,
+              workId: workId,
+              title: workId,
+              isPrivate: false,
+            ),
+        ],
+      );
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      expect(site.requestedWorkIds, hasLength(10));
+    });
+
+    test('1作品の再取得が失敗しても残りを続行する', () async {
+      final site = _FakeMetadataSite(NovelSource.kakuyomu, {
+        'ng': () => throw const FormatException('取得失敗'),
+        'ok': () => const NovelInfo(
+          source: NovelSource.kakuyomu,
+          workId: 'ok',
+          title: '成功した作品',
+          genreId: 'SF',
+        ),
+      });
+      container = createContainer(sites: {NovelSource.kakuyomu: site});
+
+      when(mockDatabase.getLibraryNovels()).thenAnswer(
+        (_) async => [
+          const db.Novel(
+            source: NovelSource.kakuyomu,
+            workId: 'ng',
+            title: '失敗する作品',
+            isPrivate: false,
+          ),
+          const db.Novel(
+            source: NovelSource.kakuyomu,
+            workId: 'ok',
+            title: '成功した作品',
+            isPrivate: false,
+          ),
+        ],
+      );
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      expect(site.requestedWorkIds, ['ng', 'ok']);
+      final saved =
+          verify(mockDatabase.insertNovel(captureAny)).captured.single
+              as db.NovelsCompanion;
+      expect(saved.workId.value, 'ok');
     });
 
     test('再取得対象が無い場合はAPIを呼び出さない', () async {
