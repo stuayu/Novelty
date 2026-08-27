@@ -4,29 +4,30 @@
 /// プロバイダ非依存のサイト識別子として利用する。
 enum NovelSource {
   /// 小説家になろう。
-  narou('narou', '小説家になろう', 'https://ncode.syosetu.com'),
+  narou('narou', '小説家になろう', 'https://ncode.syosetu.com', 'なろう'),
 
   /// カクヨム。
-  kakuyomu('kakuyomu', 'カクヨム', 'https://kakuyomu.jp'),
+  kakuyomu('kakuyomu', 'カクヨム', 'https://kakuyomu.jp', 'カクヨム'),
 
   /// アルファポリス。
   alphapolis(
     'alphapolis',
     'アルファポリス',
     'https://www.alphapolis.co.jp',
+    'アルファ',
   ),
 
   /// ハーメルン。
-  hameln('hameln', 'ハーメルン', 'https://syosetu.org'),
+  hameln('hameln', 'ハーメルン', 'https://syosetu.org', 'ハーメルン'),
 
   /// エブリスタ。
-  estar('estar', 'エブリスタ', 'https://estar.jp'),
+  estar('estar', 'エブリスタ', 'https://estar.jp', 'エブリスタ'),
 
   /// ノベルアップ＋。
-  novelup('novelup', 'ノベルアップ＋', 'https://novelup.plus');
+  novelup('novelup', 'ノベルアップ＋', 'https://novelup.plus', 'ノベプラ');
 
   /// コンストラクタ。
-  const NovelSource(this.dbId, this.label, this.baseUrl);
+  const NovelSource(this.dbId, this.label, this.baseUrl, this.shortLabel);
 
   /// データベース保存用の識別子。enum名と同一。
   final String dbId;
@@ -36,4 +37,7 @@ enum NovelSource {
 
   /// ディープリンク解析用のベースURL。
   final String baseUrl;
+
+  /// 横並びのサイト切替など、幅の限られたUIで使う短い表示名。
+  final String shortLabel;
 }

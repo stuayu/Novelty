@@ -12,11 +12,11 @@ import 'package:novelty/screens/search_page.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
-import 'package:novelty/widgets/app_bar_source_dropdown.dart';
 import 'package:novelty/widgets/library_filter_sheet.dart';
 import 'package:novelty/widgets/library_sort_sheet.dart';
 import 'package:novelty/widgets/novel_list_tile.dart';
 import 'package:novelty/widgets/search_modal.dart';
+import 'package:novelty/widgets/source_icon_bar.dart';
 
 /// [novel]のタイトルまたは作者名に[query]が含まれるかどうかを判定する。
 ///
@@ -216,26 +216,17 @@ class LibraryPage extends HookConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            const Text('ライブラリ'),
-            // プロバイダ絞り込み（探索画面と同一のAppBarドロップダウン）
-            // タイトルの残り領域で中央に配置する
-            Expanded(
-              child: Center(
-                child: AppBarSourceDropdown(
-                  sources: NovelSource.values,
-                  selected: filter.source,
-                  allLabel: 'すべて',
-                  onChanged: (source) {
-                    ref
-                        .read(libraryFilterStateProvider.notifier)
-                        .setSource(source);
-                  },
-                ),
-              ),
-            ),
-          ],
+        title: const Text('ライブラリ'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(SourceIconBar.barHeight),
+          child: SourceIconBar(
+            sources: NovelSource.values,
+            selected: filter.source,
+            allLabel: 'すべて',
+            onChanged: (source) {
+              ref.read(libraryFilterStateProvider.notifier).setSource(source);
+            },
+          ),
         ),
         actions: [
           IconButton(

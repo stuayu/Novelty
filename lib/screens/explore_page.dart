@@ -13,11 +13,11 @@ import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/settings_provider.dart';
-import 'package:novelty/widgets/app_bar_source_dropdown.dart';
 import 'package:novelty/widgets/novel_list_tile.dart';
 import 'package:novelty/widgets/ranking_filter_sheet.dart';
 import 'package:novelty/widgets/ranking_list.dart';
 import 'package:novelty/widgets/search_modal.dart';
+import 'package:novelty/widgets/source_icon_bar.dart';
 
 /// "見つける"ページのウィジェット。
 class ExplorePage extends ConsumerStatefulWidget {
@@ -159,27 +159,7 @@ class _ExplorePageState extends ConsumerState<ExplorePage>
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Row(
-            children: [
-              const Text('見つける'),
-              // プロバイダ切替（AppBar用コンパクトドロップダウン）
-              // タイトルの残り領域で中央に配置する
-              if (!searchState.isSearching)
-                Expanded(
-                  child: Center(
-                    child: AppBarSourceDropdown(
-                      sources: NovelSource.values,
-                      selected: _source,
-                      onChanged: (source) {
-                        if (source != null) {
-                          _switchSource(source);
-                        }
-                      },
-                    ),
-                  ),
-                ),
-            ],
-          ),
+          title: const Text('見つける'),
           actions: [
             if (searchState.isSearching)
               IconButton(
@@ -202,15 +182,38 @@ class _ExplorePageState extends ConsumerState<ExplorePage>
                     : _showRankingFilterDialog,
               ),
           ],
-          bottom: searchState.isSearching || !hasRanking
+          // 検索中以外は常にサイト切替バーを出し、ランキング種別がある
+          // サイトではその下にタブを重ねる。
+          bottom: searchState.isSearching
               ? null
               : PreferredSize(
-                  preferredSize: const Size.fromHeight(48),
-                  child: TabBar(
-                    controller: _tabController,
-                    isScrollable: _rankingTypes.length > 5,
-                    tabs: [
-                      for (final type in _rankingTypes) Tab(text: type.label),
+                  preferredSize: Size.fromHeight(
+                    hasRanking
+                        ? SourceIconBar.barHeight + 48
+                        : SourceIconBar.barHeight,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SourceIconBar(
+                        sources: NovelSource.values,
+                        selected: _source,
+                        onChanged: (source) {
+                          if (source != null) _switchSource(source);
+                        },
+                      ),
+                      if (hasRanking)
+                        SizedBox(
+                          height: 48,
+                          child: TabBar(
+                            controller: _tabController,
+                            isScrollable: _rankingTypes.length > 5,
+                            tabs: [
+                              for (final type in _rankingTypes)
+                                Tab(text: type.label),
+                            ],
+                          ),
+                        ),
                     ],
                   ),
                 ),

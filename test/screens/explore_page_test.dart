@@ -118,9 +118,9 @@ void main() {
       expect(find.text('四半期'), findsOneWidget);
 
       // カクヨムに切り替える
-      await tester.tap(find.byKey(const Key('app_bar_source_dropdown')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('カクヨム').last);
+      await tester.tap(
+        find.byKey(Key('source_chip_${NovelSource.kakuyomu.shortLabel}')),
+      );
       await tester.pumpAndSettle();
 
       // カクヨムのランキング種別（年間タブ）が表示される
@@ -140,9 +140,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('app_bar_source_dropdown')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('エブリスタ').last);
+      await tester.tap(
+        find.byKey(Key('source_chip_${NovelSource.estar.shortLabel}')),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byType(TabBar), findsOneWidget);
