@@ -114,4 +114,38 @@ void main() {
 
     await expectation;
   });
+
+  test('Novelty未登録作品のremote履歴も履歴画面へ反映する', () async {
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+    const workId = '1000000000000000003';
+    const remoteEpisodeId = '1000000000000000004';
+
+    await db.upsertEpisodes([
+      const EpisodeListEntriesCompanion(
+        source: Value(NovelSource.kakuyomu),
+        workId: Value(workId),
+        episodeId: Value(3),
+        url: Value(
+          'https://kakuyomu.jp/works/$workId/episodes/$remoteEpisodeId',
+        ),
+      ),
+    ]);
+
+    await db.mergeKakuyomuReadingHistories([
+      KakuyomuHistoryEntry(
+        source: NovelSource.kakuyomu,
+        workId: workId,
+        title: 'リモート作品',
+        episodeTitle: '第三話',
+        episodeId: remoteEpisodeId,
+        lastReadAt: DateTime(2026, 8, 24),
+      ),
+    ]);
+
+    final history = await db.getHistory();
+    expect(history, hasLength(1));
+    expect(history.single.title, 'リモート作品');
+    expect(history.single.lastEpisode, 3);
+  });
 }

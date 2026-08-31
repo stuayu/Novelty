@@ -3132,6 +3132,503 @@ class ReadingHistoryCompanion
   }
 }
 
+class $RemoteReadingHistoriesTable extends RemoteReadingHistories
+    with drift.TableInfo<$RemoteReadingHistoriesTable, RemoteReadingHistory> {
+  @override
+  final drift.GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RemoteReadingHistoriesTable(this.attachedDatabase, [this._alias]);
+  @override
+  late final drift.GeneratedColumnWithTypeConverter<NovelSource, String>
+  source = drift.GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  ).withConverter<NovelSource>($RemoteReadingHistoriesTable.$convertersource);
+  static const drift.VerificationMeta _workIdMeta =
+      const drift.VerificationMeta('workId');
+  @override
+  late final drift.GeneratedColumn<String> workId =
+      drift.GeneratedColumn<String>(
+        'work_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const drift.VerificationMeta _episodeIdMeta =
+      const drift.VerificationMeta('episodeId');
+  @override
+  late final drift.GeneratedColumn<String> episodeId =
+      drift.GeneratedColumn<String>(
+        'episode_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const drift.VerificationMeta _lastReadAtMeta =
+      const drift.VerificationMeta('lastReadAt');
+  @override
+  late final drift.GeneratedColumn<int> lastReadAt = drift.GeneratedColumn<int>(
+    'last_read_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const drift.VerificationMeta _syncedAtMeta =
+      const drift.VerificationMeta('syncedAt');
+  @override
+  late final drift.GeneratedColumn<int> syncedAt = drift.GeneratedColumn<int>(
+    'synced_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const drift.VerificationMeta _titleMeta = const drift.VerificationMeta(
+    'title',
+  );
+  @override
+  late final drift.GeneratedColumn<String> title =
+      drift.GeneratedColumn<String>(
+        'title',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const drift.VerificationMeta _episodeTitleMeta =
+      const drift.VerificationMeta('episodeTitle');
+  @override
+  late final drift.GeneratedColumn<String> episodeTitle =
+      drift.GeneratedColumn<String>(
+        'episode_title',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  @override
+  List<drift.GeneratedColumn> get $columns => [
+    source,
+    workId,
+    episodeId,
+    lastReadAt,
+    syncedAt,
+    title,
+    episodeTitle,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'remote_reading_histories';
+  @override
+  drift.VerificationContext validateIntegrity(
+    drift.Insertable<RemoteReadingHistory> instance, {
+    bool isInserting = false,
+  }) {
+    final context = drift.VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('work_id')) {
+      context.handle(
+        _workIdMeta,
+        workId.isAcceptableOrUnknown(data['work_id']!, _workIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_workIdMeta);
+    }
+    if (data.containsKey('episode_id')) {
+      context.handle(
+        _episodeIdMeta,
+        episodeId.isAcceptableOrUnknown(data['episode_id']!, _episodeIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_episodeIdMeta);
+    }
+    if (data.containsKey('last_read_at')) {
+      context.handle(
+        _lastReadAtMeta,
+        lastReadAt.isAcceptableOrUnknown(
+          data['last_read_at']!,
+          _lastReadAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('synced_at')) {
+      context.handle(
+        _syncedAtMeta,
+        syncedAt.isAcceptableOrUnknown(data['synced_at']!, _syncedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_syncedAtMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    }
+    if (data.containsKey('episode_title')) {
+      context.handle(
+        _episodeTitleMeta,
+        episodeTitle.isAcceptableOrUnknown(
+          data['episode_title']!,
+          _episodeTitleMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<drift.GeneratedColumn> get $primaryKey => {source, workId, episodeId};
+  @override
+  RemoteReadingHistory map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RemoteReadingHistory(
+      source: $RemoteReadingHistoriesTable.$convertersource.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}source'],
+        )!,
+      ),
+      workId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}work_id'],
+      )!,
+      episodeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}episode_id'],
+      )!,
+      lastReadAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}last_read_at'],
+      ),
+      syncedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}synced_at'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      ),
+      episodeTitle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}episode_title'],
+      ),
+    );
+  }
+
+  @override
+  $RemoteReadingHistoriesTable createAlias(String alias) {
+    return $RemoteReadingHistoriesTable(attachedDatabase, alias);
+  }
+
+  static drift.TypeConverter<NovelSource, String> $convertersource =
+      const NovelSourceConverter();
+}
+
+class RemoteReadingHistory extends drift.DataClass
+    implements drift.Insertable<RemoteReadingHistory> {
+  /// 提供サイト。
+  final NovelSource source;
+
+  /// サイト共通の作品ID。
+  final String workId;
+
+  /// サイト固有のエピソードID。
+  final String episodeId;
+
+  /// 外部サイト側の最終閲覧日時（UNIXミリ秒）。
+  final int? lastReadAt;
+
+  /// 同期日時（UNIXミリ秒）。
+  final int syncedAt;
+
+  /// 外部サイトから取得した作品タイトル。
+  final String? title;
+
+  /// 外部サイトから取得したエピソードタイトル。
+  final String? episodeTitle;
+  const RemoteReadingHistory({
+    required this.source,
+    required this.workId,
+    required this.episodeId,
+    this.lastReadAt,
+    required this.syncedAt,
+    this.title,
+    this.episodeTitle,
+  });
+  @override
+  Map<String, drift.Expression> toColumns(bool nullToAbsent) {
+    final map = <String, drift.Expression>{};
+    {
+      map['source'] = drift.Variable<String>(
+        $RemoteReadingHistoriesTable.$convertersource.toSql(source),
+      );
+    }
+    map['work_id'] = drift.Variable<String>(workId);
+    map['episode_id'] = drift.Variable<String>(episodeId);
+    if (!nullToAbsent || lastReadAt != null) {
+      map['last_read_at'] = drift.Variable<int>(lastReadAt);
+    }
+    map['synced_at'] = drift.Variable<int>(syncedAt);
+    if (!nullToAbsent || title != null) {
+      map['title'] = drift.Variable<String>(title);
+    }
+    if (!nullToAbsent || episodeTitle != null) {
+      map['episode_title'] = drift.Variable<String>(episodeTitle);
+    }
+    return map;
+  }
+
+  RemoteReadingHistoriesCompanion toCompanion(bool nullToAbsent) {
+    return RemoteReadingHistoriesCompanion(
+      source: drift.Value(source),
+      workId: drift.Value(workId),
+      episodeId: drift.Value(episodeId),
+      lastReadAt: lastReadAt == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(lastReadAt),
+      syncedAt: drift.Value(syncedAt),
+      title: title == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(title),
+      episodeTitle: episodeTitle == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(episodeTitle),
+    );
+  }
+
+  factory RemoteReadingHistory.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= drift.driftRuntimeOptions.defaultSerializer;
+    return RemoteReadingHistory(
+      source: serializer.fromJson<NovelSource>(json['source']),
+      workId: serializer.fromJson<String>(json['workId']),
+      episodeId: serializer.fromJson<String>(json['episodeId']),
+      lastReadAt: serializer.fromJson<int?>(json['lastReadAt']),
+      syncedAt: serializer.fromJson<int>(json['syncedAt']),
+      title: serializer.fromJson<String?>(json['title']),
+      episodeTitle: serializer.fromJson<String?>(json['episodeTitle']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= drift.driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'source': serializer.toJson<NovelSource>(source),
+      'workId': serializer.toJson<String>(workId),
+      'episodeId': serializer.toJson<String>(episodeId),
+      'lastReadAt': serializer.toJson<int?>(lastReadAt),
+      'syncedAt': serializer.toJson<int>(syncedAt),
+      'title': serializer.toJson<String?>(title),
+      'episodeTitle': serializer.toJson<String?>(episodeTitle),
+    };
+  }
+
+  RemoteReadingHistory copyWith({
+    NovelSource? source,
+    String? workId,
+    String? episodeId,
+    drift.Value<int?> lastReadAt = const drift.Value.absent(),
+    int? syncedAt,
+    drift.Value<String?> title = const drift.Value.absent(),
+    drift.Value<String?> episodeTitle = const drift.Value.absent(),
+  }) => RemoteReadingHistory(
+    source: source ?? this.source,
+    workId: workId ?? this.workId,
+    episodeId: episodeId ?? this.episodeId,
+    lastReadAt: lastReadAt.present ? lastReadAt.value : this.lastReadAt,
+    syncedAt: syncedAt ?? this.syncedAt,
+    title: title.present ? title.value : this.title,
+    episodeTitle: episodeTitle.present ? episodeTitle.value : this.episodeTitle,
+  );
+  RemoteReadingHistory copyWithCompanion(RemoteReadingHistoriesCompanion data) {
+    return RemoteReadingHistory(
+      source: data.source.present ? data.source.value : this.source,
+      workId: data.workId.present ? data.workId.value : this.workId,
+      episodeId: data.episodeId.present ? data.episodeId.value : this.episodeId,
+      lastReadAt: data.lastReadAt.present
+          ? data.lastReadAt.value
+          : this.lastReadAt,
+      syncedAt: data.syncedAt.present ? data.syncedAt.value : this.syncedAt,
+      title: data.title.present ? data.title.value : this.title,
+      episodeTitle: data.episodeTitle.present
+          ? data.episodeTitle.value
+          : this.episodeTitle,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RemoteReadingHistory(')
+          ..write('source: $source, ')
+          ..write('workId: $workId, ')
+          ..write('episodeId: $episodeId, ')
+          ..write('lastReadAt: $lastReadAt, ')
+          ..write('syncedAt: $syncedAt, ')
+          ..write('title: $title, ')
+          ..write('episodeTitle: $episodeTitle')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    source,
+    workId,
+    episodeId,
+    lastReadAt,
+    syncedAt,
+    title,
+    episodeTitle,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RemoteReadingHistory &&
+          other.source == this.source &&
+          other.workId == this.workId &&
+          other.episodeId == this.episodeId &&
+          other.lastReadAt == this.lastReadAt &&
+          other.syncedAt == this.syncedAt &&
+          other.title == this.title &&
+          other.episodeTitle == this.episodeTitle);
+}
+
+class RemoteReadingHistoriesCompanion
+    extends drift.UpdateCompanion<RemoteReadingHistory> {
+  final drift.Value<NovelSource> source;
+  final drift.Value<String> workId;
+  final drift.Value<String> episodeId;
+  final drift.Value<int?> lastReadAt;
+  final drift.Value<int> syncedAt;
+  final drift.Value<String?> title;
+  final drift.Value<String?> episodeTitle;
+  final drift.Value<int> rowid;
+  const RemoteReadingHistoriesCompanion({
+    this.source = const drift.Value.absent(),
+    this.workId = const drift.Value.absent(),
+    this.episodeId = const drift.Value.absent(),
+    this.lastReadAt = const drift.Value.absent(),
+    this.syncedAt = const drift.Value.absent(),
+    this.title = const drift.Value.absent(),
+    this.episodeTitle = const drift.Value.absent(),
+    this.rowid = const drift.Value.absent(),
+  });
+  RemoteReadingHistoriesCompanion.insert({
+    required NovelSource source,
+    required String workId,
+    required String episodeId,
+    this.lastReadAt = const drift.Value.absent(),
+    required int syncedAt,
+    this.title = const drift.Value.absent(),
+    this.episodeTitle = const drift.Value.absent(),
+    this.rowid = const drift.Value.absent(),
+  }) : source = drift.Value(source),
+       workId = drift.Value(workId),
+       episodeId = drift.Value(episodeId),
+       syncedAt = drift.Value(syncedAt);
+  static drift.Insertable<RemoteReadingHistory> custom({
+    drift.Expression<String>? source,
+    drift.Expression<String>? workId,
+    drift.Expression<String>? episodeId,
+    drift.Expression<int>? lastReadAt,
+    drift.Expression<int>? syncedAt,
+    drift.Expression<String>? title,
+    drift.Expression<String>? episodeTitle,
+    drift.Expression<int>? rowid,
+  }) {
+    return drift.RawValuesInsertable({
+      if (source != null) 'source': source,
+      if (workId != null) 'work_id': workId,
+      if (episodeId != null) 'episode_id': episodeId,
+      if (lastReadAt != null) 'last_read_at': lastReadAt,
+      if (syncedAt != null) 'synced_at': syncedAt,
+      if (title != null) 'title': title,
+      if (episodeTitle != null) 'episode_title': episodeTitle,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RemoteReadingHistoriesCompanion copyWith({
+    drift.Value<NovelSource>? source,
+    drift.Value<String>? workId,
+    drift.Value<String>? episodeId,
+    drift.Value<int?>? lastReadAt,
+    drift.Value<int>? syncedAt,
+    drift.Value<String?>? title,
+    drift.Value<String?>? episodeTitle,
+    drift.Value<int>? rowid,
+  }) {
+    return RemoteReadingHistoriesCompanion(
+      source: source ?? this.source,
+      workId: workId ?? this.workId,
+      episodeId: episodeId ?? this.episodeId,
+      lastReadAt: lastReadAt ?? this.lastReadAt,
+      syncedAt: syncedAt ?? this.syncedAt,
+      title: title ?? this.title,
+      episodeTitle: episodeTitle ?? this.episodeTitle,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, drift.Expression> toColumns(bool nullToAbsent) {
+    final map = <String, drift.Expression>{};
+    if (source.present) {
+      map['source'] = drift.Variable<String>(
+        $RemoteReadingHistoriesTable.$convertersource.toSql(source.value),
+      );
+    }
+    if (workId.present) {
+      map['work_id'] = drift.Variable<String>(workId.value);
+    }
+    if (episodeId.present) {
+      map['episode_id'] = drift.Variable<String>(episodeId.value);
+    }
+    if (lastReadAt.present) {
+      map['last_read_at'] = drift.Variable<int>(lastReadAt.value);
+    }
+    if (syncedAt.present) {
+      map['synced_at'] = drift.Variable<int>(syncedAt.value);
+    }
+    if (title.present) {
+      map['title'] = drift.Variable<String>(title.value);
+    }
+    if (episodeTitle.present) {
+      map['episode_title'] = drift.Variable<String>(episodeTitle.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = drift.Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RemoteReadingHistoriesCompanion(')
+          ..write('source: $source, ')
+          ..write('workId: $workId, ')
+          ..write('episodeId: $episodeId, ')
+          ..write('lastReadAt: $lastReadAt, ')
+          ..write('syncedAt: $syncedAt, ')
+          ..write('title: $title, ')
+          ..write('episodeTitle: $episodeTitle, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $EpisodeListEntriesTable extends EpisodeListEntries
     with drift.TableInfo<$EpisodeListEntriesTable, EpisodeListEntry> {
   @override
@@ -4123,6 +4620,8 @@ abstract class _$AppDatabase extends drift.GeneratedDatabase {
     this,
   );
   late final $ReadingHistoryTable readingHistory = $ReadingHistoryTable(this);
+  late final $RemoteReadingHistoriesTable remoteReadingHistories =
+      $RemoteReadingHistoriesTable(this);
   late final $EpisodeListEntriesTable episodeListEntries =
       $EpisodeListEntriesTable(this);
   late final $EpisodeContentsTable episodeContents = $EpisodeContentsTable(
@@ -4137,6 +4636,7 @@ abstract class _$AppDatabase extends drift.GeneratedDatabase {
     libraryEntries,
     narouSyncEntries,
     readingHistory,
+    remoteReadingHistories,
     episodeListEntries,
     episodeContents,
   ];
@@ -5571,6 +6071,270 @@ typedef $$ReadingHistoryTableProcessedTableManager =
       ReadingHistoryData,
       drift.PrefetchHooks Function()
     >;
+typedef $$RemoteReadingHistoriesTableCreateCompanionBuilder =
+    RemoteReadingHistoriesCompanion Function({
+      required NovelSource source,
+      required String workId,
+      required String episodeId,
+      drift.Value<int?> lastReadAt,
+      required int syncedAt,
+      drift.Value<String?> title,
+      drift.Value<String?> episodeTitle,
+      drift.Value<int> rowid,
+    });
+typedef $$RemoteReadingHistoriesTableUpdateCompanionBuilder =
+    RemoteReadingHistoriesCompanion Function({
+      drift.Value<NovelSource> source,
+      drift.Value<String> workId,
+      drift.Value<String> episodeId,
+      drift.Value<int?> lastReadAt,
+      drift.Value<int> syncedAt,
+      drift.Value<String?> title,
+      drift.Value<String?> episodeTitle,
+      drift.Value<int> rowid,
+    });
+
+class $$RemoteReadingHistoriesTableFilterComposer
+    extends drift.Composer<_$AppDatabase, $RemoteReadingHistoriesTable> {
+  $$RemoteReadingHistoriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  drift.ColumnWithTypeConverterFilters<NovelSource, NovelSource, String>
+  get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => drift.ColumnWithTypeConverterFilters(column),
+  );
+
+  drift.ColumnFilters<String> get workId => $composableBuilder(
+    column: $table.workId,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<String> get episodeId => $composableBuilder(
+    column: $table.episodeId,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<int> get lastReadAt => $composableBuilder(
+    column: $table.lastReadAt,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<int> get syncedAt => $composableBuilder(
+    column: $table.syncedAt,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<String> get episodeTitle => $composableBuilder(
+    column: $table.episodeTitle,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+}
+
+class $$RemoteReadingHistoriesTableOrderingComposer
+    extends drift.Composer<_$AppDatabase, $RemoteReadingHistoriesTable> {
+  $$RemoteReadingHistoriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  drift.ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<String> get workId => $composableBuilder(
+    column: $table.workId,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<String> get episodeId => $composableBuilder(
+    column: $table.episodeId,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<int> get lastReadAt => $composableBuilder(
+    column: $table.lastReadAt,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<int> get syncedAt => $composableBuilder(
+    column: $table.syncedAt,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+
+  drift.ColumnOrderings<String> get episodeTitle => $composableBuilder(
+    column: $table.episodeTitle,
+    builder: (column) => drift.ColumnOrderings(column),
+  );
+}
+
+class $$RemoteReadingHistoriesTableAnnotationComposer
+    extends drift.Composer<_$AppDatabase, $RemoteReadingHistoriesTable> {
+  $$RemoteReadingHistoriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  drift.GeneratedColumnWithTypeConverter<NovelSource, String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  drift.GeneratedColumn<String> get workId =>
+      $composableBuilder(column: $table.workId, builder: (column) => column);
+
+  drift.GeneratedColumn<String> get episodeId =>
+      $composableBuilder(column: $table.episodeId, builder: (column) => column);
+
+  drift.GeneratedColumn<int> get lastReadAt => $composableBuilder(
+    column: $table.lastReadAt,
+    builder: (column) => column,
+  );
+
+  drift.GeneratedColumn<int> get syncedAt =>
+      $composableBuilder(column: $table.syncedAt, builder: (column) => column);
+
+  drift.GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  drift.GeneratedColumn<String> get episodeTitle => $composableBuilder(
+    column: $table.episodeTitle,
+    builder: (column) => column,
+  );
+}
+
+class $$RemoteReadingHistoriesTableTableManager
+    extends
+        drift.RootTableManager<
+          _$AppDatabase,
+          $RemoteReadingHistoriesTable,
+          RemoteReadingHistory,
+          $$RemoteReadingHistoriesTableFilterComposer,
+          $$RemoteReadingHistoriesTableOrderingComposer,
+          $$RemoteReadingHistoriesTableAnnotationComposer,
+          $$RemoteReadingHistoriesTableCreateCompanionBuilder,
+          $$RemoteReadingHistoriesTableUpdateCompanionBuilder,
+          (
+            RemoteReadingHistory,
+            drift.BaseReferences<
+              _$AppDatabase,
+              $RemoteReadingHistoriesTable,
+              RemoteReadingHistory
+            >,
+          ),
+          RemoteReadingHistory,
+          drift.PrefetchHooks Function()
+        > {
+  $$RemoteReadingHistoriesTableTableManager(
+    _$AppDatabase db,
+    $RemoteReadingHistoriesTable table,
+  ) : super(
+        drift.TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RemoteReadingHistoriesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$RemoteReadingHistoriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$RemoteReadingHistoriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                drift.Value<NovelSource> source = const drift.Value.absent(),
+                drift.Value<String> workId = const drift.Value.absent(),
+                drift.Value<String> episodeId = const drift.Value.absent(),
+                drift.Value<int?> lastReadAt = const drift.Value.absent(),
+                drift.Value<int> syncedAt = const drift.Value.absent(),
+                drift.Value<String?> title = const drift.Value.absent(),
+                drift.Value<String?> episodeTitle = const drift.Value.absent(),
+                drift.Value<int> rowid = const drift.Value.absent(),
+              }) => RemoteReadingHistoriesCompanion(
+                source: source,
+                workId: workId,
+                episodeId: episodeId,
+                lastReadAt: lastReadAt,
+                syncedAt: syncedAt,
+                title: title,
+                episodeTitle: episodeTitle,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required NovelSource source,
+                required String workId,
+                required String episodeId,
+                drift.Value<int?> lastReadAt = const drift.Value.absent(),
+                required int syncedAt,
+                drift.Value<String?> title = const drift.Value.absent(),
+                drift.Value<String?> episodeTitle = const drift.Value.absent(),
+                drift.Value<int> rowid = const drift.Value.absent(),
+              }) => RemoteReadingHistoriesCompanion.insert(
+                source: source,
+                workId: workId,
+                episodeId: episodeId,
+                lastReadAt: lastReadAt,
+                syncedAt: syncedAt,
+                title: title,
+                episodeTitle: episodeTitle,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (e.readTable(table), drift.BaseReferences(db, table, e)),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$RemoteReadingHistoriesTableProcessedTableManager =
+    drift.ProcessedTableManager<
+      _$AppDatabase,
+      $RemoteReadingHistoriesTable,
+      RemoteReadingHistory,
+      $$RemoteReadingHistoriesTableFilterComposer,
+      $$RemoteReadingHistoriesTableOrderingComposer,
+      $$RemoteReadingHistoriesTableAnnotationComposer,
+      $$RemoteReadingHistoriesTableCreateCompanionBuilder,
+      $$RemoteReadingHistoriesTableUpdateCompanionBuilder,
+      (
+        RemoteReadingHistory,
+        drift.BaseReferences<
+          _$AppDatabase,
+          $RemoteReadingHistoriesTable,
+          RemoteReadingHistory
+        >,
+      ),
+      RemoteReadingHistory,
+      drift.PrefetchHooks Function()
+    >;
 typedef $$EpisodeListEntriesTableCreateCompanionBuilder =
     EpisodeListEntriesCompanion Function({
       required NovelSource source,
@@ -6098,6 +6862,11 @@ class $AppDatabaseManager {
       $$NarouSyncEntriesTableTableManager(_db, _db.narouSyncEntries);
   $$ReadingHistoryTableTableManager get readingHistory =>
       $$ReadingHistoryTableTableManager(_db, _db.readingHistory);
+  $$RemoteReadingHistoriesTableTableManager get remoteReadingHistories =>
+      $$RemoteReadingHistoriesTableTableManager(
+        _db,
+        _db.remoteReadingHistories,
+      );
   $$EpisodeListEntriesTableTableManager get episodeListEntries =>
       $$EpisodeListEntriesTableTableManager(_db, _db.episodeListEntries);
   $$EpisodeContentsTableTableManager get episodeContents =>

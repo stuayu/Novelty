@@ -247,7 +247,7 @@ class KakuyomuReadingProgressService {
       options: Options(
         headers: <String, Object>{
           'Cookie': cookieHeader,
-          'User-Agent': 'Mozilla/5.0',
+          'User-Agent': noveltyUserAgent,
         },
         followRedirects: true,
         validateStatus: (status) => status != null && status < 600,

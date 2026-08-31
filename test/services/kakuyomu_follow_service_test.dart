@@ -27,7 +27,12 @@ void main() {
             statusCode: 200,
             body: <String, Object?>{
               'data': <String, Object?>{
-                'followWork': <String, Object?>{'__typename': 'FollowWorkPayload'},
+                'followWork': <String, Object?>{
+                  'work': <String, Object?>{
+                    'id': workId,
+                    'visitorWorkFollowing': <String, Object?>{'id': 'follow-1'},
+                  },
+                },
               },
             },
           );
@@ -45,7 +50,7 @@ void main() {
       expect(captured?.variables, const <String, Object?>{
         'input': <String, Object?>{'workId': workId},
       });
-      expect(captured?.query, contains('followWork(input: \$input)'));
+      expect(captured?.query, contains(r'followWork(input: $input)'));
       expect(captured?.cookieHeader, 'session=test');
     });
 
@@ -60,7 +65,12 @@ void main() {
             body: <String, Object?>{
               'data': <String, Object?>{
                 'unfollowWorks': <String, Object?>{
-                  '__typename': 'UnfollowWorksPayload',
+                  'works': <Object?>[
+                    <String, Object?>{
+                      'id': workId,
+                      'visitorWorkFollowing': null,
+                    },
+                  ],
                 },
               },
             },
@@ -81,7 +91,32 @@ void main() {
           'workIds': <String>[workId],
         },
       });
-      expect(captured?.query, contains('unfollowWorks(input: \$input)'));
+      expect(captured?.query, contains(r'unfollowWorks(input: $input)'));
+    });
+
+    test('HTTP 200でもremote状態が反映されなければ失敗を返す', () async {
+      final graphql = KakuyomuGraphqlService(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        transport: (request) async => const KakuyomuGraphqlResponse(
+          statusCode: 200,
+          body: <String, Object?>{
+            'data': <String, Object?>{
+              'followWork': <String, Object?>{
+                'work': <String, Object?>{
+                  'id': workId,
+                  'visitorWorkFollowing': null,
+                },
+              },
+            },
+          },
+        ),
+      );
+      final service = KakuyomuFollowService(
+        graphqlService: graphql,
+        sessionValidator: () async => true,
+      );
+
+      expect(await service.followWork(workId), AccountSyncOutcome.failed);
     });
 
     test('セッションが無効ならGraphQLを呼ばず未ログインを返す', () async {

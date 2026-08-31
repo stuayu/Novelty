@@ -9,6 +9,7 @@ import 'package:novel_parser_core/novel_parser_core.dart';
 import 'package:novelty/database/migration_helper.dart';
 import 'package:novelty/models/episode.dart';
 import 'package:novelty/models/novel_download_summary.dart';
+import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_history_parser.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/kakuyomu_uri.dart';
@@ -470,6 +471,33 @@ class ReadingHistory extends Table {
   Set<Column> get primaryKey => {source, workId};
 }
 
+/// 外部サイトから同期した閲覧履歴を格納するテーブル。
+class RemoteReadingHistories extends Table {
+  /// 提供サイト。
+  TextColumn get source => text().map(const NovelSourceConverter())();
+
+  /// サイト共通の作品ID。
+  TextColumn get workId => text()();
+
+  /// サイト固有のエピソードID。
+  TextColumn get episodeId => text()();
+
+  /// 外部サイト側の最終閲覧日時（UNIXミリ秒）。
+  IntColumn get lastReadAt => integer().nullable()();
+
+  /// 同期日時（UNIXミリ秒）。
+  IntColumn get syncedAt => integer()();
+
+  /// 外部サイトから取得した作品タイトル。
+  TextColumn get title => text().nullable()();
+
+  /// 外部サイトから取得したエピソードタイトル。
+  TextColumn get episodeTitle => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {source, workId, episodeId};
+}
+
 /// エピソード目次(メタデータ)を格納するテーブル
 /// 旧EpisodeEntitiesテーブルから目次情報を分離したもの
 class EpisodeListEntries extends Table {
@@ -577,6 +605,7 @@ class EpisodeData {
     LibraryEntries,
     NarouSyncEntries,
     ReadingHistory,
+    RemoteReadingHistories,
     EpisodeListEntries,
     EpisodeContents,
   ],
@@ -1600,6 +1629,18 @@ class AppDatabase extends _$AppDatabase {
     for (final entry in entries) {
       final episodeId = entry.episodeId;
       if (episodeId == null || episodeId.isEmpty) continue;
+
+      final novel = await getNovel(entry.source, entry.workId);
+      if (novel == null) {
+        await insertNovel(
+          NovelInfo(
+            source: entry.source,
+            workId: entry.workId,
+            title: entry.title,
+          ).toDbCompanion(),
+        );
+      }
+
       final existing = await customSelect(
         'SELECT last_read_at FROM remote_reading_histories '
         'WHERE source = ? AND work_id = ? AND episode_id = ?',
@@ -1608,13 +1649,14 @@ class AppDatabase extends _$AppDatabase {
           Variable.withString(entry.workId),
           Variable.withString(episodeId),
         ],
+        readsFrom: {remoteReadingHistories},
       ).getSingleOrNull();
       final previous = existing?.read<int?>('last_read_at');
       final incoming = entry.lastReadAt?.millisecondsSinceEpoch;
       final isNewer =
           previous == null || (incoming != null && incoming > previous);
 
-      await customStatement(
+      await customUpdate(
         'INSERT INTO remote_reading_histories '
         '(source, work_id, episode_id, last_read_at, synced_at, title, '
         'episode_title) '
@@ -1630,15 +1672,16 @@ class AppDatabase extends _$AppDatabase {
         'title = COALESCE(excluded.title, remote_reading_histories.title), '
         'episode_title = COALESCE(excluded.episode_title, '
         'remote_reading_histories.episode_title)',
-        [
-          entry.source.dbId,
-          entry.workId,
-          episodeId,
-          incoming,
-          syncedAt,
-          entry.title,
-          entry.episodeTitle,
+        variables: [
+          Variable.withString(entry.source.dbId),
+          Variable.withString(entry.workId),
+          Variable.withString(episodeId),
+          Variable(incoming),
+          Variable.withInt(syncedAt),
+          Variable(entry.title),
+          Variable(entry.episodeTitle),
         ],
+        updates: {remoteReadingHistories},
       );
       if (existing == null) {
         inserted++;

@@ -6,7 +6,12 @@ import 'package:riverpod/riverpod.dart';
 const _followWorkMutation = r'''
 mutation FollowWork($input: FollowWorkInput!) {
   followWork(input: $input) {
-    __typename
+    work {
+      id
+      visitorWorkFollowing {
+        id
+      }
+    }
   }
 }
 ''';
@@ -14,7 +19,12 @@ mutation FollowWork($input: FollowWorkInput!) {
 const _unfollowWorksMutation = r'''
 mutation UnfollowWorks($input: UnfollowWorksInput!) {
   unfollowWorks(input: $input) {
-    __typename
+    works {
+      id
+      visitorWorkFollowing {
+        id
+      }
+    }
   }
 }
 ''';
@@ -60,6 +70,7 @@ class KakuyomuFollowService {
       query: _followWorkMutation,
       rootField: 'followWork',
       input: <String, Object?>{'workId': workId},
+      verifyRemoteState: (root) => _hasFollowingWork(root, workId),
     );
   }
 
@@ -76,6 +87,7 @@ class KakuyomuFollowService {
       input: <String, Object?>{
         'workIds': <String>[workId],
       },
+      verifyRemoteState: (root) => !_hasFollowingWork(root, workId),
     );
   }
 
@@ -85,6 +97,7 @@ class KakuyomuFollowService {
     required String query,
     required String rootField,
     required Map<String, Object?> input,
+    required bool Function(Object? root) verifyRemoteState,
   }) async {
     if (!_isValidWorkId(workId)) return AccountSyncOutcome.failed;
 
@@ -111,10 +124,27 @@ class KakuyomuFollowService {
     if (response.hasErrors) return AccountSyncOutcome.failed;
 
     final root = response.data?[rootField];
-    return root == null
-        ? AccountSyncOutcome.failed
-        : AccountSyncOutcome.success;
+    if (root == null || !verifyRemoteState(root)) {
+      return AccountSyncOutcome.failed;
+    }
+    return AccountSyncOutcome.success;
   }
 
   bool _isValidWorkId(String workId) => RegExp(r'^\d+$').hasMatch(workId);
+
+  bool _hasFollowingWork(Object? root, String workId) {
+    if (root is! Map<Object?, Object?>) return false;
+    final work = root['work'];
+    if (work is Map<Object?, Object?>) {
+      return work['id'] == workId &&
+          work['visitorWorkFollowing'] is Map<Object?, Object?>;
+    }
+    final works = root['works'];
+    if (works is! List<Object?>) return false;
+    return works.any((entry) {
+      if (entry is! Map<Object?, Object?>) return false;
+      return entry['id'] == workId &&
+          entry['visitorWorkFollowing'] is Map<Object?, Object?>;
+    });
+  }
 }
