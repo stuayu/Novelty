@@ -194,9 +194,50 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     Uri url,
     String cookieHeader,
   ) async {
-    if (!isTrustedKakuyomuUri(url)) {
-      throw ArgumentError.value(url, 'url', '安全なカクヨムURLではありません');
+    var current = url;
+    final visited = <Uri>{};
+    for (var redirects = 0; redirects <= 5; redirects++) {
+      if (!isTrustedKakuyomuUri(current)) {
+        throw ArgumentError.value(current, 'url', '安全なカクヨムURLではありません');
+      }
+      if (!visited.add(current)) {
+        throw StateError('カクヨムフォロー一覧のリダイレクトがループしました');
+      }
+
+      final response = await _fetchSinglePage(current, cookieHeader);
+      if (!isTrustedKakuyomuUri(response.realUri)) {
+        throw StateError('カクヨムフォロー一覧の応答URLを確認できませんでした');
+      }
+      if (_isLoginPage(response.realUri)) {
+        throw const KakuyomuSessionExpiredException();
+      }
+      if (response.statusCode < 300 || response.statusCode >= 400) {
+        return response;
+      }
+
+      final location = response.location;
+      if (location == null || location.isEmpty) {
+        throw StateError('カクヨムフォロー一覧の転送先がありません');
+      }
+      final target = response.realUri.resolve(location);
+      if (_isLoginPage(target)) {
+        throw const KakuyomuSessionExpiredException();
+      }
+      if (!isTrustedKakuyomuUri(target)) {
+        throw StateError('カクヨムフォロー一覧の外部転送を拒否しました');
+      }
+      if (redirects == 5) {
+        throw StateError('カクヨムフォロー一覧の転送回数が上限を超えました');
+      }
+      current = target;
     }
+    throw StateError('カクヨムフォロー一覧の転送回数が上限を超えました');
+  }
+
+  Future<KakuyomuFollowedWorksHttpResponse> _fetchSinglePage(
+    Uri url,
+    String cookieHeader,
+  ) async {
     final override = _pageFetcher;
     if (override != null) {
       await _rateLimiter.wait();

@@ -5,6 +5,7 @@ import 'package:novelty/repositories/kakuyomu_session_repository.dart';
 import 'package:novelty/services/http_client.dart';
 import 'package:novelty/services/kakuyomu_web_cookie_service.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/kakuyomu_uri.dart';
 import 'package:novelty/utils/kakuyomu_webview_support.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod/riverpod.dart';
@@ -71,22 +72,8 @@ class KakuyomuAuthService {
     if (cookieHeader == null || cookieHeader.isEmpty) return false;
 
     try {
-      final response = await _dio.get<String>(
-        _kakuyomuSessionCheckUrl,
-        options: Options(
-          headers: <String, Object>{
-            'Cookie': cookieHeader,
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/143.0.0.0 Safari/537.36',
-          },
-          followRedirects: false,
-          validateStatus: (status) => status != null && status < 500,
-          responseType: ResponseType.plain,
-        ),
-      );
-
+      final response = await _fetchSessionCheckPage(cookieHeader);
+      if (response == null) return false;
       if (response.statusCode != 200) return false;
 
       final finalUri = response.realUri;
@@ -102,6 +89,47 @@ class KakuyomuAuthService {
       return false;
     }
   }
+
+  Future<Response<String>?> _fetchSessionCheckPage(String cookieHeader) async {
+    var current = Uri.parse(_kakuyomuSessionCheckUrl);
+    final visited = <Uri>{};
+    for (var redirects = 0; redirects <= 5; redirects++) {
+      if (!isTrustedKakuyomuUri(current) || !visited.add(current)) return null;
+
+      final response = await _dio.get<String>(
+        current.toString(),
+        options: Options(
+          headers: <String, Object>{
+            'Cookie': cookieHeader,
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/143.0.0.0 Safari/537.36',
+          },
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 500,
+          responseType: ResponseType.plain,
+        ),
+      );
+
+      if (!isTrustedKakuyomuUri(response.realUri)) return null;
+      if (_isLoginPage(response.realUri)) return null;
+      final statusCode = response.statusCode ?? 0;
+      if (statusCode < 300 || statusCode >= 400) return response;
+
+      final location = response.headers.value('location');
+      if (location == null || location.isEmpty) return null;
+      final target = response.realUri.resolve(location);
+      if (_isLoginPage(target) || !isTrustedKakuyomuUri(target)) return null;
+      if (redirects == 5) return null;
+      current = target;
+    }
+    return null;
+  }
+
+  bool _isLoginPage(Uri uri) =>
+      isTrustedKakuyomuUri(uri) &&
+      (uri.path.startsWith('/auth/login') || uri.path.startsWith('/login'));
 
   /// Novelty と WebView に保存されたカクヨム認証情報を破棄する。
   Future<void> logout() async {

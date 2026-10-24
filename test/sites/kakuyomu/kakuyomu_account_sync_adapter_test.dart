@@ -189,6 +189,58 @@ void main() {
       expect(await db.getLibraryNovels(), isEmpty);
     });
 
+    test('フォロー一覧の同一origin redirectを追跡する', () async {
+      final requests = <Uri>[];
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        db: db,
+        rateLimiter: _noWaitLimiter(),
+        pageFetcher: (url, cookie) async {
+          requests.add(url);
+          if (!url.queryParameters.containsKey('page')) {
+            return KakuyomuFollowedWorksHttpResponse(
+              statusCode: 302,
+              realUri: url,
+              location: '/my/antenna/works/all?page=1&order=last_read_at',
+            );
+          }
+          return KakuyomuFollowedWorksHttpResponse(
+            statusCode: 200,
+            realUri: url,
+            body: '<html></html>',
+          );
+        },
+      );
+
+      final result = await adapter.pullLibrary();
+
+      expect(result, 0);
+      expect(requests, hasLength(2));
+      expect(requests.last.queryParameters['order'], 'last_read_at');
+    });
+
+    test('フォロー一覧の外部origin redirect先へCookieを送らない', () async {
+      var requestCount = 0;
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        db: db,
+        rateLimiter: _noWaitLimiter(),
+        pageFetcher: (url, cookie) async {
+          requestCount++;
+          return KakuyomuFollowedWorksHttpResponse(
+            statusCode: 302,
+            realUri: url,
+            location: 'https://attacker.example/collect',
+          );
+        },
+      );
+
+      await expectLater(adapter.pullLibrary(), throwsA(isA<StateError>()));
+
+      expect(requestCount, 1);
+      expect(await db.getLibraryNovels(), isEmpty);
+    });
+
     test('guestページを返された場合は空一覧ではなくセッション切れを返す', () async {
       final adapter = KakuyomuAccountSyncAdapter(
         sessionRepository: _FakeSessionRepository('session=test'),
