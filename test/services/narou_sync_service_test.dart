@@ -57,8 +57,9 @@ void main() {
 
     group('syncBookmarksFromNarou', () {
       test('セッションCookieがない場合は空リストを返す', () async {
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => null);
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => null);
 
         final result = await syncService.syncBookmarksFromNarou();
         expect(result, isEmpty);
@@ -82,8 +83,9 @@ void main() {
           // 2ページ目は空にしてページネーションを止める
           return ResponseBody.fromString('<html></html>', 200);
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         when(mockDatabase.ensureNovelExists(any, any)).thenAnswer((_) async {});
         when(mockDatabase.addToLibrary(any, any)).thenAnswer((_) async => 1);
         when(
@@ -106,16 +108,23 @@ void main() {
         final result = await service.syncBookmarksFromNarou();
 
         expect(result, equals(['n0156ia']));
-        verify(mockDatabase.ensureNovelExists(NovelSource.narou, 'n0156ia')).called(1);
-        verify(mockDatabase.addToLibrary(NovelSource.narou, 'n0156ia')).called(1);
-        verify(mockDatabase.markNarouBookmarkSynced(NovelSource.narou, 'n0156ia')).called(1);
+        verify(
+          mockDatabase.ensureNovelExists(NovelSource.narou, 'n0156ia'),
+        ).called(1);
+        verify(
+          mockDatabase.addToLibrary(NovelSource.narou, 'n0156ia'),
+        ).called(1);
+        verify(
+          mockDatabase.markNarouBookmarkSynced(NovelSource.narou, 'n0156ia'),
+        ).called(1);
       });
     });
 
     group('addBookmarkToNarou', () {
       test('セッションCookieがない場合はnotLoggedInを返す', () async {
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => null);
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => null);
 
         final result = await syncService.addBookmarkToNarou('n0156ia');
         expect(result.outcome, NarouBookmarkSyncOutcome.notLoggedIn);
@@ -143,8 +152,9 @@ void main() {
           }
           return ResponseBody.fromString('', 404);
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -157,11 +167,14 @@ void main() {
         expect(result.outcome, NarouBookmarkSyncOutcome.success);
         expect(result.useridFavncode, '12345');
         expect(result.token, 'abcxyz');
+        expect(
+          fakeAdapter.requests.every((request) => !request.followRedirects),
+          isTrue,
+        );
         final addRequest = fakeAdapter.requests.firstWhere(
-          (r) =>
-              r.uri.toString().startsWith(
-                'https://syosetu.com/favnovelmain/addajax/',
-              ),
+          (r) => r.uri.toString().startsWith(
+            'https://syosetu.com/favnovelmain/addajax/',
+          ),
         );
         // なろう本家のJSはJSONP形式（callback・キャッシュバスター付き）で
         // addajaxを呼び出しているため、同じ形式に合わせる必要がある。
@@ -195,8 +208,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           }
           return ResponseBody.fromString('result({})', 200);
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -226,8 +240,7 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
         // ブックマーク済みページではjs-bookmark_urlの代わりに
         // js-bookmark_updateconf_urlが存在する。
         final fakeAdapter = _FakeHttpClientAdapter((options) {
-          if (options.uri.toString() ==
-              'https://ncode.syosetu.com/n0156ia/') {
+          if (options.uri.toString() == 'https://ncode.syosetu.com/n0156ia/') {
             return ResponseBody.fromString(
               '<input class="js-bookmark_updateconf_url" '
               'value="https://syosetu.com/favnovelmain/updateconfajax/'
@@ -237,8 +250,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           }
           return ResponseBody.fromString('', 404);
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -257,8 +271,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
         final fakeAdapter = _FakeHttpClientAdapter(
           (_) => ResponseBody.fromString('<html></html>', 200),
         );
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -269,6 +284,43 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
         final result = await service.addBookmarkToNarou('n0156ia');
 
         expect(result.outcome, NarouBookmarkSyncOutcome.failed);
+      });
+
+      test('外部ドメインのaddajax URLへ認証Cookieを送信しない', () async {
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          if (options.uri.toString() == 'https://ncode.syosetu.com/n0156ia/') {
+            return ResponseBody.fromString(
+              '<input class="js-bookmark_url" '
+              'value="https://attacker.example/collect">',
+              200,
+            );
+          }
+          return ResponseBody.fromString(
+            'result({"useridfavncode":"12345",'
+            '"favnovelmain_addend_token":"abcxyz","result":true})',
+            200,
+          );
+        });
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=secret; ses=secret; userl=secret');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        final result = await service.addBookmarkToNarou('n0156ia');
+
+        expect(result.outcome, NarouBookmarkSyncOutcome.failed);
+        expect(fakeAdapter.requests, hasLength(1));
+        expect(
+          fakeAdapter.requests.any(
+            (request) => request.uri.host == 'attacker.example',
+          ),
+          isFalse,
+        );
       });
 
       test(
@@ -287,8 +339,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
             }
             return ResponseBody.fromString('error', 400);
           });
-          when(mockAuthRepository.buildCookieHeader())
-              .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+          when(
+            mockAuthRepository.buildCookieHeader(),
+          ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
           final service = NarouSyncService(
             authRepository: mockAuthRepository,
             db: mockDatabase,
@@ -314,8 +367,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           }
           return ResponseBody.fromString('result({})', 200);
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -332,8 +386,7 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
 
       test('addajaxレスポンスのresultがfalseの場合はfailedを返す', () async {
         final fakeAdapter = _FakeHttpClientAdapter((options) {
-          if (options.uri.toString() ==
-              'https://ncode.syosetu.com/n0156ia/') {
+          if (options.uri.toString() == 'https://ncode.syosetu.com/n0156ia/') {
             return ResponseBody.fromString(
               '<input class="js-bookmark_url" '
               'value="https://syosetu.com/favnovelmain/addajax/?ncode=n0156ia">',
@@ -345,8 +398,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
             200,
           );
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -378,8 +432,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           }
           return ResponseBody.fromString('result({})', 500);
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -406,8 +461,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           }
           return ResponseBody.fromString('error', 500);
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -423,8 +479,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
 
     group('removeBookmarkFromNarou', () {
       test('セッションCookieがない場合はnotLoggedInを返す', () async {
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => null);
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => null);
 
         final result = await syncService.removeBookmarkFromNarou('n0156ia');
         expect(result, NarouBookmarkSyncOutcome.notLoggedIn);
@@ -458,8 +515,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           }
           return ResponseBody.fromString('', 404);
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -487,8 +545,7 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
 
       test('なろう側が未ブックマークの場合は解除不要としてsuccessを返す', () async {
         final fakeAdapter = _FakeHttpClientAdapter((options) {
-          if (options.uri.toString() ==
-              'https://ncode.syosetu.com/n0156ia/') {
+          if (options.uri.toString() == 'https://ncode.syosetu.com/n0156ia/') {
             return ResponseBody.fromString(
               '<input class="js-bookmark_url" '
               'value="https://syosetu.com/favnovelmain/addajax/'
@@ -498,8 +555,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           }
           return ResponseBody.fromString('', 404);
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -531,8 +589,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
             200,
           );
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -545,12 +604,51 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
         expect(result, NarouBookmarkSyncOutcome.failed);
       });
 
+      test('外部ドメインのupdateconf URLへ認証Cookieを送信しない', () async {
+        const bookmarkedPageHtml = '''
+<input type="hidden" class="js-bookmark_updateconf_url"
+  value="https://attacker.example/collect">
+<input type="hidden" class="js-del_bookmark_url"
+  value="https://syosetu.com/favnovelmain/deleteajax/useridfavncode/12345/">
+''';
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          if (options.uri.toString() == 'https://ncode.syosetu.com/n0156ia/') {
+            return ResponseBody.fromString(bookmarkedPageHtml, 200);
+          }
+          return ResponseBody.fromString(
+            'result({"result":true,"favnovelmain_delconf_token":"token"})',
+            200,
+          );
+        });
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=secret; ses=secret; userl=secret');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        final result = await service.removeBookmarkFromNarou('n0156ia');
+
+        expect(result, NarouBookmarkSyncOutcome.failed);
+        expect(fakeAdapter.requests, hasLength(1));
+        expect(
+          fakeAdapter.requests.any(
+            (request) => request.uri.host == 'attacker.example',
+          ),
+          isFalse,
+        );
+      });
+
       test('deleteajaxが例外を投げるとfailedを返す', () async {
         final fakeAdapter = _FakeHttpClientAdapter(
           (_) => ResponseBody.fromString('error', 500),
         );
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -566,8 +664,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
 
     group('setShioriIfLoggedIn', () {
       test('セッションCookieがない場合は何もしない', () async {
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => null);
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => null);
 
         await syncService.setShioriIfLoggedIn(
           ncode: 'n0156ia',
@@ -580,10 +679,12 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
         final fakeAdapter = _FakeHttpClientAdapter(
           (_) => ResponseBody.fromString('<html></html>', 200),
         );
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
-        when(mockDatabase.getNarouFavToken(NovelSource.narou, 'n0156ia'))
-            .thenAnswer((_) async => null);
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockDatabase.getNarouFavToken(NovelSource.narou, 'n0156ia'),
+        ).thenAnswer((_) async => null);
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -596,7 +697,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
           episode: 1,
         );
         expect(result, isFalse);
-        verify(mockDatabase.getNarouFavToken(NovelSource.narou, 'n0156ia')).called(1);
+        verify(
+          mockDatabase.getNarouFavToken(NovelSource.narou, 'n0156ia'),
+        ).called(1);
       });
 
       test('エピソードページの最新トークンでichiupdateajaxを呼び出す', () async {
@@ -614,8 +717,9 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
             200,
           );
         });
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,
@@ -650,9 +754,12 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
         final fakeAdapter = _FakeHttpClientAdapter(
           (_) => ResponseBody.fromString('error', 500),
         );
-        when(mockAuthRepository.buildCookieHeader())
-            .thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
-        when(mockDatabase.getNarouFavToken(NovelSource.narou, 'n0156ia')).thenAnswer(
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockDatabase.getNarouFavToken(NovelSource.narou, 'n0156ia'),
+        ).thenAnswer(
           (_) async => const NarouFavToken(
             useridFavncode: '1119968_3212720',
             token: '3d05fae7f1247fa4a905e99f1ff1773d',

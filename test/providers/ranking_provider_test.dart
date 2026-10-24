@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
 import 'package:novel_parser_core/novel_parser_core.dart';
+import 'package:novelty/domain/ranking_filter_state.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
@@ -67,6 +68,24 @@ class _StubRankingSite extends NovelSite implements RankingCacheControl {
     refreshCallCount++;
     final index = (page - 1).clamp(0, _pages.length - 1);
     return _pages[index];
+  }
+}
+
+/// 各ランキング要求の完了タイミングを制御するテストサイト。
+class _ControlledRankingSite extends _StubRankingSite {
+  _ControlledRankingSite() : super(const <RankingPage>[]);
+
+  final List<Completer<RankingPage>> pendingPages = <Completer<RankingPage>>[];
+
+  @override
+  Future<RankingPage> fetchRanking(
+    String rankingType, {
+    int page = 1,
+  }) {
+    callCount++;
+    final completer = Completer<RankingPage>();
+    pendingPages.add(completer);
+    return completer.future;
   }
 }
 
@@ -234,6 +253,68 @@ void main() {
   });
 
   group('RankingNotifier（カクヨムのサイト実装経路）', () {
+    test('フィルター変更前の遅延レスポンスを新しいランキングへ混ぜない', () async {
+      final site = _ControlledRankingSite();
+      final container = ProviderContainer(
+        overrides: [
+          novelSiteRegistryProvider.overrideWithValue(
+            <NovelSource, NovelSite>{NovelSource.kakuyomu: site},
+          ),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+      final subscription = container.listen(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+        (_, _) {},
+      );
+      addTearDown(subscription.close);
+
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      expect(site.pendingPages, hasLength(1));
+
+      container
+          .read(
+            rankingFilterStateProvider(
+              NovelSource.kakuyomu,
+              'daily',
+            ).notifier,
+          )
+          .setSelectedGenreId('new');
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      expect(site.pendingPages, hasLength(2));
+
+      site.pendingPages[0].complete(
+        const RankingPage(
+          novels: <NovelInfo>[
+            NovelInfo(title: '古い条件', ncode: 'old', genreId: 'old'),
+          ],
+          hasNextPage: false,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        container.read(rankingProvider(NovelSource.kakuyomu, 'daily')).novels,
+        isEmpty,
+      );
+
+      site.pendingPages[1].complete(
+        const RankingPage(
+          novels: <NovelInfo>[
+            NovelInfo(title: '新しい条件', ncode: 'new', genreId: 'new'),
+          ],
+          hasNextPage: false,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final state = container.read(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+      );
+      expect(state.novels.map((novel) => novel.title), <String>['新しい条件']);
+    });
+
     test('明示更新はサイトのランキングキャッシュを迂回する', () async {
       final site = _StubRankingSite(<RankingPage>[
         const RankingPage(

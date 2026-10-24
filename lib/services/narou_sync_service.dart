@@ -98,10 +98,8 @@ class NarouSyncService {
   /// なろうへのHTTPリクエストに使用するDioインスタンス。
   final Dio _dio;
 
-  static const _bookmarkListBase =
-      'https://syosetu.com/favnovelmain/list/';
-  static const _updateajaxUrl =
-      'https://syosetu.com/favnovelmain/updateajax/';
+  static const _bookmarkListBase = 'https://syosetu.com/favnovelmain/list/';
+  static const _updateajaxUrl = 'https://syosetu.com/favnovelmain/updateajax/';
 
   // -----------------------------------------------------------------------
   // ブックマーク同期（なろう → ローカル）
@@ -139,8 +137,7 @@ class NarouSyncService {
           ncode,
         );
         final localEpisode = localHistory?.lastEpisodeId;
-        if (localEpisode == null ||
-            entry.shioriEpisode! > localEpisode) {
+        if (localEpisode == null || entry.shioriEpisode! > localEpisode) {
           await db.addToHistory(
             ReadingHistoryCompanion(
               source: drift.Value(NovelSource.narou),
@@ -198,9 +195,7 @@ class NarouSyncService {
     String cookieHeader,
     int page,
   ) async {
-    final url = page == 1
-        ? _bookmarkListBase
-        : '$_bookmarkListBase?p=$page';
+    final url = page == 1 ? _bookmarkListBase : '$_bookmarkListBase?p=$page';
     try {
       final response = await _dio.get<String>(
         url,
@@ -209,6 +204,7 @@ class NarouSyncService {
             'User-Agent': narouUserAgent,
             'Cookie': cookieHeader,
           },
+          followRedirects: false,
           responseType: ResponseType.plain,
         ),
       );
@@ -322,6 +318,7 @@ class NarouSyncService {
             'Cookie': cookieHeader,
             'Referer': novelUrl,
           },
+          followRedirects: false,
           responseType: ResponseType.plain,
           validateStatus: (status) =>
               status != null && status >= 200 && status < 300,
@@ -362,7 +359,7 @@ class NarouSyncService {
             'useridfavncode': tokenData.useridfavncode,
             'token': tokenData.token,
             'isnotice': '1', // 更新通知ON
-            'jyokyo': '2',  // 公開
+            'jyokyo': '2', // 公開
             'categoryid': '1',
             'callback': 'result',
           },
@@ -372,6 +369,7 @@ class NarouSyncService {
               'Cookie': cookieHeader,
               'Referer': novelUrl,
             },
+            followRedirects: false,
           ),
         );
         debugPrint(
@@ -443,6 +441,15 @@ class NarouSyncService {
         return NarouBookmarkSyncOutcome.failed;
       }
 
+      final delUrl = pageState.delUrl;
+      if (delUrl == null) {
+        debugPrint(
+          '[NarouSync] removeBookmarkFromNarou($normalizedNcode): '
+          'js-del_bookmark_urlが見つからないか、送信先が不正です',
+        );
+        return NarouBookmarkSyncOutcome.failed;
+      }
+
       // 削除用トークンを取得する（本家JSの「ブックマーク設定変更」相当）。
       final confData = await _getJsonp(
         updateconfUrl,
@@ -457,15 +464,6 @@ class NarouSyncService {
           '[NarouSync] removeBookmarkFromNarou($normalizedNcode): '
           '削除用トークンを取得できませんでした '
           'res_mes=${confData?['res_mes']}',
-        );
-        return NarouBookmarkSyncOutcome.failed;
-      }
-
-      final delUrl = pageState.delUrl;
-      if (delUrl == null) {
-        debugPrint(
-          '[NarouSync] removeBookmarkFromNarou($normalizedNcode): '
-          'js-del_bookmark_urlが見つかりませんでした',
         );
         return NarouBookmarkSyncOutcome.failed;
       }
@@ -507,6 +505,7 @@ class NarouSyncService {
             'User-Agent': narouUserAgent,
             'Cookie': cookieHeader,
           },
+          followRedirects: false,
           responseType: ResponseType.plain,
         ),
       );
@@ -514,17 +513,34 @@ class NarouSyncService {
       if (data == null) return null;
       final doc = parser.parse(data);
 
-      String? valueOf(String selector) {
+      String? valueOf(String selector, String allowedPathPrefix) {
         final value = doc.querySelector(selector)?.attributes['value'];
         if (value == null || value.isEmpty) return null;
         // 相対URLの場合に備えてなろうのドメインで解決する
-        return Uri.parse('https://syosetu.com/').resolve(value).toString();
+        final uri = Uri.parse('https://syosetu.com/').resolve(value);
+        if (uri.scheme != 'https' ||
+            uri.host != 'syosetu.com' ||
+            uri.port != 443 ||
+            uri.userInfo.isNotEmpty ||
+            !uri.path.startsWith(allowedPathPrefix)) {
+          return null;
+        }
+        return uri.toString();
       }
 
       return _BookmarkPageState(
-        addUrl: valueOf('.js-bookmark_url'),
-        updateconfUrl: valueOf('.js-bookmark_updateconf_url'),
-        delUrl: valueOf('.js-del_bookmark_url'),
+        addUrl: valueOf(
+          '.js-bookmark_url',
+          '/favnovelmain/addajax/',
+        ),
+        updateconfUrl: valueOf(
+          '.js-bookmark_updateconf_url',
+          '/favnovelmain/updateconfajax/',
+        ),
+        delUrl: valueOf(
+          '.js-del_bookmark_url',
+          '/favnovelmain/deleteajax/',
+        ),
       );
     } on Exception {
       return null;
@@ -551,6 +567,7 @@ class NarouSyncService {
           'Cookie': cookieHeader,
           'Referer': referer,
         },
+        followRedirects: false,
         responseType: ResponseType.plain,
         validateStatus: (status) =>
             status != null && status >= 200 && status < 300,
@@ -564,23 +581,28 @@ class NarouSyncService {
     // JSONP形式 "callback({...})" または JSON形式 "{...}" を処理する
     var json = responseBody.trim();
     // JSONP wrapper を除去
-    final jsonpMatch = RegExp(r'^\w+\((.+)\)\s*$', dotAll: true).firstMatch(json);
+    final jsonpMatch = RegExp(
+      r'^\w+\((.+)\)\s*$',
+      dotAll: true,
+    ).firstMatch(json);
     if (jsonpMatch != null) {
       json = jsonpMatch.group(1)!;
     }
     try {
       // 簡易的なJSONパース（useridfavncode と favnovelmain_addend_token を抽出）
-      final useridfavncodeMatch =
-          RegExp(r'"useridfavncode"\s*:\s*"([^"]+)"').firstMatch(json);
-      final tokenMatch =
-          RegExp(r'"favnovelmain_addend_token"\s*:\s*"([^"]+)"')
-              .firstMatch(json);
+      final useridfavncodeMatch = RegExp(
+        r'"useridfavncode"\s*:\s*"([^"]+)"',
+      ).firstMatch(json);
+      final tokenMatch = RegExp(
+        r'"favnovelmain_addend_token"\s*:\s*"([^"]+)"',
+      ).firstMatch(json);
       // xidfavncode（R18作品の場合）も考慮
-      final xidfavncodeMatch =
-          RegExp(r'"xidfavncode"\s*:\s*"([^"]+)"').firstMatch(json);
+      final xidfavncodeMatch = RegExp(
+        r'"xidfavncode"\s*:\s*"([^"]+)"',
+      ).firstMatch(json);
 
-      final useridfavncode = useridfavncodeMatch?.group(1) ??
-          xidfavncodeMatch?.group(1);
+      final useridfavncode =
+          useridfavncodeMatch?.group(1) ?? xidfavncodeMatch?.group(1);
       final token = tokenMatch?.group(1);
 
       if (useridfavncode == null || token == null) return null;
@@ -639,8 +661,7 @@ class NarouSyncService {
     }
 
     final normalizedNcode = ncode.toNormalizedNcode();
-    final episodeUrl =
-        'https://ncode.syosetu.com/$normalizedNcode/$episode/';
+    final episodeUrl = 'https://ncode.syosetu.com/$normalizedNcode/$episode/';
 
     // しおり用トークンは変化する可能性があるため、閲覧エピソードの
     // HTMLから最新値を取得する。これにより、なろうから同期した既存の
@@ -708,6 +729,7 @@ class NarouSyncService {
             'Cookie': cookieHeader,
             'Referer': episodeUrl,
           },
+          followRedirects: false,
           responseType: ResponseType.plain,
           validateStatus: (status) =>
               status != null && status >= 200 && status < 300,
