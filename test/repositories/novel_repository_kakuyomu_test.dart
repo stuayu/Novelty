@@ -291,6 +291,82 @@ void main() {
         ),
       ).called(1);
     });
+
+    test('DBに保存された同一hostのusers URLは本文取得前に拒否する', () async {
+      when(
+        mockDatabase.getEpisodeData(NovelSource.kakuyomu, _workId, 1),
+      ).thenAnswer((_) async => null);
+      when(
+        mockDatabase.getEpisodeUrl(NovelSource.kakuyomu, _workId, 1),
+      ).thenAnswer((_) async => 'https://kakuyomu.jp/users/someone');
+      when(
+        mockDatabase.updateEpisodeContent(
+          source: anyNamed('source'),
+          workId: anyNamed('workId'),
+          episodeId: anyNamed('episodeId'),
+          content: anyNamed('content'),
+          fetchedAt: anyNamed('fetchedAt'),
+          revisedAt: anyNamed('revisedAt'),
+          subtitle: anyNamed('subtitle'),
+          url: anyNamed('url'),
+          publishedAt: anyNamed('publishedAt'),
+        ),
+      ).thenAnswer((_) async {});
+
+      final repository = container.read(novelRepositoryProvider);
+
+      final succeeded = await repository.downloadSingleEpisode(
+        NovelSource.kakuyomu,
+        _workId,
+        1,
+      );
+
+      expect(succeeded, isFalse);
+      expect(adapter.requestedPaths, isNot(contains('/users/someone')));
+    });
+
+    test('Kakuyomu bulkは作品ページを目次取得時に一度だけ読む', () async {
+      when(
+        mockDatabase.getEpisodesRange(NovelSource.kakuyomu, _workId, 1, 1),
+      ).thenAnswer((_) async => <Episode>[]);
+      when(mockDatabase.upsertEpisodes(any)).thenAnswer((_) async {});
+      when(
+        mockDatabase.getEpisodeData(NovelSource.kakuyomu, _workId, 1),
+      ).thenAnswer((_) async => null);
+      when(
+        mockDatabase.getEpisodeUrl(NovelSource.kakuyomu, _workId, 1),
+      ).thenAnswer((_) async => _episodeUrl);
+      when(
+        mockDatabase.updateEpisodeContent(
+          source: anyNamed('source'),
+          workId: anyNamed('workId'),
+          episodeId: anyNamed('episodeId'),
+          content: anyNamed('content'),
+          fetchedAt: anyNamed('fetchedAt'),
+          revisedAt: anyNamed('revisedAt'),
+          subtitle: anyNamed('subtitle'),
+          url: anyNamed('url'),
+          publishedAt: anyNamed('publishedAt'),
+        ),
+      ).thenAnswer((_) async {});
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.downloadNovel(NovelSource.kakuyomu, _workId, 1);
+
+      expect(
+        adapter.requestedPaths
+            .where((path) => path == '/works/$_workId')
+            .length,
+        1,
+      );
+      expect(
+        adapter.requestedPaths
+            .where((path) => path.endsWith('/episode_sidebar'))
+            .length,
+        1,
+      );
+      verifyNever(mockApiService.fetchNovelInfo(any));
+    });
   });
 }
 

@@ -124,7 +124,7 @@ class KakuyomuSite implements NovelSite {
   /// robots.txt（2026-08-02 確認）に基づく取得禁止パスのパターン。
   static final List<RegExp> _disallowedPathPatterns = <RegExp>[
     RegExp('^/shared_drafts/'),
-    RegExp(r'^/works/[^/]+/episodes/[^/]+/read$'),
+    RegExp(r'^/works/[^/]+/episodes/[^/]+/read/?$'),
     RegExp('^/login'),
     RegExp('^/auth/login'),
     RegExp('^/violation_report'),
@@ -224,8 +224,10 @@ class KakuyomuSite implements NovelSite {
     String? url,
   }) async {
     final episodeUrl = url ?? await _resolveEpisodeUrl(workId, index);
-    final html = await _fetch(episodeUrl);
-    return _parseEpisode(html, workId, index, episodeUrl);
+    final allowedUri = _resolveAllowedEpisodeUri(episodeUrl, workId);
+    final validatedEpisodeUrl = allowedUri.toString();
+    final html = await _fetch(validatedEpisodeUrl);
+    return _parseEpisode(html, workId, index, validatedEpisodeUrl);
   }
 
   /// 目次の [index] 番目のエピソードURLを解決する。
@@ -317,6 +319,20 @@ class KakuyomuSite implements NovelSite {
       throw const KakuyomuUrlException('許可されていないカクヨムURLです');
     }
     _assertAllowed(uri.path);
+    return uri;
+  }
+
+  /// 作品ID配下のエピソード本文URLだけを許可する。
+  Uri _resolveAllowedEpisodeUri(String reference, String workId) {
+    final uri = _resolveAllowedUri(reference);
+    final segments = uri.pathSegments;
+    if (segments.length != 4 ||
+        segments[0] != 'works' ||
+        segments[1] != workId ||
+        segments[2] != 'episodes' ||
+        !RegExp(r'^\d+$').hasMatch(segments[3])) {
+      throw KakuyomuUrlException('許可されていないエピソードURLです: ${uri.path}');
+    }
     return uri;
   }
 
@@ -513,7 +529,7 @@ class KakuyomuSite implements NovelSite {
           // 目次順の連番（アプリ内でのエピソード番号）
           index: i + 1,
           subtitle: title,
-          url: _toAbsoluteUrl(link?.attributes['href']),
+          url: _toAbsoluteUrl(link?.attributes['href'], workId),
           update: time?.text.trim(),
         ),
       );
@@ -541,12 +557,12 @@ class KakuyomuSite implements NovelSite {
   }
 
   /// 目次hrefを解決し、許可originと取得可能なパスを検証する。
-  String? _toAbsoluteUrl(String? href) {
+  String? _toAbsoluteUrl(String? href, String workId) {
     if (href == null || href.trim().isEmpty) {
       return null;
     }
     try {
-      return _resolveAllowedUri(href).toString();
+      return _resolveAllowedEpisodeUri(href, workId).toString();
     } on KakuyomuUrlException {
       return null;
     }

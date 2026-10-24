@@ -496,18 +496,20 @@ class NovelRepository {
       // これにより、改稿されたエピソードのみを再ダウンロードできる
       final revisedMap = <int, String?>{};
       NovelInfo? novelInfo;
-      try {
-        novelInfo = await _fetchNovelInfo(source, workId);
-        final episodes = novelInfo.episodes ?? [];
-        for (final ep in episodes) {
-          if (ep.index != null) {
-            revisedMap[ep.index!] = ep.revised;
+      if (source == NovelSource.narou) {
+        try {
+          novelInfo = await _fetchNovelInfo(source, workId);
+          final episodes = novelInfo.episodes ?? [];
+          for (final ep in episodes) {
+            if (ep.index != null) {
+              revisedMap[ep.index!] = ep.revised;
+            }
           }
+        } on Exception catch (error) {
+          if (_isRateLimited(error)) rethrow;
+          // 目次取得失敗時はrevised情報なしで進める（全件チェックになるが、キャッシュがあればスキップされる）
+          // ただし、キャッシュが古くてもスキップされてしまう可能性がある
         }
-      } on Exception catch (error) {
-        if (_isRateLimited(error)) rethrow;
-        // 目次取得失敗時はrevised情報なしで進める（全件チェックになるが、キャッシュがあればスキップされる）
-        // ただし、キャッシュが古くてもスキップされてしまう可能性がある
       }
 
       if (source == NovelSource.kakuyomu) {

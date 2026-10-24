@@ -118,6 +118,7 @@ class _DownloadTestKakuyomuSite extends NovelSite {
   final int totalEpisodes;
   final Exception? infoFailure;
   final Exception? tocFailure;
+  int infoFetchCount = 0;
   int tocFetchCount = 0;
   int episodeFetchCount = 0;
   final List<String?> episodeFetchUrls = <String?>[];
@@ -136,6 +137,7 @@ class _DownloadTestKakuyomuSite extends NovelSite {
 
   @override
   Future<NovelInfo> fetchNovelInfo(String workId) async {
+    infoFetchCount++;
     if (infoFailure case final failure?) throw failure;
     return NovelInfo(
       source: NovelSource.kakuyomu,
@@ -781,7 +783,7 @@ void main() {
       expect(progress.last.errorMessage, contains('429'));
     });
 
-    test('カクヨム作品情報取得時の429を握りつぶさず中断する', () async {
+    test('カクヨム一括取得では作品情報を取得せず目次取得へ進む', () async {
       const workId = 'work';
       final site = _DownloadTestKakuyomuSite(
         workId: workId,
@@ -797,16 +799,14 @@ void main() {
           .watchDownloadProgress(NovelSource.kakuyomu, workId)
           .toList();
 
-      await expectLater(
-        repository.downloadNovel(NovelSource.kakuyomu, workId, 2),
-        throwsA(isA<KakuyomuHttpException>()),
-      );
+      await repository.downloadNovel(NovelSource.kakuyomu, workId, 2);
 
       final progress = await progressFuture;
-      expect(site.tocFetchCount, 0);
-      expect(site.episodeFetchCount, 0);
+      expect(site.infoFetchCount, 0);
+      expect(site.tocFetchCount, 1);
+      expect(site.episodeFetchCount, 2);
       expect(progress.last.isDownloading, isFalse);
-      expect(progress.last.errorMessage, contains('429'));
+      expect(progress.last.errorMessage, isNull);
     });
 
     test('カクヨム一括取得で一部URLが欠けていれば目次を1回だけ取得して補完する', () async {

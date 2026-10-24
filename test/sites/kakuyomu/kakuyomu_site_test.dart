@@ -206,6 +206,9 @@ void main() {
           'https://user@kakuyomu.jp/works/$_workId/episodes/1',
           'http://[invalid',
           'https://kakuyomu.jp/works/$_workId/episodes/1/read',
+          'https://kakuyomu.jp/users/someone',
+          'https://kakuyomu.jp/works/another-work/episodes/123',
+          'https://kakuyomu.jp/works/$_workId/episodes/1/read/',
         ]) {
           final adapter = _FixtureAdapter(<String, String>{
             '/works/$_workId': _fixture('work_page.html'),
@@ -327,6 +330,25 @@ void main() {
         );
         // リクエストが一切発行されないこと
         expect(adapter.requestedPaths, isEmpty);
+      });
+
+      test('本文URLは同一作品のepisode pathだけ許可し通信前に検証する', () async {
+        for (final url in <String>[
+          'https://kakuyomu.jp/users/someone',
+          'https://kakuyomu.jp/works/another-work/episodes/123',
+          'https://kakuyomu.jp/works/$_workId/episodes/$_firstEpisodeId/read/',
+          'https://kakuyomu.jp/works/$_workId/episodes/$_firstEpisodeId/',
+        ]) {
+          final adapter = _FixtureAdapter(<String, String>{});
+          final site = _createSite(adapter);
+
+          await expectLater(
+            site.fetchEpisode(_workId, 1, url: url),
+            throwsA(isA<KakuyomuUrlException>()),
+          );
+
+          expect(adapter.requestedPaths, isEmpty);
+        }
       });
 
       test('レートリミッターがリクエスト間隔を保証する', () async {
