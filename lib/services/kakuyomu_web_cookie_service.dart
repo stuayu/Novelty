@@ -5,13 +5,16 @@ import 'package:riverpod/riverpod.dart';
 
 final _kakuyomuWebUri = WebUri('https://kakuyomu.jp/');
 
+/// カクヨムWebView Cookieサービスのプロバイダー。
 final kakuyomuWebCookieServiceProvider = Provider<KakuyomuWebCookieService>(
   (ref) => KakuyomuWebCookieService(
     sessionRepository: ref.watch(kakuyomuSessionRepositoryProvider),
   ),
 );
 
+/// WebViewとSecure Storageの間でカクヨムCookieを移送するサービス。
 class KakuyomuWebCookieService {
+  /// コンストラクタ。
   KakuyomuWebCookieService({
     required KakuyomuSessionRepository sessionRepository,
     CookieManager? cookieManager,
@@ -21,6 +24,7 @@ class KakuyomuWebCookieService {
   final KakuyomuSessionRepository _sessionRepository;
   final CookieManager _cookieManager;
 
+  /// Secure StorageのCookieをカクヨムWebViewへ復元する。
   Future<void> restoreToWebView() async {
     final cookies = await _sessionRepository.getCookies();
     for (final cookie in cookies) {
@@ -37,6 +41,7 @@ class KakuyomuWebCookieService {
     }
   }
 
+  /// WebViewから有効なカクヨムCookieを取得して保存する。
   Future<List<KakuyomuSessionCookie>> captureFromWebView() async {
     final cookies = await _cookieManager.getCookies(url: _kakuyomuWebUri);
     final sessionCookies = cookies
@@ -58,6 +63,7 @@ class KakuyomuWebCookieService {
     return sessionCookies;
   }
 
+  /// WebViewに残るカクヨムCookieを削除する。
   Future<void> clearWebViewCookies() async {
     final cookies = await _cookieManager.getCookies(url: _kakuyomuWebUri);
     for (final cookie in cookies) {

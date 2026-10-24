@@ -35,7 +35,9 @@ void main() {
     test('copyWithでフィールドを変更できる', () {
       const state = LibraryFilterState();
 
-      final updated1 = state.copyWith(serialStatus: LibrarySerialStatus.ongoing);
+      final updated1 = state.copyWith(
+        serialStatus: LibrarySerialStatus.ongoing,
+      );
       expect(updated1.serialStatus, equals(LibrarySerialStatus.ongoing));
       expect(updated1.selectedGenreId, isNull);
 
@@ -135,8 +137,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      container
-          .read(libraryFilterStateProvider.notifier)
+      container.read(libraryFilterStateProvider.notifier)
         ..setSelectedGenreId('FANTASY')
         ..setSerialStatus(LibrarySerialStatus.ongoing)
         ..setSource(NovelSource.kakuyomu);
@@ -152,8 +153,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      container
-          .read(libraryFilterStateProvider.notifier)
+      container.read(libraryFilterStateProvider.notifier)
         ..setSource(NovelSource.narou)
         ..setSelectedGenreId('201')
         ..setSerialStatus(LibrarySerialStatus.ongoing);
@@ -168,8 +168,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      container
-          .read(libraryFilterStateProvider.notifier)
+      container.read(libraryFilterStateProvider.notifier)
         ..setSortOrder(LibrarySortOrder.titleAsc)
         ..setSearchQuery('検索語');
 
@@ -182,8 +181,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      container
-          .read(libraryFilterStateProvider.notifier)
+      container.read(libraryFilterStateProvider.notifier)
         ..setSelectedGenreId('FANTASY')
         ..setSerialStatus(LibrarySerialStatus.ongoing)
         ..setSortOrder(LibrarySortOrder.titleAsc)

@@ -33,16 +33,17 @@ void main() {
           return 'https://kakuyomu.jp/works/2912051601045930861/'
               'episodes/2912051601046590969';
         },
-        pushReadingProgress: ({
-          required workId,
-          required episodeId,
-          required position,
-        }) async {
-          sentWorkId = workId;
-          sentEpisodeId = episodeId;
-          sentPosition = position;
-          return true;
-        },
+        pushReadingProgress:
+            ({
+              required workId,
+              required episodeId,
+              required position,
+            }) async {
+              sentWorkId = workId;
+              sentEpisodeId = episodeId;
+              sentPosition = position;
+              return true;
+            },
       );
 
       expect(
@@ -66,14 +67,15 @@ void main() {
         episodeUrlResolver: (workId, episode) async =>
             'https://kakuyomu.jp/works/2912051601045930861/'
             'episodes/2912051601046590969',
-        pushReadingProgress: ({
-          required workId,
-          required episodeId,
-          required position,
-        }) async {
-          sentPosition = position;
-          return true;
-        },
+        pushReadingProgress:
+            ({
+              required workId,
+              required episodeId,
+              required position,
+            }) async {
+              sentPosition = position;
+              return true;
+            },
       );
 
       expect(
@@ -89,8 +91,10 @@ void main() {
     test('別作品URL・別host・不正pathは送信しない', () async {
       for (final url in <String>[
         'https://kakuyomu.jp/works/999/episodes/2912051601046590969',
-        'https://example.com/works/2912051601045930861/'
-            'episodes/2912051601046590969',
+        Uri.https(
+          'example.com',
+          '/works/2912051601045930861/episodes/2912051601046590969',
+        ).toString(),
         'https://kakuyomu.jp/auth/login',
       ]) {
         var pushed = false;
@@ -98,14 +102,15 @@ void main() {
           sessionRepository: _FakeSessionRepository(),
           db: db,
           episodeUrlResolver: (workId, episode) async => url,
-          pushReadingProgress: ({
-            required workId,
-            required episodeId,
-            required position,
-          }) async {
-            pushed = true;
-            return true;
-          },
+          pushReadingProgress:
+              ({
+                required workId,
+                required episodeId,
+                required position,
+              }) async {
+                pushed = true;
+                return true;
+              },
         );
 
         expect(
@@ -126,14 +131,15 @@ void main() {
         sessionRepository: _FakeSessionRepository(),
         db: db,
         episodeUrlResolver: (workId, episode) async => null,
-        pushReadingProgress: ({
-          required workId,
-          required episodeId,
-          required position,
-        }) async {
-          pushed = true;
-          return true;
-        },
+        pushReadingProgress:
+            ({
+              required workId,
+              required episodeId,
+              required position,
+            }) async {
+              pushed = true;
+              return true;
+            },
       );
 
       expect(

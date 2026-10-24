@@ -13,8 +13,8 @@ import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/estar_uri.dart';
-import 'package:novelty/utils/trusted_uri.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
+import 'package:novelty/utils/trusted_uri.dart';
 
 /// エブリスタへのHTTP取得に失敗した場合の例外。
 class EstarHttpException implements Exception {

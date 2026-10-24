@@ -140,7 +140,7 @@ class NarouSyncService {
         if (localEpisode == null || entry.shioriEpisode! > localEpisode) {
           await db.addToHistory(
             ReadingHistoryCompanion(
-              source: drift.Value(NovelSource.narou),
+              source: const drift.Value(NovelSource.narou),
               workId: drift.Value(ncode),
               lastEpisodeId: drift.Value(entry.shioriEpisode),
               viewedAt: drift.Value(DateTime.now().millisecondsSinceEpoch),

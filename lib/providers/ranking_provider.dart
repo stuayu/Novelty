@@ -147,8 +147,8 @@ class RankingNotifier extends _$RankingNotifier {
   }
 
   Future<void> _fetchNextPage({
-    bool forceRefresh = false,
     required int requestGeneration,
+    bool forceRefresh = false,
   }) async {
     if (requestGeneration != _requestGeneration) return;
     final currentState = state;

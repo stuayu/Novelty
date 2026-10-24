@@ -252,7 +252,7 @@ class ApiService {
       throw Exception('作品ページを取得できませんでした: ${response.statusCode}');
     }
 
-    final document = parser.parse(response.data!);
+    final document = parser.parse(response.data);
     final title = document.querySelector('h1.p-novel__title')?.text.trim();
     if (title == null || title.isEmpty) {
       throw Exception('作品タイトルを取得できませんでした');
@@ -264,7 +264,7 @@ class ApiService {
     final userId = authorHref == null
         ? null
         : int.tryParse(
-            RegExp(r'/([0-9]+)/?').firstMatch(authorHref)?.group(1) ?? '',
+            RegExp('/([0-9]+)/?').firstMatch(authorHref)?.group(1) ?? '',
           );
     final story = document.querySelector('.p-novel__summary')?.text.trim();
 
@@ -275,14 +275,14 @@ class ApiService {
       final href = anchor.attributes['href'];
       if (href == null) continue;
       final page = int.tryParse(
-        RegExp(r'[?&]p=([0-9]+)').firstMatch(href)?.group(1) ?? '',
+        RegExp('[?&]p=([0-9]+)').firstMatch(href)?.group(1) ?? '',
       );
       if (page != null && page > maxPage) maxPage = page;
     }
     if (maxPage > 1) {
       final lastResponse = await _fetchWithCache('$topUrl?p=$maxPage');
       if (lastResponse.statusCode == 200 && lastResponse.data != null) {
-        lastPageEpisodes = _parseEpisodes(parser.parse(lastResponse.data!));
+        lastPageEpisodes = _parseEpisodes(parser.parse(lastResponse.data));
       }
     }
 

@@ -5,11 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:novelty/database/database.dart';
-import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/models/library_toggle_result.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/repositories/novel_repository.dart';
 import 'package:novelty/services/narou_sync_service.dart';
+import 'package:novelty/sites/novel_source.dart';
 
 import 'library_status_toggle_test.mocks.dart';
 
@@ -45,7 +45,9 @@ void main() {
 
     test('なろう同期成功時はnarouSyncFailed:falseで同期済みを記録する', () async {
       when(mockDatabase.insertNovel(any)).thenAnswer((_) async => 1);
-      when(mockDatabase.addToLibrary(NovelSource.narou, testNcode)).thenAnswer((_) async => 1);
+      when(
+        mockDatabase.addToLibrary(NovelSource.narou, testNcode),
+      ).thenAnswer((_) async => 1);
       when(mockNarouSyncService.addBookmarkToNarou(testNcode)).thenAnswer(
         (_) async => const NarouBookmarkSyncResult(
           outcome: NarouBookmarkSyncOutcome.success,
@@ -79,7 +81,9 @@ void main() {
 
     test('なろう同期失敗時はnarouSyncFailed:trueを返し同期済みにしない', () async {
       when(mockDatabase.insertNovel(any)).thenAnswer((_) async => 1);
-      when(mockDatabase.addToLibrary(NovelSource.narou, testNcode)).thenAnswer((_) async => 1);
+      when(
+        mockDatabase.addToLibrary(NovelSource.narou, testNcode),
+      ).thenAnswer((_) async => 1);
       when(mockNarouSyncService.addBookmarkToNarou(testNcode)).thenAnswer(
         (_) async => const NarouBookmarkSyncResult(
           outcome: NarouBookmarkSyncOutcome.failed,
@@ -106,7 +110,9 @@ void main() {
 
     test('なろう同期で予期しない例外が発生してもローカル追加はerrorにならない', () async {
       when(mockDatabase.insertNovel(any)).thenAnswer((_) async => 1);
-      when(mockDatabase.addToLibrary(NovelSource.narou, testNcode)).thenAnswer((_) async => 1);
+      when(
+        mockDatabase.addToLibrary(NovelSource.narou, testNcode),
+      ).thenAnswer((_) async => 1);
       when(
         mockNarouSyncService.addBookmarkToNarou(testNcode),
       ).thenThrow(Exception('予期しないエラー'));
@@ -132,7 +138,9 @@ void main() {
 
     test('未ログイン時はnarouSyncFailed:falseを返す（警告不要）', () async {
       when(mockDatabase.insertNovel(any)).thenAnswer((_) async => 1);
-      when(mockDatabase.addToLibrary(NovelSource.narou, testNcode)).thenAnswer((_) async => 1);
+      when(
+        mockDatabase.addToLibrary(NovelSource.narou, testNcode),
+      ).thenAnswer((_) async => 1);
       when(mockNarouSyncService.addBookmarkToNarou(testNcode)).thenAnswer(
         (_) async => const NarouBookmarkSyncResult(
           outcome: NarouBookmarkSyncOutcome.notLoggedIn,
@@ -177,14 +185,19 @@ void main() {
     }
 
     test('保存トークンが無くてもncodeを使ってなろう解除を呼ぶ', () async {
-      when(mockDatabase.watchIsInLibrary(NovelSource.narou, testNcode)).thenAnswer(
+      when(
+        mockDatabase.watchIsInLibrary(NovelSource.narou, testNcode),
+      ).thenAnswer(
         (_) => Stream.value(true),
       );
-      when(mockDatabase.removeFromLibrary(NovelSource.narou, testNcode)).thenAnswer(
+      when(
+        mockDatabase.removeFromLibrary(NovelSource.narou, testNcode),
+      ).thenAnswer(
         (_) async => 1,
       );
-      when(mockNarouSyncService.removeBookmarkFromNarou(testNcode))
-          .thenAnswer((_) async => NarouBookmarkSyncOutcome.success);
+      when(
+        mockNarouSyncService.removeBookmarkFromNarou(testNcode),
+      ).thenAnswer((_) async => NarouBookmarkSyncOutcome.success);
 
       final notifier = await waitForRegisteredState();
       final result = await notifier.toggle(testNovel);
@@ -194,10 +207,14 @@ void main() {
     });
 
     test('なろう解除成功時はnarouSyncFailed:falseでremovedを返す', () async {
-      when(mockDatabase.watchIsInLibrary(NovelSource.narou, testNcode)).thenAnswer(
+      when(
+        mockDatabase.watchIsInLibrary(NovelSource.narou, testNcode),
+      ).thenAnswer(
         (_) => Stream.value(true),
       );
-      when(mockDatabase.removeFromLibrary(NovelSource.narou, testNcode)).thenAnswer(
+      when(
+        mockDatabase.removeFromLibrary(NovelSource.narou, testNcode),
+      ).thenAnswer(
         (_) async => 1,
       );
       when(
@@ -212,10 +229,14 @@ void main() {
     });
 
     test('なろう解除失敗時はnarouSyncFailed:trueでremovedを返す', () async {
-      when(mockDatabase.watchIsInLibrary(NovelSource.narou, testNcode)).thenAnswer(
+      when(
+        mockDatabase.watchIsInLibrary(NovelSource.narou, testNcode),
+      ).thenAnswer(
         (_) => Stream.value(true),
       );
-      when(mockDatabase.removeFromLibrary(NovelSource.narou, testNcode)).thenAnswer(
+      when(
+        mockDatabase.removeFromLibrary(NovelSource.narou, testNcode),
+      ).thenAnswer(
         (_) async => 1,
       );
       when(

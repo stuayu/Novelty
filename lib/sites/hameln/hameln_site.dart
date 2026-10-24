@@ -15,8 +15,8 @@ import 'package:novelty/sites/hameln/hameln_webview_html_fetcher.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/hameln_uri.dart';
-import 'package:novelty/utils/trusted_uri.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
+import 'package:novelty/utils/trusted_uri.dart';
 
 export 'hameln_html_fetcher.dart';
 
@@ -597,8 +597,8 @@ class HamelnSite implements NovelSite, RankingCacheControl {
   bool _isCloudflareChallenge(String html) => isHamelnChallengeHtml(html);
 
   void _assertAllowed(Uri uri) {
-    if ((!isTrustedHttpsOrigin(uri, host: 'syosetu.org') &&
-        !isTrustedHttpsOrigin(uri, host: 'h.syosetu.org'))) {
+    if (!isTrustedHttpsOrigin(uri, host: 'syosetu.org') &&
+        !isTrustedHttpsOrigin(uri, host: 'h.syosetu.org')) {
       throw StateError('ハーメルン公式HTTPS URLではありません: $uri');
     }
     final mode = uri.queryParameters['mode'];

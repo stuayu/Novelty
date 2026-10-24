@@ -124,7 +124,10 @@ void main() {
       await insertDummyNovel(ncode);
       await database.addToLibrary(NovelSource.narou, ncode);
 
-      expect(await database.isNarouBookmarkSynced(NovelSource.narou, ncode), false);
+      expect(
+        await database.isNarouBookmarkSynced(NovelSource.narou, ncode),
+        false,
+      );
     });
 
     test('markNarouBookmarkSyncedでなろう同期状態がtrueになること', () async {
@@ -134,14 +137,20 @@ void main() {
 
       await database.markNarouBookmarkSynced(NovelSource.narou, ncode);
 
-      expect(await database.isNarouBookmarkSynced(NovelSource.narou, ncode), true);
+      expect(
+        await database.isNarouBookmarkSynced(NovelSource.narou, ncode),
+        true,
+      );
     });
 
     test('ライブラリ未登録の小説はなろう同期状態がfalseであること', () async {
       const ncode = 'n1234ab';
       await insertDummyNovel(ncode);
 
-      expect(await database.isNarouBookmarkSynced(NovelSource.narou, ncode), false);
+      expect(
+        await database.isNarouBookmarkSynced(NovelSource.narou, ncode),
+        false,
+      );
     });
 
     test('markNarouBookmarkSyncedでuseridFavncode・tokenも保存できること', () async {
@@ -156,7 +165,10 @@ void main() {
         favToken: '3d05fae7f1247fa4a905e99f1ff1773d',
       );
 
-      final favToken = await database.getNarouFavToken(NovelSource.narou, ncode);
+      final favToken = await database.getNarouFavToken(
+        NovelSource.narou,
+        ncode,
+      );
       expect(favToken, isNotNull);
       expect(favToken!.useridFavncode, '1119968_3231307');
       expect(favToken.token, '3d05fae7f1247fa4a905e99f1ff1773d');
@@ -197,10 +209,10 @@ void main() {
       // addToHistoryはviewedAtを常に現在時刻で記録する
       final beforeAdd = DateTime.now().millisecondsSinceEpoch;
       await database.addToHistory(
-        ReadingHistoryCompanion(
-          source: const Value(NovelSource.narou),
+        const ReadingHistoryCompanion(
+          source: Value(NovelSource.narou),
           workId: Value(ncode),
-          lastEpisodeId: const Value(3),
+          lastEpisodeId: Value(3),
         ),
       );
 

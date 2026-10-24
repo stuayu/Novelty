@@ -13,8 +13,8 @@ import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/novelup_uri.dart';
-import 'package:novelty/utils/trusted_uri.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
+import 'package:novelty/utils/trusted_uri.dart';
 import 'package:novelup_parser/novelup_parser.dart';
 
 /// ノベルアップ＋へのHTTP取得に失敗した場合の例外。
