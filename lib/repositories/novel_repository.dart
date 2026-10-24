@@ -496,18 +496,27 @@ class NovelRepository {
       final revisedMap = <int, String?>{};
       NovelInfo? novelInfo;
       if (source == NovelSource.narou) {
-        try {
-          novelInfo = await _fetchNovelInfo(source, workId);
-          final episodes = novelInfo.episodes ?? [];
-          for (final ep in episodes) {
-            if (ep.index != null) {
-              revisedMap[ep.index!] = ep.revised;
-            }
+        // 基本情報を先に保持し、シリーズの目次HTML取得失敗で失わないようにする。
+        novelInfo = await apiService.fetchBasicNovelInfo(workId);
+        final basicEpisodes = novelInfo.episodes ?? const <Episode>[];
+        for (final ep in basicEpisodes) {
+          if (ep.index != null) {
+            revisedMap[ep.index!] = ep.revised;
           }
-        } on Exception catch (error) {
-          if (_isRateLimited(error)) rethrow;
-          // 目次取得失敗時はrevised情報なしで進める（全件チェックになるが、キャッシュがあればスキップされる）
-          // ただし、キャッシュが古くてもスキップされてしまう可能性がある
+        }
+
+        if (novelInfo.novelType != 2) {
+          try {
+            final episodes = await apiService.fetchEpisodeList(workId, 1);
+            for (final ep in episodes) {
+              if (ep.index != null) {
+                revisedMap[ep.index!] = ep.revised;
+              }
+            }
+          } on Exception catch (error) {
+            if (_isRateLimited(error)) rethrow;
+            // 目次HTMLに失敗しても、取得済み基本情報を各話で再利用して続行する。
+          }
         }
       }
 

@@ -19,16 +19,32 @@ import 'package:novelty/utils/settings_provider.dart';
 import '../providers/novel_info_offline_test.mocks.dart';
 
 class _DownloadApiService extends ApiService {
-  _DownloadApiService(this._novelInfo);
+  _DownloadApiService(this._novelInfo, {this.episodeListFailure});
 
   final NovelInfo _novelInfo;
+  Exception? episodeListFailure;
   int metadataFetchCount = 0;
+  int legacyInfoFetchCount = 0;
+  int episodeListFetchCount = 0;
   final List<NovelInfo?> episodeMetadata = <NovelInfo?>[];
 
   @override
   Future<NovelInfo> fetchNovelInfo(String ncode) async {
+    legacyInfoFetchCount++;
+    return _novelInfo;
+  }
+
+  @override
+  Future<NovelInfo> fetchBasicNovelInfo(String ncode) async {
     metadataFetchCount++;
     return _novelInfo;
+  }
+
+  @override
+  Future<List<Episode>> fetchEpisodeList(String ncode, int page) async {
+    episodeListFetchCount++;
+    if (episodeListFailure case final failure?) throw failure;
+    return _novelInfo.episodes ?? const <Episode>[];
   }
 
   @override
@@ -54,7 +70,13 @@ class _RateLimitedApiService extends ApiService {
   int episodeRequestCount = 0;
 
   @override
-  Future<NovelInfo> fetchNovelInfo(String ncode) async => NovelInfo(
+  Future<NovelInfo> fetchNovelInfo(String ncode) async => _novelInfo(ncode);
+
+  @override
+  Future<NovelInfo> fetchBasicNovelInfo(String ncode) async =>
+      _novelInfo(ncode);
+
+  NovelInfo _novelInfo(String ncode) => NovelInfo(
     ncode: ncode,
     title: '制限テスト',
     novelType: 1,
@@ -63,6 +85,10 @@ class _RateLimitedApiService extends ApiService {
       const Episode(index: 2, revised: 'r2'),
     ],
   );
+
+  @override
+  Future<List<Episode>> fetchEpisodeList(String ncode, int page) async =>
+      _novelInfo(ncode).episodes!;
 
   @override
   Future<Episode> fetchEpisode(
@@ -83,16 +109,34 @@ class _RateLimitedApiService extends ApiService {
 }
 
 class _MetadataRateLimitedApiService extends ApiService {
+  int basicMetadataFetchCount = 0;
+  int legacyMetadataFetchCount = 0;
   int episodeRequestCount = 0;
 
   @override
   Future<NovelInfo> fetchNovelInfo(String ncode) async {
+    legacyMetadataFetchCount++;
+    return NovelInfo(
+      ncode: ncode,
+      title: '旧経路では取得成功',
+      novelType: 1,
+      episodes: [const Episode(index: 1), const Episode(index: 2)],
+    );
+  }
+
+  @override
+  Future<NovelInfo> fetchBasicNovelInfo(String ncode) async {
+    basicMetadataFetchCount++;
     final request = RequestOptions(path: 'https://api.syosetu.com/novel');
     throw DioException(
       requestOptions: request,
       response: Response<dynamic>(requestOptions: request, statusCode: 429),
     );
   }
+
+  @override
+  Future<List<Episode>> fetchEpisodeList(String ncode, int page) async =>
+      <Episode>[];
 
   @override
   Future<Episode> fetchEpisode(
@@ -637,12 +681,54 @@ void main() {
       await repository.downloadNovel(NovelSource.narou, ncode, 2);
 
       expect(apiService.metadataFetchCount, 1);
+      expect(apiService.legacyInfoFetchCount, 0);
+      expect(apiService.episodeListFetchCount, 1);
       expect(apiService.episodeMetadata, hasLength(2));
       expect(apiService.episodeMetadata, everyElement(isNotNull));
       expect(
         apiService.episodeMetadata,
         everyElement(apiService.episodeMetadata.first),
       );
+    });
+
+    test('目次HTML失敗後も基本情報を各話へ再利用する', () async {
+      apiService.episodeListFailure = Exception('episode list failed');
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.downloadNovel(NovelSource.narou, ncode, 2);
+
+      expect(apiService.metadataFetchCount, 1);
+      expect(apiService.legacyInfoFetchCount, 0);
+      expect(apiService.episodeListFetchCount, 1);
+      expect(apiService.episodeMetadata, hasLength(2));
+      expect(apiService.episodeMetadata, everyElement(isNotNull));
+    });
+
+    test('短編は基本情報の単一話を使い目次HTMLを取得しない', () async {
+      const shortInfo = NovelInfo(
+        ncode: ncode,
+        title: '短編',
+        novelType: 2,
+        episodes: [Episode(index: 1, revised: 'r1')],
+      );
+      container.dispose();
+      apiService = _DownloadApiService(shortInfo);
+      container = ProviderContainer(
+        overrides: [
+          db.appDatabaseProvider.overrideWithValue(database),
+          apiServiceProvider.overrideWithValue(apiService),
+          settingsProvider.overrideWith(FakeSettings.new),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.downloadNovel(NovelSource.narou, ncode, 1);
+
+      expect(apiService.metadataFetchCount, 1);
+      expect(apiService.legacyInfoFetchCount, 0);
+      expect(apiService.episodeListFetchCount, 0);
+      expect(apiService.episodeMetadata, [shortInfo]);
     });
   });
 
@@ -731,7 +817,49 @@ void main() {
       );
 
       final progress = await progressFuture;
+      expect(api.basicMetadataFetchCount, 1);
+      expect(api.legacyMetadataFetchCount, 0);
       expect(api.episodeRequestCount, 0);
+      expect(progress.last.isDownloading, isFalse);
+      expect(progress.last.errorMessage, isNotNull);
+    });
+
+    test('なろうの目次HTMLで429を受けたらterminal progressを送り中断する', () async {
+      const ncode = 'n1234ab';
+      final request = RequestOptions(path: 'https://ncode.syosetu.com/$ncode/');
+      final api = _DownloadApiService(
+        const NovelInfo(
+          ncode: ncode,
+          title: 'シリーズ',
+          novelType: 1,
+          episodes: [Episode(index: 1), Episode(index: 2)],
+        ),
+        episodeListFailure: DioException(
+          requestOptions: request,
+          response: Response<dynamic>(requestOptions: request, statusCode: 429),
+        ),
+      );
+      container = createContainer(
+        apiService: api,
+        kakuyomuSite: _DownloadTestKakuyomuSite(
+          workId: 'work',
+          totalEpisodes: 1,
+        ),
+      );
+      final repository = container.read(novelRepositoryProvider);
+      final progressFuture = repository
+          .watchDownloadProgress(NovelSource.narou, ncode)
+          .toList();
+
+      await expectLater(
+        repository.downloadNovel(NovelSource.narou, ncode, 2),
+        throwsA(isA<DioException>()),
+      );
+
+      final progress = await progressFuture;
+      expect(api.metadataFetchCount, 1);
+      expect(api.episodeListFetchCount, 1);
+      expect(api.episodeMetadata, isEmpty);
       expect(progress.last.isDownloading, isFalse);
       expect(progress.last.errorMessage, isNotNull);
     });
