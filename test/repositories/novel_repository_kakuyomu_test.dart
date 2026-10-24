@@ -23,6 +23,8 @@ class _FixtureAdapter implements HttpClientAdapter {
   _FixtureAdapter(this._fixtures);
 
   final Map<String, String> _fixtures;
+  String? redirectTo;
+  final List<String> requestedPaths = <String>[];
 
   @override
   Future<ResponseBody> fetch(
@@ -31,6 +33,17 @@ class _FixtureAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     final path = Uri.parse(options.path).path;
+    requestedPaths.add(path);
+    if (redirectTo != null &&
+        path == '/works/$_workId/episodes/$_firstEpisodeId') {
+      return ResponseBody.fromString(
+        '',
+        307,
+        headers: <String, List<String>>{
+          'location': <String>[redirectTo!],
+        },
+      );
+    }
     final html = _fixtures[path];
     if (html == null) {
       return ResponseBody.fromString('not found', 404);
@@ -64,16 +77,19 @@ void main() {
     late MockApiService mockApiService;
     late ProviderContainer container;
     late KakuyomuSite kakuyomuSite;
+    late _FixtureAdapter adapter;
 
     setUp(() {
       mockDatabase = MockAppDatabase();
       mockApiService = MockApiService();
-      final adapter = _FixtureAdapter(<String, String>{
+      adapter = _FixtureAdapter(<String, String>{
         '/works/$_workId': _fixture('work_page.html'),
-        '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar':
-            _fixture('toc.html'),
-        '/works/$_workId/episodes/$_firstEpisodeId':
-            _fixture('episode_page.html'),
+        '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar': _fixture(
+          'toc.html',
+        ),
+        '/works/$_workId/episodes/$_firstEpisodeId': _fixture(
+          'episode_page.html',
+        ),
       });
       kakuyomuSite = KakuyomuSite(
         dio: Dio()..httpClientAdapter = adapter,
@@ -178,6 +194,100 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
+        ),
+      ).called(1);
+    });
+
+    test('不正なリダイレクトURLで失敗を記録し、terminal progressを送る', () async {
+      adapter.redirectTo = 'https://outside.example/episode';
+      when(
+        mockDatabase.getEpisodesRange(NovelSource.kakuyomu, _workId, 1, 1),
+      ).thenAnswer((_) async => <Episode>[]);
+      when(mockDatabase.upsertEpisodes(any)).thenAnswer((_) async {});
+      when(
+        mockDatabase.getEpisodeData(NovelSource.kakuyomu, _workId, 1),
+      ).thenAnswer((_) async => null);
+      when(
+        mockDatabase.getEpisodeUrl(NovelSource.kakuyomu, _workId, 1),
+      ).thenAnswer((_) async => _episodeUrl);
+      when(
+        mockDatabase.updateEpisodeContent(
+          source: anyNamed('source'),
+          workId: anyNamed('workId'),
+          episodeId: anyNamed('episodeId'),
+          content: anyNamed('content'),
+          fetchedAt: anyNamed('fetchedAt'),
+          revisedAt: anyNamed('revisedAt'),
+          subtitle: anyNamed('subtitle'),
+          url: anyNamed('url'),
+          publishedAt: anyNamed('publishedAt'),
+        ),
+      ).thenAnswer((_) async {});
+
+      final repository = container.read(novelRepositoryProvider);
+      final progressFuture = repository
+          .watchDownloadProgress(NovelSource.kakuyomu, _workId)
+          .toList();
+
+      await repository.downloadNovel(NovelSource.kakuyomu, _workId, 1);
+
+      final progress = await progressFuture;
+      expect(progress.last.isDownloading, isFalse);
+      expect(progress.last.errorMessage, contains('1話'));
+      verify(
+        mockDatabase.updateEpisodeContent(
+          source: NovelSource.kakuyomu,
+          workId: _workId,
+          episodeId: 1,
+          content: const [],
+          fetchedAt: anyNamed('fetchedAt'),
+        ),
+      ).called(1);
+      expect(
+        adapter.requestedPaths,
+        contains('/works/$_workId/episodes/$_firstEpisodeId'),
+      );
+    });
+
+    test('目次の話URLが無効な単話downloadを失敗記録する', () async {
+      adapter._fixtures['/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar'] =
+          '<li class="widget-toc-episode"><a class="widget-toc-episode-episodeTitle" href="https://outside.example/episode"><span class="widget-toc-episode-titleLabel">無効URL</span></a></li>';
+      when(
+        mockDatabase.getEpisodeData(NovelSource.kakuyomu, _workId, 1),
+      ).thenAnswer((_) async => null);
+      when(
+        mockDatabase.getEpisodeUrl(NovelSource.kakuyomu, _workId, 1),
+      ).thenAnswer((_) async => null);
+      when(
+        mockDatabase.updateEpisodeContent(
+          source: anyNamed('source'),
+          workId: anyNamed('workId'),
+          episodeId: anyNamed('episodeId'),
+          content: anyNamed('content'),
+          fetchedAt: anyNamed('fetchedAt'),
+          revisedAt: anyNamed('revisedAt'),
+          subtitle: anyNamed('subtitle'),
+          url: anyNamed('url'),
+          publishedAt: anyNamed('publishedAt'),
+        ),
+      ).thenAnswer((_) async {});
+
+      final repository = container.read(novelRepositoryProvider);
+
+      final succeeded = await repository.downloadSingleEpisode(
+        NovelSource.kakuyomu,
+        _workId,
+        1,
+      );
+
+      expect(succeeded, isFalse);
+      verify(
+        mockDatabase.updateEpisodeContent(
+          source: NovelSource.kakuyomu,
+          workId: _workId,
+          episodeId: 1,
+          content: const [],
+          fetchedAt: anyNamed('fetchedAt'),
         ),
       ).called(1);
     });

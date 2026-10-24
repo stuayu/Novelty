@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,8 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/providers/network_fallback_event_provider.dart';
 import 'package:novelty/repositories/novel_repository.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
+import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/ncode_utils.dart';
 import 'package:novelty/utils/settings_provider.dart';
@@ -41,6 +44,131 @@ class _DownloadApiService extends ApiService {
       index: episode,
       subtitle: '第$episode話',
       body: '<p>本文</p>',
+    );
+  }
+}
+
+class _RateLimitedApiService extends ApiService {
+  _RateLimitedApiService({this.statusCode = 429});
+
+  final int statusCode;
+  int episodeRequestCount = 0;
+
+  @override
+  Future<NovelInfo> fetchNovelInfo(String ncode) async => NovelInfo(
+    ncode: ncode,
+    title: '制限テスト',
+    novelType: 1,
+    episodes: [
+      const Episode(index: 1, revised: 'r1'),
+      const Episode(index: 2, revised: 'r2'),
+    ],
+  );
+
+  @override
+  Future<Episode> fetchEpisode(
+    String ncode,
+    int episode, {
+    NovelInfo? novelInfo,
+  }) async {
+    episodeRequestCount++;
+    final request = RequestOptions(path: 'https://api.syosetu.com/episode');
+    throw DioException(
+      requestOptions: request,
+      response: Response<dynamic>(
+        requestOptions: request,
+        statusCode: statusCode,
+      ),
+    );
+  }
+}
+
+class _MetadataRateLimitedApiService extends ApiService {
+  int episodeRequestCount = 0;
+
+  @override
+  Future<NovelInfo> fetchNovelInfo(String ncode) async {
+    final request = RequestOptions(path: 'https://api.syosetu.com/novel');
+    throw DioException(
+      requestOptions: request,
+      response: Response<dynamic>(requestOptions: request, statusCode: 429),
+    );
+  }
+
+  @override
+  Future<Episode> fetchEpisode(
+    String ncode,
+    int episode, {
+    NovelInfo? novelInfo,
+  }) async {
+    episodeRequestCount++;
+    return Episode(index: episode, body: '<p>本文</p>');
+  }
+}
+
+class _DownloadTestKakuyomuSite extends NovelSite {
+  _DownloadTestKakuyomuSite({
+    required this.workId,
+    required this.totalEpisodes,
+    this.infoFailure,
+    this.tocFailure,
+  });
+
+  final String workId;
+  final int totalEpisodes;
+  final Exception? infoFailure;
+  final Exception? tocFailure;
+  int tocFetchCount = 0;
+  int episodeFetchCount = 0;
+  final List<String?> episodeFetchUrls = <String?>[];
+
+  @override
+  NovelSource get source => NovelSource.kakuyomu;
+
+  @override
+  List<GenreMaster> get genres => const <GenreMaster>[];
+
+  @override
+  List<RankingTypeMaster> get rankingTypes => const <RankingTypeMaster>[];
+
+  @override
+  String? metaText(NovelInfo info) => null;
+
+  @override
+  Future<NovelInfo> fetchNovelInfo(String workId) async {
+    if (infoFailure case final failure?) throw failure;
+    return NovelInfo(
+      source: NovelSource.kakuyomu,
+      workId: workId,
+      title: '制限テスト',
+      generalAllNo: totalEpisodes,
+    );
+  }
+
+  @override
+  Future<List<Episode>> fetchToc(String workId) async {
+    tocFetchCount++;
+    if (tocFailure case final failure?) throw failure;
+    return List<Episode>.generate(
+      totalEpisodes,
+      (index) => Episode(
+        source: NovelSource.kakuyomu,
+        index: index + 1,
+        url: 'https://kakuyomu.jp/works/$workId/episodes/${index + 1}',
+      ),
+    );
+  }
+
+  @override
+  Future<Episode> fetchEpisode(String workId, int index, {String? url}) async {
+    episodeFetchCount++;
+    episodeFetchUrls.add(url);
+    return Episode(
+      source: NovelSource.kakuyomu,
+      index: index,
+      subtitle: '第$index話',
+      body: '<p>本文</p>',
+      url: url,
     );
   }
 }
@@ -514,6 +642,234 @@ void main() {
         apiService.episodeMetadata,
         everyElement(apiService.episodeMetadata.first),
       );
+    });
+  });
+
+  group('NovelRepository downloadNovel 429中断', () {
+    late db.AppDatabase database;
+    late ProviderContainer container;
+
+    setUp(() {
+      database = db.AppDatabase.memory();
+    });
+
+    tearDown(() async {
+      container.dispose();
+      await database.close();
+    });
+
+    ProviderContainer createContainer({
+      required ApiService apiService,
+      required NovelSite kakuyomuSite,
+    }) => ProviderContainer(
+      overrides: [
+        db.appDatabaseProvider.overrideWithValue(database),
+        apiServiceProvider.overrideWithValue(apiService),
+        settingsProvider.overrideWith(FakeSettings.new),
+        isOfflineModeProvider.overrideWithValue(false),
+        novelRepositoryProvider.overrideWith(
+          (ref) => NovelRepository(
+            ref: ref,
+            apiService: apiService,
+            settings: ref.watch(settingsProvider),
+            db: database,
+            sites: <NovelSource, NovelSite>{
+              NovelSource.kakuyomu: kakuyomuSite,
+            },
+          ),
+        ),
+      ],
+    );
+
+    test('なろうの本文取得で429を受けたら失敗を記録して後続話を止める', () async {
+      const ncode = 'n1234ab';
+      final api = _RateLimitedApiService();
+      final site = _DownloadTestKakuyomuSite(
+        workId: 'work',
+        totalEpisodes: 1,
+      );
+      container = createContainer(apiService: api, kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+      final progressFuture = repository
+          .watchDownloadProgress(NovelSource.narou, ncode)
+          .toList();
+
+      await expectLater(
+        repository.downloadNovel(NovelSource.narou, ncode, 2),
+        throwsA(isA<DioException>()),
+      );
+
+      final progress = await progressFuture;
+      expect(api.episodeRequestCount, 1);
+      expect(progress.last.isDownloading, isFalse);
+      expect(progress.last.errorMessage, isNotNull);
+      final failedEpisode = await database.getEpisodeData(
+        NovelSource.narou,
+        ncode,
+        1,
+      );
+      expect(failedEpisode?.content, isEmpty);
+    });
+
+    test('なろうの作品情報取得で429を受けたら本文取得へ進まず中断する', () async {
+      const ncode = 'n1234ab';
+      final api = _MetadataRateLimitedApiService();
+      final site = _DownloadTestKakuyomuSite(
+        workId: 'work',
+        totalEpisodes: 1,
+      );
+      container = createContainer(apiService: api, kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+      final progressFuture = repository
+          .watchDownloadProgress(NovelSource.narou, ncode)
+          .toList();
+
+      await expectLater(
+        repository.downloadNovel(NovelSource.narou, ncode, 2),
+        throwsA(isA<DioException>()),
+      );
+
+      final progress = await progressFuture;
+      expect(api.episodeRequestCount, 0);
+      expect(progress.last.isDownloading, isFalse);
+      expect(progress.last.errorMessage, isNotNull);
+    });
+
+    test('なろうの本文取得で403を受けた場合は後続話も試す', () async {
+      const ncode = 'n1234ab';
+      final api = _RateLimitedApiService(statusCode: 403);
+      final site = _DownloadTestKakuyomuSite(
+        workId: 'work',
+        totalEpisodes: 1,
+      );
+      container = createContainer(apiService: api, kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+      final progressFuture = repository
+          .watchDownloadProgress(NovelSource.narou, ncode)
+          .toList();
+
+      await repository.downloadNovel(NovelSource.narou, ncode, 2);
+
+      final progress = await progressFuture;
+      expect(api.episodeRequestCount, 2);
+      expect(progress.last.isDownloading, isFalse);
+      expect(progress.last.errorMessage, contains('2話'));
+    });
+
+    test('カクヨム目次取得時の429で本文リクエストへ進まない', () async {
+      const workId = 'work';
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 2,
+        tocFailure: const KakuyomuHttpException(429, 'https://kakuyomu.jp/toc'),
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+      final progressFuture = repository
+          .watchDownloadProgress(NovelSource.kakuyomu, workId)
+          .toList();
+
+      await expectLater(
+        repository.downloadNovel(NovelSource.kakuyomu, workId, 2),
+        throwsA(isA<KakuyomuHttpException>()),
+      );
+
+      final progress = await progressFuture;
+      expect(site.tocFetchCount, 1);
+      expect(site.episodeFetchCount, 0);
+      expect(progress.last.isDownloading, isFalse);
+      expect(progress.last.errorMessage, contains('429'));
+    });
+
+    test('カクヨム作品情報取得時の429を握りつぶさず中断する', () async {
+      const workId = 'work';
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 2,
+        infoFailure: const KakuyomuHttpException(
+          429,
+          'https://kakuyomu.jp/works/work',
+        ),
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+      final progressFuture = repository
+          .watchDownloadProgress(NovelSource.kakuyomu, workId)
+          .toList();
+
+      await expectLater(
+        repository.downloadNovel(NovelSource.kakuyomu, workId, 2),
+        throwsA(isA<KakuyomuHttpException>()),
+      );
+
+      final progress = await progressFuture;
+      expect(site.tocFetchCount, 0);
+      expect(site.episodeFetchCount, 0);
+      expect(progress.last.isDownloading, isFalse);
+      expect(progress.last.errorMessage, contains('429'));
+    });
+
+    test('カクヨム一括取得で一部URLが欠けていれば目次を1回だけ取得して補完する', () async {
+      const workId = 'work';
+      await database.upsertEpisodes([
+        const db.EpisodeListEntriesCompanion(
+          source: drift.Value(NovelSource.kakuyomu),
+          workId: drift.Value(workId),
+          episodeId: drift.Value(1),
+          url: drift.Value('https://kakuyomu.jp/works/work/episodes/1'),
+        ),
+        const db.EpisodeListEntriesCompanion(
+          source: drift.Value(NovelSource.kakuyomu),
+          workId: drift.Value(workId),
+          episodeId: drift.Value(2),
+          url: drift.Value(null),
+        ),
+      ]);
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 2,
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.downloadNovel(NovelSource.kakuyomu, workId, 2);
+
+      expect(site.tocFetchCount, 1);
+      expect(site.episodeFetchUrls, hasLength(2));
+      expect(site.episodeFetchUrls, everyElement(isNotNull));
+      expect(
+        await database.getEpisodeUrl(NovelSource.kakuyomu, workId, 2),
+        'https://kakuyomu.jp/works/work/episodes/2',
+      );
+    });
+
+    test('カクヨム一括取得で全URLがキャッシュ済みなら目次を再取得しない', () async {
+      const workId = 'work';
+      await database.upsertEpisodes(
+        List<db.EpisodeListEntriesCompanion>.generate(
+          2,
+          (index) => db.EpisodeListEntriesCompanion(
+            source: const drift.Value(NovelSource.kakuyomu),
+            workId: const drift.Value(workId),
+            episodeId: drift.Value(index + 1),
+            url: drift.Value(
+              'https://kakuyomu.jp/works/work/episodes/${index + 1}',
+            ),
+          ),
+        ),
+      );
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 2,
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.downloadNovel(NovelSource.kakuyomu, workId, 2);
+
+      expect(site.tocFetchCount, 0);
+      expect(site.episodeFetchUrls, hasLength(2));
+      expect(site.episodeFetchUrls, everyElement(isNotNull));
     });
   });
 

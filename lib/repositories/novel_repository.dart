@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:kakuyomu_parser/kakuyomu_parser.dart';
@@ -13,6 +14,7 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_info_extension.dart';
 import 'package:novelty/providers/network_fallback_event_provider.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -179,6 +181,7 @@ class NovelRepository {
     String workId,
     int episode, {
     NovelInfo? novelInfo,
+    bool requireStoredEpisodeUrl = false,
   }) async {
     if (source == NovelSource.narou) {
       return apiService.fetchEpisode(
@@ -190,7 +193,52 @@ class NovelRepository {
     final site = _sites[source]!;
     // カクヨムはURL（エピソードID）が必須のため、目次キャッシュから解決する
     final url = await _db.getEpisodeUrl(source, workId, episode);
+    if (requireStoredEpisodeUrl && (url == null || url.trim().isEmpty)) {
+      throw KakuyomuUrlException('エピソード $episode の有効な目次URLがありません');
+    }
     return site.fetchEpisode(workId, episode, url: url);
+  }
+
+  bool _isRateLimited(Exception error) =>
+      (error is DioException && error.response?.statusCode == 429) ||
+      (error is KakuyomuHttpException && error.statusCode == 429);
+
+  Future<void> _ensureKakuyomuEpisodeUrls(
+    String workId,
+    int totalEpisodes,
+  ) async {
+    final cachedEpisodes = await _db.getEpisodesRange(
+      NovelSource.kakuyomu,
+      workId,
+      1,
+      totalEpisodes,
+    );
+    final urlsByIndex = <int, String?>{
+      for (final episode in cachedEpisodes)
+        if (episode.index != null) episode.index!: episode.url,
+    };
+    final hasAllUrls = List<bool>.generate(
+      totalEpisodes,
+      (index) => urlsByIndex[index + 1]?.trim().isNotEmpty ?? false,
+    ).every((hasUrl) => hasUrl);
+    if (hasAllUrls) return;
+
+    final episodes = await _sites[NovelSource.kakuyomu]!.fetchToc(workId);
+    await _db.upsertEpisodes(
+      episodes
+          .map(
+            (episode) => EpisodeListEntriesCompanion(
+              source: const Value(NovelSource.kakuyomu),
+              workId: Value(workId),
+              episodeId: Value(episode.index ?? 0),
+              subtitle: Value(episode.subtitle),
+              url: Value(episode.url),
+              publishedAt: Value(episode.update),
+              revisedAt: Value(episode.revised),
+            ),
+          )
+          .toList(),
+    );
   }
 
   /// 作品情報を取得するヘルパーメソッド。
@@ -261,6 +309,8 @@ class NovelRepository {
     int episode, {
     String? revised,
     NovelInfo? novelInfo,
+    bool requireStoredEpisodeUrl = false,
+    bool rethrowRateLimited = false,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -282,6 +332,7 @@ class NovelRepository {
         workId,
         episode,
         novelInfo: novelInfo,
+        requireStoredEpisodeUrl: requireStoredEpisodeUrl,
       );
       final content = ep.body != null
           ? _parseEpisodeBody(source, ep.body!)
@@ -301,7 +352,7 @@ class NovelRepository {
       );
 
       return true;
-    } on Exception {
+    } on Exception catch (error) {
       // データベースに保存（失敗）
       // フェッチに失敗した場合、空の本文で失敗記録を残す。
       // subtitle/urlは指定せず、既存の目次メタデータを上書きしない。
@@ -319,6 +370,9 @@ class NovelRepository {
         // 二次的な失敗は無視する
       }
 
+      if (rethrowRateLimited && _isRateLimited(error)) {
+        rethrow;
+      }
       return false;
     }
   }
@@ -450,9 +504,19 @@ class NovelRepository {
             revisedMap[ep.index!] = ep.revised;
           }
         }
-      } on Exception {
+      } on Exception catch (error) {
+        if (_isRateLimited(error)) rethrow;
         // 目次取得失敗時はrevised情報なしで進める（全件チェックになるが、キャッシュがあればスキップされる）
         // ただし、キャッシュが古くてもスキップされてしまう可能性がある
+      }
+
+      if (source == NovelSource.kakuyomu) {
+        try {
+          await _ensureKakuyomuEpisodeUrls(workId, totalEpisodes);
+        } on Exception catch (error) {
+          if (_isRateLimited(error)) rethrow;
+          // 目次取得に失敗した場合はキャッシュ済みURLで取得を続け、欠落分は失敗記録にする。
+        }
       }
 
       // 各エピソードをダウンロード
@@ -464,6 +528,8 @@ class NovelRepository {
           i,
           revised: revised,
           novelInfo: novelInfo,
+          requireStoredEpisodeUrl: source == NovelSource.kakuyomu,
+          rethrowRateLimited: true,
         );
 
         if (success) {
