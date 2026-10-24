@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/services/narou_auth_service.dart';
@@ -18,13 +19,16 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _narouidController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _mfaCodeController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _awaitingMfa = false;
 
   @override
   void dispose() {
     _narouidController.dispose();
     _passwordController.dispose();
+    _mfaCodeController.dispose();
     super.dispose();
   }
 
@@ -36,19 +40,31 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     // finally が無いとログイン失敗時に進捗表示が回り続ける。
     NarouLoginResult result;
     try {
-      result = await ref
-          .read(narouLoginProvider.notifier)
-          .login(
-            narouid: _narouidController.text.trim(),
-            password: _passwordController.text,
-          );
-    } on Object catch (e) {
-      result = NarouLoginResult.failure('ログインに失敗しました: $e');
+      final login = ref.read(narouLoginProvider.notifier);
+      result = _awaitingMfa
+          ? await login.verifyMfaCode(_mfaCodeController.text)
+          : await login.login(
+              narouid: _narouidController.text.trim(),
+              password: _passwordController.text,
+            );
+    } on Object {
+      result = const NarouLoginResult.failure('ログイン処理に失敗しました');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
 
     if (!mounted) return;
+    if (_awaitingMfa) _mfaCodeController.clear();
+
+    if (result.requiresMfa) {
+      setState(() => _awaitingMfa = true);
+      _narouidController.clear();
+      _passwordController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('登録メールまたは認証アプリの確認コードを入力してください')),
+      );
+      return;
+    }
 
     if (result.isSuccess) {
       Navigator.of(context).pop();
@@ -70,6 +86,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(narouLoginProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('なろうアカウント ログイン')),
       body: SafeArea(
@@ -89,57 +106,87 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'なろうアカウントでログインすると、ブックマークの同期やしおりの連携ができます。',
+                  _awaitingMfa
+                      ? '登録メールに届いた確認コード、または認証アプリのコードを入力してください。'
+                      : 'なろうアカウントでログインすると、ブックマークの同期やしおりの連携ができます。',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 32),
-                TextFormField(
-                  controller: _narouidController,
-                  decoration: const InputDecoration(
-                    labelText: 'ユーザーIDまたはメールアドレス',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person),
+                if (_awaitingMfa) ...[
+                  Text(
+                    '二段階認証',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                  keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [AutofillHints.username],
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'ユーザーIDまたはメールアドレスを入力してください';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _passwordController,
-                  decoration: InputDecoration(
-                    labelText: 'パスワード',
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.lock),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility
-                            : Icons.visibility_off,
-                      ),
-                      onPressed: () {
-                        setState(
-                          () => _obscurePassword = !_obscurePassword,
-                        );
-                      },
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const Key('narou-mfa-code'),
+                    controller: _mfaCodeController,
+                    decoration: const InputDecoration(
+                      labelText: '認証コード',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.password),
                     ),
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
+                    obscureText: true,
+                    autofillHints: const [AutofillHints.oneTimeCode],
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(32),
+                    ],
+                    validator: (value) => value == null || value.isEmpty
+                        ? '認証コードを入力してください'
+                        : null,
                   ),
-                  obscureText: _obscurePassword,
-                  autofillHints: const [AutofillHints.password],
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'パスワードを入力してください';
-                    }
-                    return null;
-                  },
-                ),
+                ] else ...[
+                  TextFormField(
+                    controller: _narouidController,
+                    decoration: const InputDecoration(
+                      labelText: 'ユーザーIDまたはメールアドレス',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.person),
+                    ),
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [AutofillHints.username],
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'ユーザーIDまたはメールアドレスを入力してください';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _passwordController,
+                    decoration: InputDecoration(
+                      labelText: 'パスワード',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.lock),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility
+                              : Icons.visibility_off,
+                        ),
+                        onPressed: () {
+                          setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          );
+                        },
+                      ),
+                    ),
+                    obscureText: _obscurePassword,
+                    autofillHints: const [AutofillHints.password],
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'パスワードを入力してください';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
                 const SizedBox(height: 32),
                 FilledButton(
                   onPressed: _isLoading ? null : _handleLogin,
@@ -149,11 +196,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           width: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('ログイン'),
+                      : Text(_awaitingMfa ? '認証コードを確認' : 'ログイン'),
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'パスワードはデバイスのキーチェーン（Keychain / Android Keystore）に安全に保存されます。',
+                  [
+                    'ログインIDとセッション情報はデバイスのSecure Storageに保存されます。',
+                    'パスワードと確認コードは保存しません。',
+                  ].join('\n'),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),

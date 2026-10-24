@@ -41,22 +41,42 @@ class NarouLogin extends _$NarouLogin {
       );
 
       if (result.isSuccess) {
-        // ログイン成功後に、なろうのリモートライブラリを同期する。
-        // 同期の失敗でログイン自体を失敗にはしない。
-        final adapter = ref.read(narouAccountSyncAdapterProvider);
-        try {
-          await adapter.pullLibrary();
-        } on Object catch (e) {
-          debugPrint('[Novelty][Auth] ログイン後の同期に失敗: $e');
-        }
-        ref.invalidate(accountAuthStateProvider(adapter.source));
+        await _afterLogin();
       }
       return result;
-    } on Object catch (e) {
-      return NarouLoginResult.failure('ログインに失敗しました: $e');
+    } on Object {
+      return const NarouLoginResult.failure('ログイン処理に失敗しました');
     } finally {
       // 例外の有無にかかわらずローディングを解除する。
       state = const AsyncValue.data(null);
     }
+  }
+
+  /// MFAコードを確認し、成功時にセッション同期を開始する。
+  Future<NarouLoginResult> verifyMfaCode(String code) async {
+    state = const AsyncValue.loading();
+    try {
+      final result = await ref
+          .read(narouAuthServiceProvider)
+          .verifyMfaCode(code);
+      if (result.isSuccess) await _afterLogin();
+      return result;
+    } on Object {
+      return const NarouLoginResult.failure('認証コードの確認に失敗しました');
+    } finally {
+      state = const AsyncValue.data(null);
+    }
+  }
+
+  Future<void> _afterLogin() async {
+    final adapter = ref.read(narouAccountSyncAdapterProvider);
+    try {
+      await adapter.pullLibrary();
+    } on Object catch (error) {
+      debugPrint(
+        '[Novelty][Auth] ログイン後の同期失敗 type=${error.runtimeType}',
+      );
+    }
+    ref.invalidate(accountAuthStateProvider(adapter.source));
   }
 }
