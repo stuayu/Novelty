@@ -1,11 +1,54 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/widgets/novel_list_tile.dart';
 
 void main() {
+  testWidgets('同じ要素の作品sourceとworkIdが変わった後は新しい詳細へ遷移する', (
+    tester,
+  ) async {
+    final item = ValueNotifier(
+      const NovelInfo(
+        workId: 'old-id',
+        title: '作品',
+      ),
+    );
+    addTearDown(item.dispose);
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) => ValueListenableBuilder<NovelInfo>(
+            valueListenable: item,
+            builder: (context, novel, child) =>
+                Scaffold(body: NovelListTile(item: novel)),
+          ),
+        ),
+        GoRoute(
+          path: '/novel/:source/:workId',
+          builder: (context, state) => Text(
+            '${state.pathParameters['source']}/${state.pathParameters['workId']}',
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    item.value = item.value.copyWith(
+      source: NovelSource.kakuyomu,
+      workId: 'new-id',
+    );
+    await tester.pump();
+    await tester.tap(find.text('作品'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('kakuyomu/new-id'), findsOneWidget);
+  });
+
   group('NovelListTile', () {
     group('status display', () {
       testWidgets('should display "完結" badge for novel with end == 0', (
