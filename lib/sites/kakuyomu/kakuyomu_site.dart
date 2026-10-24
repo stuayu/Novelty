@@ -264,24 +264,44 @@ class KakuyomuSite implements NovelSite {
 
   /// HTTP GET を実行し、HTML文字列を返す。
   Future<String> _fetch(String pathOrUrl) async {
-    final uri = Uri.parse(pathOrUrl);
+    var uri = Uri.parse(pathOrUrl);
     // 相対パスはカクヨムのベースURLに解決する
     final url = uri.hasScheme ? pathOrUrl : '${source.baseUrl}$pathOrUrl';
-    _assertAllowed(Uri.parse(url).path);
-
-    await _rateLimiter.wait();
-    final response = await _dio.get<String>(
-      url,
-      options: Options(
-        headers: <String, String>{'User-Agent': _userAgent},
-        responseType: ResponseType.plain,
-        followRedirects: true,
-      ),
-    );
-    if (response.statusCode != 200) {
-      throw KakuyomuHttpException(response.statusCode ?? -1, url);
+    uri = Uri.parse(url);
+    for (var redirectCount = 0; redirectCount <= 5; redirectCount++) {
+      _assertAllowed(uri.path);
+      await _rateLimiter.wait();
+      final response = await _dio.get<String>(
+        uri.toString(),
+        options: Options(
+          headers: <String, String>{'User-Agent': _userAgent},
+          responseType: ResponseType.plain,
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 400,
+        ),
+      );
+      final statusCode = response.statusCode ?? -1;
+      if (statusCode >= 300 && statusCode < 400) {
+        final location = response.headers.map['location']?.first;
+        if (location == null || redirectCount == 5) {
+          throw KakuyomuHttpException(statusCode, uri.toString());
+        }
+        final nextUri = uri.resolve(location);
+        if (nextUri.scheme != 'https' ||
+            nextUri.host != uri.host ||
+            nextUri.host != 'kakuyomu.jp') {
+          throw StateError('許可されていないリダイレクト先です: $nextUri');
+        }
+        _assertAllowed(nextUri.path);
+        uri = nextUri;
+        continue;
+      }
+      if (statusCode != 200) {
+        throw KakuyomuHttpException(statusCode, uri.toString());
+      }
+      return response.data ?? '';
     }
-    return response.data ?? '';
+    throw StateError('リダイレクト回数が上限を超えました: $uri');
   }
 
   /// 作品ページの `__NEXT_DATA__` から [NovelInfo] を組み立てる。

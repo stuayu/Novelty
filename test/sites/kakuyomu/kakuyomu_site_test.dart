@@ -396,9 +396,10 @@ void main() {
     group('fetchRanking', () {
       test('307リダイレクトをフォローしてランキングを取得できる', () async {
         final redirectAdapter = _RedirectAdapter(
-          redirectFrom: 'https://kakuyomu.jp/rankings/all/daily',
-          redirectTo:
+          redirectFrom:
               'https://kakuyomu.jp/rankings/all/daily?work_variation=long',
+          redirectTo:
+              'https://kakuyomu.jp/rankings/all/daily?work_variation=long&canonical=1',
           targetHtml: _fixture('ranking_page.html'),
         );
         final dio = Dio()..httpClientAdapter = redirectAdapter;
@@ -415,6 +416,24 @@ void main() {
           redirectAdapter.requestedUris,
           anyElement(contains('work_variation=long')),
         );
+      });
+
+      test('禁止パスへのリダイレクト先は取得しない', () async {
+        final redirectAdapter = _RedirectAdapter(
+          redirectFrom:
+              'https://kakuyomu.jp/rankings/all/daily?work_variation=long',
+          redirectTo: 'https://kakuyomu.jp/login',
+          targetHtml: _fixture('ranking_page.html'),
+        );
+        final dio = Dio()..httpClientAdapter = redirectAdapter;
+        final site = KakuyomuSite(
+          dio: dio,
+          rateLimiter: KakuyomuRateLimiter(interval: Duration.zero),
+        );
+
+        await expectLater(site.fetchRanking('daily'), throwsStateError);
+
+        expect(redirectAdapter.requestedUris, hasLength(1));
       });
 
       test('ランキングページのrankedWorksから作品一覧をパースできる', () async {
