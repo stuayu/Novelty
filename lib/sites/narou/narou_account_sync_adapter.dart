@@ -66,8 +66,12 @@ class NarouAccountSyncAdapter implements AccountSyncAdapter {
 
   @override
   Future<int> pullLibrary() async {
-    final synced = await _syncService.syncBookmarksFromNarou();
-    return synced.length;
+    try {
+      final synced = await _syncService.syncBookmarksFromNarou();
+      return synced.length;
+    } on NarouSessionExpiredException {
+      throw const AccountSessionExpiredException();
+    }
   }
 
   @override

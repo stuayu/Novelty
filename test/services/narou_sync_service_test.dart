@@ -8,6 +8,8 @@ import 'package:novelty/database/database.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/api_service.dart';
 import 'package:novelty/services/narou_sync_service.dart';
+import 'package:novelty/sites/account_sync_adapter.dart';
+import 'package:novelty/sites/narou/narou_account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
 
 import 'narou_sync_service_test.mocks.dart';
@@ -141,9 +143,59 @@ void main() {
 
         await expectLater(
           service.syncBookmarksFromNarou(),
-          throwsA(isA<StateError>()),
+          throwsA(isA<Exception>()),
         );
         verifyNever(mockDatabase.addToLibrary(any, any));
+      });
+
+      test('セッション失効をアカウント同期の例外として返す', () async {
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          return ResponseBody.fromString(
+            '',
+            302,
+            headers: <String, List<String>>{
+              'location': ['/login/input/'],
+            },
+          );
+        });
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+        final accountSync = NarouAccountSyncAdapter(
+          syncService: service,
+          db: mockDatabase,
+        );
+
+        await expectLater(
+          accountSync.pullLibrary(),
+          throwsA(isA<AccountSessionExpiredException>()),
+        );
+      });
+
+      test('ブックマーク取得失敗はExceptionとして呼び出し元へ返す', () async {
+        final fakeAdapter = _FakeHttpClientAdapter(
+          (_) => ResponseBody.fromString('unavailable', 503),
+        );
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        await expectLater(
+          service.syncBookmarksFromNarou(),
+          throwsA(isA<Exception>()),
+        );
       });
 
       test('一覧の同一origin redirectは安全に追跡する', () async {
@@ -205,7 +257,7 @@ void main() {
 
         await expectLater(
           service.syncBookmarksFromNarou(),
-          throwsA(isA<StateError>()),
+          throwsA(isA<Exception>()),
         );
 
         expect(fakeAdapter.requests, hasLength(1));

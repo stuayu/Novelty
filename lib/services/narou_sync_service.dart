@@ -30,6 +30,27 @@ enum NarouBookmarkSyncOutcome {
   failed,
 }
 
+/// なろうのブックマーク一覧を取得できなかった場合の例外。
+class NarouBookmarkFetchException implements Exception {
+  /// コンストラクタ。
+  const NarouBookmarkFetchException(this.message);
+
+  /// 失敗理由。
+  final String message;
+
+  @override
+  String toString() => 'NarouBookmarkFetchException: $message';
+}
+
+/// なろうの保存済みセッションが失効している場合の例外。
+class NarouSessionExpiredException implements Exception {
+  /// コンストラクタ。
+  const NarouSessionExpiredException();
+
+  @override
+  String toString() => 'NarouSessionExpiredException';
+}
+
 /// [NarouSyncService.addBookmarkToNarou]の結果。
 ///
 /// [outcome]が[NarouBookmarkSyncOutcome.success]の場合、
@@ -201,55 +222,73 @@ class NarouSyncService {
     final visited = <Uri>{};
     for (var redirects = 0; redirects <= 5; redirects++) {
       if (!_isTrustedNarouSyncUri(current)) {
-        throw StateError('なろうブックマーク一覧のURLを拒否しました');
+        throw const NarouBookmarkFetchException(
+          'なろうブックマーク一覧のURLを拒否しました',
+        );
       }
       if (!visited.add(current)) {
-        throw StateError('なろうブックマーク一覧のリダイレクトがループしました');
+        throw const NarouBookmarkFetchException(
+          'なろうブックマーク一覧のリダイレクトがループしました',
+        );
       }
 
       final response = await _fetchBookmarkHttpPage(current, cookieHeader);
       if (!_isTrustedNarouSyncUri(response.realUri)) {
-        throw StateError('なろうブックマーク一覧の応答先を確認できませんでした');
+        throw const NarouBookmarkFetchException(
+          'なろうブックマーク一覧の応答先を確認できませんでした',
+        );
       }
       if (_isNarouLoginPage(response.realUri)) {
-        throw StateError('なろうセッションが失効しました。再ログインしてください。');
+        throw const NarouSessionExpiredException();
       }
       final statusCode = response.statusCode ?? 0;
       if (statusCode >= 300 && statusCode < 400) {
         final location = response.headers.value('location');
         if (location == null || location.isEmpty) {
-          throw StateError('なろうブックマーク一覧の転送先がありません');
+          throw const NarouBookmarkFetchException(
+            'なろうブックマーク一覧の転送先がありません',
+          );
         }
         final target = response.realUri.resolve(location);
         if (_isNarouLoginPage(target)) {
-          throw StateError('なろうセッションが失効しました。再ログインしてください。');
+          throw const NarouSessionExpiredException();
         }
         if (!_isTrustedNarouSyncUri(target)) {
-          throw StateError('なろうブックマーク一覧の外部転送を拒否しました');
+          throw const NarouBookmarkFetchException(
+            'なろうブックマーク一覧の外部転送を拒否しました',
+          );
         }
         if (redirects == 5) {
-          throw StateError('なろうブックマーク一覧の転送回数が上限を超えました');
+          throw const NarouBookmarkFetchException(
+            'なろうブックマーク一覧の転送回数が上限を超えました',
+          );
         }
         current = target;
         continue;
       }
       if (statusCode != 200) {
-        throw StateError('なろうブックマーク一覧の取得に失敗しました');
+        throw const NarouBookmarkFetchException(
+          'なろうブックマーク一覧の取得に失敗しました',
+        );
       }
 
       final body = response.data;
       if (body == null) {
-        throw StateError('なろうブックマーク一覧の本文がありません');
+        throw const NarouBookmarkFetchException(
+          'なろうブックマーク一覧の本文がありません',
+        );
       }
       final loginForm = parser
           .parse(body)
           .querySelector('form[action*="/login/login/"]');
       if (loginForm != null) {
-        throw StateError('なろうセッションが失効しました。再ログインしてください。');
+        throw const NarouSessionExpiredException();
       }
       return _parseBookmarkListHtml(body);
     }
-    throw StateError('なろうブックマーク一覧の転送回数が上限を超えました');
+    throw const NarouBookmarkFetchException(
+      'なろうブックマーク一覧の転送回数が上限を超えました',
+    );
   }
 
   Future<Response<String>> _fetchBookmarkHttpPage(
@@ -274,7 +313,9 @@ class NarouSyncService {
         '[NarouSync] ブックマーク一覧の通信失敗 '
         'type=${error.type} status=${error.response?.statusCode}',
       );
-      throw StateError('なろうブックマーク一覧の通信に失敗しました');
+      throw const NarouBookmarkFetchException(
+        'なろうブックマーク一覧の通信に失敗しました',
+      );
     }
   }
 
