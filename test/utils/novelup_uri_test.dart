@@ -57,6 +57,12 @@ void main() {
         ),
         throwsFormatException,
       );
+      expect(
+        () => extractNovelupWorkId(
+          'https://novelup.plus:8443/story/258567814',
+        ),
+        throwsFormatException,
+      );
     });
   });
 }

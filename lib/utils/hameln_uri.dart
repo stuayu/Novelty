@@ -1,3 +1,5 @@
+import 'package:novelty/utils/trusted_uri.dart';
+
 final RegExp _hamelnNumericIdPattern = RegExp(r'^\d+$');
 
 /// ハーメルンの作品URLを組み立てる。
@@ -43,8 +45,8 @@ String extractHamelnEpisodeNumber(String url) {
 Uri _parseOfficialUri(String url) {
   final uri = Uri.tryParse(url);
   if (uri == null ||
-      uri.scheme != 'https' ||
-      (uri.host != 'syosetu.org' && uri.host != 'h.syosetu.org')) {
+      (!isTrustedHttpsOrigin(uri, host: 'syosetu.org') &&
+          !isTrustedHttpsOrigin(uri, host: 'h.syosetu.org'))) {
     throw FormatException('ハーメルン公式HTTPS URLではありません: $url');
   }
   return uri;

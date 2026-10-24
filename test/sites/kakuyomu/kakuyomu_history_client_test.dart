@@ -52,6 +52,36 @@ void main() {
     expect(entry.lastReadAt, DateTime(2026, 8, 23));
   });
 
+  test('HTTP降格した続きを読むURLを履歴リンクとして採用しない', () {
+    final page = KakuyomuHistoryParser().parse(
+      '''
+<ul><li class="widget-antennaList-item">
+  <a href="/works/$workId"><h4 class="widget-antennaList-title">作品</h4></a>
+  <a class="widget-antennaList-continueReading"
+     href="http://kakuyomu.jp/works/$workId/resume_reading">読む</a>
+</li></ul>
+''',
+      baseUri: Uri.parse('https://kakuyomu.jp/my/antenna/reading_histories'),
+    );
+
+    expect(page.entries, isEmpty);
+  });
+
+  test('HTTPSでも標準外ポートの続きを読むURLを採用しない', () {
+    final page = KakuyomuHistoryParser().parse(
+      '''
+<ul><li class="widget-antennaList-item">
+  <a href="/works/$workId"><h4 class="widget-antennaList-title">作品</h4></a>
+  <a class="widget-antennaList-continueReading"
+     href="https://kakuyomu.jp:8443/works/$workId/resume_reading">読む</a>
+</li></ul>
+''',
+      baseUri: Uri.parse('https://kakuyomu.jp/my/antenna/reading_histories'),
+    );
+
+    expect(page.entries, isEmpty);
+  });
+
   test('実取得HTMLのguest判定マーカーをセッション切れとして扱う', () {
     final page = KakuyomuHistoryParser().parse(
       '''

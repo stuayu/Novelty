@@ -34,6 +34,7 @@ class KakuyomuFollowedWorksHttpResponse {
     required this.statusCode,
     required this.realUri,
     this.body,
+    this.location,
   });
 
   /// HTTPステータスコード。
@@ -44,6 +45,9 @@ class KakuyomuFollowedWorksHttpResponse {
 
   /// HTML本文。
   final String? body;
+
+  /// 未追跡のHTTPリダイレクト先。
+  final String? location;
 }
 
 /// テスト時にHTTP取得を差し替えるためのコールバック。
@@ -190,6 +194,9 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     Uri url,
     String cookieHeader,
   ) async {
+    if (!isTrustedKakuyomuUri(url)) {
+      throw ArgumentError.value(url, 'url', '安全なカクヨムURLではありません');
+    }
     final override = _pageFetcher;
     if (override != null) {
       await _rateLimiter.wait();
@@ -203,7 +210,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
           'Cookie': cookieHeader,
           'User-Agent': noveltyUserAgent,
         },
-        followRedirects: true,
+        followRedirects: false,
         validateStatus: (status) => status != null && status < 500,
         responseType: ResponseType.plain,
       ),
@@ -213,6 +220,7 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
       statusCode: response.statusCode ?? 0,
       realUri: response.realUri,
       body: response.data,
+      location: response.headers.value('location'),
     );
   }
 
@@ -234,11 +242,23 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
       if (!seenPageUrls.add(currentUrl)) break;
 
       final response = await _fetchPage(currentUrl, cookieHeader);
+      if (response.statusCode >= 300 && response.statusCode < 400) {
+        final location = response.location;
+        final redirectUri = location == null
+            ? response.realUri
+            : response.realUri.resolve(location);
+        if (_isLoginPage(redirectUri)) {
+          throw const KakuyomuSessionExpiredException();
+        }
+        throw StateError('カクヨムフォロー一覧のリダイレクトを拒否しました');
+      }
       if (response.statusCode >= 400 || response.statusCode <= 0) break;
 
       final finalUri = response.realUri;
-      if (finalUri.path.startsWith('/auth/login') ||
-          finalUri.path == '/login') {
+      if (!isTrustedKakuyomuUri(finalUri)) {
+        throw StateError('カクヨムフォロー一覧の応答URLが不正です');
+      }
+      if (_isLoginPage(finalUri)) {
         throw const KakuyomuSessionExpiredException();
       }
 
@@ -351,6 +371,11 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
     } on Exception {
       // 履歴同期失敗はローカル読書・ライブラリ同期へ影響させない。
     }
+  }
+
+  bool _isLoginPage(Uri uri) {
+    return isTrustedKakuyomuUri(uri) &&
+        (uri.path.startsWith('/auth/login') || uri.path == '/login');
   }
 
   @override

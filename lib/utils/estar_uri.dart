@@ -1,3 +1,5 @@
+import 'package:novelty/utils/trusted_uri.dart';
+
 final RegExp _estarNumericIdPattern = RegExp(r'^\d+$');
 
 /// エブリスタの作品URLを組み立てる。
@@ -48,7 +50,7 @@ int extractEstarEpisodePageNo(String url) {
 
 Uri _parseEstarOfficialUri(String url) {
   final uri = Uri.tryParse(url);
-  if (uri == null || uri.scheme != 'https' || uri.host != 'estar.jp') {
+  if (uri == null || !isTrustedHttpsOrigin(uri, host: 'estar.jp')) {
     throw FormatException('エブリスタ公式HTTPS URLではありません: $url');
   }
   return uri;

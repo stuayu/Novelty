@@ -86,4 +86,28 @@ void main() {
     final result = parser.parse(html, baseUri: baseUri);
     expect(result.entries, hasLength(1));
   });
+
+  test('HTTP降格先を認証付きの次ページとして採用しない', () {
+    const html = '''
+      <a href="http://kakuyomu.jp/my/antenna/works/all?page=2">
+        <i class="icon-next-large"></i>
+      </a>
+    ''';
+
+    final result = parser.parse(html, baseUri: baseUri);
+
+    expect(result.nextPageUrl, isNull);
+  });
+
+  test('HTTPSでも標準外ポートの次ページを採用しない', () {
+    const html = '''
+      <a href="https://kakuyomu.jp:8443/my/antenna/works/all?page=2">
+        <i class="icon-next-large"></i>
+      </a>
+    ''';
+
+    final result = parser.parse(html, baseUri: baseUri);
+
+    expect(result.nextPageUrl, isNull);
+  });
 }

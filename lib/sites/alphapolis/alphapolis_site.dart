@@ -13,6 +13,7 @@ import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/alphapolis_uri.dart';
+import 'package:novelty/utils/trusted_uri.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
 
 /// アルファポリスへのHTTP取得に失敗した場合の例外。
@@ -246,6 +247,7 @@ class AlphapolisSite implements NovelSite {
               'application/x-www-form-urlencoded; charset=UTF-8',
           if (cookies != null && cookies.isNotEmpty) 'Cookie': cookies,
         },
+        followRedirects: false,
         responseType: ResponseType.plain,
         validateStatus: (_) => true,
       ),
@@ -372,7 +374,7 @@ class AlphapolisSite implements NovelSite {
   }
 
   void _assertAllowed(Uri uri) {
-    if (uri.scheme != 'https' || uri.host != 'www.alphapolis.co.jp') {
+    if (!isTrustedHttpsOrigin(uri, host: 'www.alphapolis.co.jp')) {
       throw StateError('アルファポリス公式HTTPS URLではありません: $uri');
     }
     if (uri.path.startsWith('/dreambookclub/') &&

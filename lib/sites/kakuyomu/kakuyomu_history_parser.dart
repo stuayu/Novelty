@@ -1,6 +1,7 @@
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/kakuyomu_uri.dart';
 
 /// カクヨム閲覧履歴の1件。
 class KakuyomuHistoryEntry {
@@ -114,7 +115,7 @@ class KakuyomuHistoryParser {
     final href = anchor?.attributes['href'];
     if (href == null || href.isEmpty) return null;
     final resolved = baseUri.resolve(href);
-    if (resolved.host != 'kakuyomu.jp' ||
+    if (!isTrustedKakuyomuUri(resolved) ||
         !resolved.path.endsWith('/resume_reading')) {
       return null;
     }
@@ -189,7 +190,7 @@ class KakuyomuHistoryParser {
     final href = icon?.parent?.attributes['href'];
     if (href == null || href.isEmpty) return null;
     final resolved = baseUri.resolve(href);
-    if (resolved.host != 'kakuyomu.jp' ||
+    if (!isTrustedKakuyomuUri(resolved) ||
         resolved.path != '/my/antenna/reading_histories') {
       return null;
     }

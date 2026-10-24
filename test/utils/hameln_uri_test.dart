@@ -53,6 +53,14 @@ void main() {
         () => extractHamelnWorkId('https://example.com/novel/328453/'),
         throwsFormatException,
       );
+      expect(
+        () => extractHamelnWorkId('https://syosetu.org:8443/novel/328453/'),
+        throwsFormatException,
+      );
+      expect(
+        () => extractHamelnWorkId('https://user@syosetu.org/novel/328453/'),
+        throwsFormatException,
+      );
     });
   });
 }

@@ -249,7 +249,7 @@ class KakuyomuReadingProgressService {
           'Cookie': cookieHeader,
           'User-Agent': noveltyUserAgent,
         },
-        followRedirects: true,
+        followRedirects: false,
         validateStatus: (status) => status != null && status < 600,
         responseType: ResponseType.plain,
       ),

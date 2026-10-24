@@ -81,15 +81,13 @@ class KakuyomuAuthService {
                 'AppleWebKit/537.36 (KHTML, like Gecko) '
                 'Chrome/143.0.0.0 Safari/537.36',
           },
-          followRedirects: true,
+          followRedirects: false,
           validateStatus: (status) => status != null && status < 500,
           responseType: ResponseType.plain,
         ),
       );
 
-      if (response.statusCode == null || response.statusCode! >= 400) {
-        return false;
-      }
+      if (response.statusCode != 200) return false;
 
       final finalUri = response.realUri;
       if (finalUri.path.startsWith('/auth/login') ||

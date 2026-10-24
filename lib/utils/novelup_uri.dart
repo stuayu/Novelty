@@ -1,3 +1,5 @@
+import 'package:novelty/utils/trusted_uri.dart';
+
 final RegExp _novelupNumericIdPattern = RegExp(r'^\d+$');
 
 /// ノベルアップ＋の作品URLを組み立てる。
@@ -43,7 +45,7 @@ String extractNovelupEpisodeId(String url) {
 
 Uri _parseNovelupOfficialUri(String url) {
   final uri = Uri.tryParse(url);
-  if (uri == null || uri.scheme != 'https' || uri.host != 'novelup.plus') {
+  if (uri == null || !isTrustedHttpsOrigin(uri, host: 'novelup.plus')) {
     throw FormatException('ノベルアップ＋公式HTTPS URLではありません: $url');
   }
   return uri;

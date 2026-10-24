@@ -5,11 +5,15 @@ import 'package:riverpod/riverpod.dart';
 
 /// エブリスタ公式ログイン画面がログイン完了URLへ遷移したか判定する。
 bool isEstarLoginCompleteUrl(Uri? url) {
-  if (url == null || url.scheme != 'https') return false;
+  if (url == null ||
+      url.scheme.toLowerCase() != 'https' ||
+      url.port != 443 ||
+      url.userInfo.isNotEmpty) {
+    return false;
+  }
 
   final host = url.host.toLowerCase();
-  final isEstarHost = host == 'estar.jp' || host.endsWith('.estar.jp');
-  return isEstarHost && url.path == '/app/login_complete';
+  return host == 'estar.jp' && url.path == '/app/login_complete';
 }
 
 /// ログイン完了URLの場合だけWebView Cookieを取得・保存する。

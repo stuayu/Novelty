@@ -20,6 +20,7 @@ class KakuyomuHistoryHttpResponse {
     required this.statusCode,
     required this.realUri,
     this.body,
+    this.location,
   });
 
   /// HTTPステータスコード。
@@ -30,6 +31,9 @@ class KakuyomuHistoryHttpResponse {
 
   /// HTML本文。
   final String? body;
+
+  /// 未追跡のHTTPリダイレクト先。
+  final String? location;
 }
 
 /// 閲覧履歴ページHTTP取得差し替え。
@@ -87,10 +91,7 @@ class KakuyomuHistoryClient {
     for (var page = 0; page < 500; page++) {
       if (!seenPages.add(url)) break;
       final response = await _fetchPage(url, cookieHeader);
-      if (response.statusCode >= 400 || response.statusCode <= 0) {
-        throw StateError('カクヨム閲覧履歴の取得に失敗しました');
-      }
-      if (_isLoginPage(response.realUri)) throw sessionExpired;
+      _ensureSuccessfulPage(response);
 
       final body = response.body;
       if (body == null || body.isEmpty) {
@@ -106,7 +107,7 @@ class KakuyomuHistoryClient {
         final resumeUrl = entry.resumeReadingUrl;
         if (resumeUrl == null) continue;
         final resolved = await _fetchPage(resumeUrl, cookieHeader);
-        if (_isLoginPage(resolved.realUri)) throw sessionExpired;
+        _ensureSuccessfulPage(resolved);
         final episodeId = extractKakuyomuEpisodeId(
           workId: entry.workId,
           url: resolved.realUri.toString(),
@@ -135,6 +136,9 @@ class KakuyomuHistoryClient {
     Uri url,
     String cookieHeader,
   ) async {
+    if (!isTrustedKakuyomuUri(url)) {
+      throw ArgumentError.value(url, 'url', '安全なカクヨムURLではありません');
+    }
     final override = _pageFetcher;
     if (override != null) return override(url, cookieHeader);
     final response = await _dio.get<String>(
@@ -144,7 +148,7 @@ class KakuyomuHistoryClient {
           'Cookie': cookieHeader,
           'User-Agent': 'Mozilla/5.0',
         },
-        followRedirects: true,
+        followRedirects: false,
         validateStatus: (status) => status != null && status < 600,
         responseType: ResponseType.plain,
       ),
@@ -153,11 +157,27 @@ class KakuyomuHistoryClient {
       statusCode: response.statusCode ?? 0,
       realUri: response.realUri,
       body: response.data,
+      location: response.headers.value('location'),
     );
   }
 
+  void _ensureSuccessfulPage(KakuyomuHistoryHttpResponse response) {
+    if (_isLoginPage(response.realUri)) throw sessionExpired;
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      final location = response.location;
+      if (location != null &&
+          _isLoginPage(response.realUri.resolve(location))) {
+        throw sessionExpired;
+      }
+      throw StateError('カクヨム閲覧履歴のリダイレクトを拒否しました');
+    }
+    if (response.statusCode >= 400 || response.statusCode <= 0) {
+      throw StateError('カクヨム閲覧履歴の取得に失敗しました');
+    }
+  }
+
   bool _isLoginPage(Uri uri) {
-    return uri.host == 'kakuyomu.jp' &&
+    return isTrustedKakuyomuUri(uri) &&
         (uri.path.startsWith('/auth/login') || uri.path == '/login');
   }
 }

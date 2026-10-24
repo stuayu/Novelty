@@ -348,6 +348,7 @@ void main() {
 
         final post = adapter.requests.last;
         expect(post.method, 'POST');
+        expect(post.followRedirects, isFalse);
         expect(post.uri.toString(), 'https://estar.jp/api/graphql');
         expect(
           post.headers['Cookie'],

@@ -31,6 +31,14 @@ void main() {
         isTrustedKakuyomuUri(Uri.parse('http://kakuyomu.jp/my')),
         isFalse,
       );
+      expect(
+        isTrustedKakuyomuUri(Uri.parse('https://kakuyomu.jp:8443/my')),
+        isFalse,
+      );
+      expect(
+        isTrustedKakuyomuUri(Uri.parse('https://user@kakuyomu.jp/my')),
+        isFalse,
+      );
     });
   });
 

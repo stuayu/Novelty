@@ -240,6 +240,7 @@ void main() {
         expect(adapter.requests, hasLength(2));
         final post = adapter.requests.last;
         expect(post.method, 'POST');
+        expect(post.followRedirects, isFalse);
         expect(post.headers['X-CSRF-TOKEN'], 'csrf-token-value');
         expect(post.headers['Referer'], episodeUrl);
         expect(post.headers['X-Requested-With'], 'XMLHttpRequest');

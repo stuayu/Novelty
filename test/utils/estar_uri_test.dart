@@ -51,6 +51,14 @@ void main() {
         throwsFormatException,
       );
       expect(
+        () => extractEstarWorkId('https://estar.jp:8443/novels/26544596'),
+        throwsFormatException,
+      );
+      expect(
+        () => extractEstarWorkId('https://user@estar.jp/novels/26544596'),
+        throwsFormatException,
+      );
+      expect(
         () => extractEstarEpisodePageNo(
           'https://estar.jp/novels/26544596/viewer?page=x',
         ),

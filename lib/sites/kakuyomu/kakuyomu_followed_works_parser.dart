@@ -2,6 +2,7 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:novelty/models/remote_library_entry.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/kakuyomu_uri.dart';
 
 /// カクヨムのフォロー作品一覧1ページを解析した結果。
 class KakuyomuFollowedWorksPage {
@@ -87,7 +88,7 @@ class KakuyomuFollowedWorksParser {
     if (href == null || href.isEmpty) return null;
 
     final resolved = baseUri.resolve(href);
-    if (resolved.host != 'kakuyomu.jp') return null;
+    if (!isTrustedKakuyomuUri(resolved)) return null;
     if (!resolved.path.startsWith('/my/antenna/works')) return null;
     return resolved;
   }

@@ -13,6 +13,7 @@ import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/estar_uri.dart';
+import 'package:novelty/utils/trusted_uri.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
 
 /// エブリスタへのHTTP取得に失敗した場合の例外。
@@ -420,6 +421,7 @@ class EstarSite implements NovelSite, RankingCacheControl {
           Headers.acceptHeader: Headers.jsonContentType,
         },
         responseType: ResponseType.plain,
+        followRedirects: false,
         validateStatus: (_) => true,
       ),
     );
@@ -773,7 +775,7 @@ class EstarSite implements NovelSite, RankingCacheControl {
   }
 
   void _assertAllowedPublicPage(Uri uri) {
-    if (uri.scheme != 'https' || uri.host != 'estar.jp') {
+    if (!isTrustedHttpsOrigin(uri, host: 'estar.jp')) {
       throw StateError('エブリスタ公式HTTPS URLではありません: $uri');
     }
     final segments = uri.pathSegments

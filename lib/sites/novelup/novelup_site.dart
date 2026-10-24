@@ -13,6 +13,7 @@ import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/novelup_uri.dart';
+import 'package:novelty/utils/trusted_uri.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:novelup_parser/novelup_parser.dart';
 
@@ -436,7 +437,7 @@ class NovelupSite implements NovelSite, RankingCacheControl {
   }
 
   void _assertAllowed(Uri uri) {
-    if (uri.scheme != 'https' || uri.host != 'novelup.plus') {
+    if (!isTrustedHttpsOrigin(uri, host: 'novelup.plus')) {
       throw StateError('ノベルアップ＋公式HTTPS URLではありません: $uri');
     }
     if (uri.path == '/api' || uri.path.startsWith('/api/')) {

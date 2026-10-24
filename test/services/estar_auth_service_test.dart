@@ -65,6 +65,12 @@ void main() {
         isEstarLoginCompleteUrl(Uri.parse('https://estar.jp/login')),
         isFalse,
       );
+      expect(
+        isEstarLoginCompleteUrl(
+          Uri.parse('https://nested.estar.jp/app/login_complete'),
+        ),
+        isFalse,
+      );
     });
   });
 
