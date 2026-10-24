@@ -13,6 +13,20 @@ part 'narou_auth_service.g.dart';
 const _loginUrl = 'https://syosetu.com/login/login/';
 const _loginInputUrl = 'https://syosetu.com/login/input/';
 const _bookmarkListUrl = 'https://syosetu.com/favnovelmain/list/';
+const _cookieMonths = <String, int>{
+  'jan': 1,
+  'feb': 2,
+  'mar': 3,
+  'apr': 4,
+  'may': 5,
+  'jun': 6,
+  'jul': 7,
+  'aug': 8,
+  'sep': 9,
+  'oct': 10,
+  'nov': 11,
+  'dec': 12,
+};
 
 /// なろうへのHTTPリクエストで使用するUser-Agent。
 const narouUserAgent =
@@ -62,7 +76,7 @@ class NarouAuthService {
     required String narouid,
     required String password,
   }) async {
-    _pendingMfa = null;
+    cancelMfaChallenge();
     try {
       final formResponse = await _dio.get<String>(
         _loginInputUrl,
@@ -86,7 +100,7 @@ class NarouAuthService {
         formResponse.realUri,
         fallback: Uri.parse(_loginUrl),
       );
-      if (!_isNarouUri(loginAction)) {
+      if (!_isNarouLoginAction(loginAction)) {
         return const NarouLoginResult.failure('ログイン先を安全に確認できませんでした');
       }
 
@@ -136,7 +150,7 @@ class NarouAuthService {
       );
       if (pending == null) {
         return const NarouLoginResult.failure(
-          '二段階認証画面を確認できませんでした。ログインをやり直してください。',
+          'ログインに失敗しました。ID・パスワードと二段階認証の表示を確認してください。',
         );
       }
       _pendingMfa = pending;
@@ -276,8 +290,17 @@ class NarouAuthService {
     }
   }
 
+  /// 保留中のMFAチャレンジと仮Cookieを破棄する。
+  void cancelMfaChallenge() {
+    _pendingMfa?.cookies.clear();
+    _pendingMfa = null;
+  }
+
   /// ログアウトして保存済み認証情報をすべて削除する。
-  Future<void> logout() => authRepository.clearAll();
+  Future<void> logout() async {
+    cancelMfaChallenge();
+    await authRepository.clearAll();
+  }
 
   /// ブックマーク一覧ページからユーザー名を取得する（ログイン後に呼ぶ）。
   Future<NarouLoginResult> _finishLogin(
@@ -329,6 +352,9 @@ class NarouAuthService {
       uri.port == 443 &&
       uri.userInfo.isEmpty;
 
+  bool _isNarouLoginAction(Uri uri) =>
+      _isNarouUri(uri) && uri.path == Uri.parse(_loginUrl).path;
+
   bool _hasSessionCookies(Map<String, String> cookies) =>
       cookies['ks2']?.isNotEmpty == true &&
       cookies['ses']?.isNotEmpty == true &&
@@ -343,12 +369,52 @@ class NarouAuthService {
       final name = pair.substring(0, separator).trim();
       final value = pair.substring(separator + 1).trim();
       if (name.isEmpty) continue;
-      if (value.isEmpty || header.toLowerCase().contains('max-age=0')) {
+      if (_isExpiredCookie(header, value)) {
         cookies.remove(name);
       } else {
         cookies[name] = value;
       }
     }
+  }
+
+  bool _isExpiredCookie(String header, String value) {
+    if (value.isEmpty) return true;
+    for (final attribute in header.split(';').skip(1)) {
+      final trimmedAttribute = attribute.trim();
+      final normalized = trimmedAttribute.toLowerCase();
+      if (normalized.startsWith('max-age=')) {
+        final maxAge = int.tryParse(normalized.substring('max-age='.length));
+        if (maxAge != null && maxAge <= 0) return true;
+      }
+      if (normalized.startsWith('expires=')) {
+        final expiresAt = _parseCookieExpiration(
+          trimmedAttribute.substring('expires='.length).trim(),
+        );
+        if (expiresAt != null && !expiresAt.isAfter(DateTime.now().toUtc())) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  DateTime? _parseCookieExpiration(String value) {
+    final match = RegExp(
+      r'^(?:[a-z]{3},\s*)?(\d{1,2})[\s-]+([a-z]{3})[\s-]'
+      r'(\d{4})\s+(\d{2}):(\d{2}):(\d{2})\s+gmt$',
+      caseSensitive: false,
+    ).firstMatch(value);
+    if (match == null) return null;
+    final month = _cookieMonths[match.group(2)!.toLowerCase()];
+    if (month == null) return null;
+    return DateTime.utc(
+      int.parse(match.group(3)!),
+      month,
+      int.parse(match.group(1)!),
+      int.parse(match.group(4)!),
+      int.parse(match.group(5)!),
+      int.parse(match.group(6)!),
+    );
   }
 
   _PendingNarouMfa? _parseMfaChallenge(

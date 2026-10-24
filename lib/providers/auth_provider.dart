@@ -68,6 +68,11 @@ class NarouLogin extends _$NarouLogin {
     }
   }
 
+  /// MFA画面を閉じるときに保留中の認証チャレンジを破棄する。
+  void cancelMfaChallenge() {
+    ref.read(narouAuthServiceProvider).cancelMfaChallenge();
+  }
+
   Future<void> _afterLogin() async {
     final adapter = ref.read(narouAccountSyncAdapterProvider);
     try {

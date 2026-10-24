@@ -118,6 +118,99 @@ void main() {
           mockDatabase.markNarouBookmarkSynced(NovelSource.narou, 'n0156ia'),
         ).called(1);
       });
+
+      test('セッション切れのログインredirectを0件の同期成功として返さない', () async {
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          return ResponseBody.fromString(
+            '',
+            302,
+            headers: <String, List<String>>{
+              'location': ['/login/input/'],
+            },
+          );
+        });
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        await expectLater(
+          service.syncBookmarksFromNarou(),
+          throwsA(isA<StateError>()),
+        );
+        verifyNever(mockDatabase.addToLibrary(any, any));
+      });
+
+      test('一覧の同一origin redirectは安全に追跡する', () async {
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          if (options.uri.path == '/favnovelmain/list/' &&
+              options.uri.queryParameters.isEmpty) {
+            return ResponseBody.fromString(
+              '',
+              302,
+              headers: <String, List<String>>{
+                'location': ['/favnovelmain/list/?canonical=1'],
+              },
+            );
+          }
+          return ResponseBody.fromString('<html></html>', 200);
+        });
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        final result = await service.syncBookmarksFromNarou();
+
+        expect(result, isEmpty);
+        expect(fakeAdapter.requests, hasLength(2));
+        expect(fakeAdapter.requests.last.uri.queryParameters['canonical'], '1');
+        expect(
+          fakeAdapter.requests.every(
+            (request) => request.headers['Cookie'] == 'ks2=x; ses=y; userl=z',
+          ),
+          isTrue,
+        );
+      });
+
+      test('一覧の外部origin redirect先へCookieを送らない', () async {
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          return ResponseBody.fromString(
+            '',
+            302,
+            headers: <String, List<String>>{
+              'location': ['https://attacker.example/collect'],
+            },
+          );
+        });
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        await expectLater(
+          service.syncBookmarksFromNarou(),
+          throwsA(isA<StateError>()),
+        );
+
+        expect(fakeAdapter.requests, hasLength(1));
+        expect(fakeAdapter.requests.single.uri.host, 'syosetu.com');
+      });
     });
 
     group('addBookmarkToNarou', () {

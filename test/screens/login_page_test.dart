@@ -10,6 +10,10 @@ class _MfaAuthService extends NarouAuthService {
 
   String? submittedCode;
   bool loginCalled = false;
+  bool challengeCancelled = false;
+
+  @override
+  void cancelMfaChallenge() => challengeCancelled = true;
 
   @override
   Future<NarouLoginResult> login({
@@ -89,5 +93,33 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('narou-mfa-code')), findsNothing);
+  });
+
+  testWidgets('MFA画面を閉じると保留中チャレンジを破棄する', (tester) async {
+    final authService = _MfaAuthService();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          narouAuthServiceProvider.overrideWithValue(authService),
+        ],
+        child: const MaterialApp(home: LoginPage()),
+      ),
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'ユーザーIDまたはメールアドレス'),
+      'reader@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'パスワード'),
+      'secret-password',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'ログイン'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('narou-mfa-code')), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+
+    expect(authService.challengeCancelled, isTrue);
   });
 }

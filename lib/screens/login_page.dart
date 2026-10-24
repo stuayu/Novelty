@@ -23,9 +23,21 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _awaitingMfa = false;
+  late final void Function() _cancelMfaChallenge;
+
+  @override
+  void initState() {
+    super.initState();
+    _cancelMfaChallenge = ref
+        .read(narouLoginProvider.notifier)
+        .cancelMfaChallenge;
+  }
 
   @override
   void dispose() {
+    if (_awaitingMfa) {
+      _cancelMfaChallenge();
+    }
     _narouidController.dispose();
     _passwordController.dispose();
     _mfaCodeController.dispose();
@@ -85,6 +97,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   void _restartLogin() {
+    _cancelMfaChallenge();
     setState(() {
       _awaitingMfa = false;
       _mfaCodeController.clear();

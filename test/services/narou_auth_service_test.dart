@@ -68,6 +68,9 @@ class _MfaLoginAdapter implements HttpClientAdapter {
     this.sessionCookiesOnChallenge = false,
     this.returnRefreshedChallengeOnce = false,
     this.challengeHtml = _defaultMfaChallengeHtml,
+    this.credentialErrorHtml,
+    this.loginFormAction = '/login/login/',
+    this.expireSesWithExpires = false,
   });
 
   final String challengeLocation;
@@ -75,6 +78,9 @@ class _MfaLoginAdapter implements HttpClientAdapter {
   final bool sessionCookiesOnChallenge;
   final bool returnRefreshedChallengeOnce;
   final String challengeHtml;
+  final String? credentialErrorHtml;
+  final String loginFormAction;
+  final bool expireSesWithExpires;
   final List<RequestOptions> requests = <RequestOptions>[];
   int verificationAttempts = 0;
 
@@ -120,6 +126,16 @@ class _MfaLoginAdapter implements HttpClientAdapter {
           },
         );
       }
+      final credentialErrorHtml = this.credentialErrorHtml;
+      if (credentialErrorHtml != null) {
+        return ResponseBody.fromString(
+          credentialErrorHtml,
+          200,
+          headers: <String, List<String>>{
+            'content-type': ['text/html; charset=utf-8'],
+          },
+        );
+      }
       final cookies = <String>['challenge=temporary; Path=/; HttpOnly'];
       if (sessionCookiesOnChallenge) {
         cookies.addAll(<String>[
@@ -139,7 +155,7 @@ class _MfaLoginAdapter implements HttpClientAdapter {
     }
     if (options.uri.path == '/login/input/') {
       return ResponseBody.fromString(
-        '<form action="/login/login/" method="post"> '
+        '<form action="$loginFormAction" method="post"> '
         '<input name="narouid"><input name="pass"></form>',
         200,
         headers: <String, List<String>>{
@@ -154,12 +170,18 @@ class _MfaLoginAdapter implements HttpClientAdapter {
         200,
       );
     }
+    final challengeHeaders = <String, List<String>>{
+      'content-type': ['text/html; charset=utf-8'],
+    };
+    if (expireSesWithExpires) {
+      challengeHeaders['set-cookie'] = <String>[
+        'ses=deleted; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+      ];
+    }
     return ResponseBody.fromString(
       challengeHtml,
       200,
-      headers: <String, List<String>>{
-        'content-type': ['text/html; charset=utf-8'],
-      },
+      headers: challengeHeaders,
     );
   }
 
@@ -431,9 +453,100 @@ void main() {
 
       expect(result.requiresMfa, isFalse);
       expect(result.isSuccess, isFalse);
-      expect(result.error, contains('二段階認証画面を確認できませんでした'));
+      expect(result.error, contains('ログインに失敗しました'));
       verifyNever(mockAuthRepository.saveNarouid(any));
     });
+
+    test('IDやパスワードのエラーをMFA画面の解析失敗と表示しない', () async {
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()
+          ..httpClientAdapter = _MfaLoginAdapter(
+            credentialErrorHtml: '<p>ログインIDまたはパスワードが正しくありません。</p>',
+          ),
+      );
+
+      final result = await service.login(
+        narouid: 'reader-id',
+        password: 'wrong-password',
+      );
+
+      expect(result.requiresMfa, isFalse);
+      expect(result.isSuccess, isFalse);
+      expect(result.error, contains('ID・パスワード'));
+      expect(result.error, isNot(contains('二段階認証画面を確認できませんでした')));
+    });
+
+    test('同一originでも既定のログインパス以外へ資格情報を送らない', () async {
+      final adapter = _MfaLoginAdapter(loginFormAction: '/account/collect/');
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final result = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+
+      expect(result.isSuccess, isFalse);
+      expect(adapter.requests, hasLength(1));
+      expect(adapter.requests.single.method, 'GET');
+    });
+
+    test('Expiresで削除されたCookieをMFA検証リクエストへ含めない', () async {
+      final adapter = _MfaLoginAdapter(
+        sessionCookiesOnChallenge: true,
+        returnRefreshedChallengeOnce: true,
+        expireSesWithExpires: true,
+      );
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      await service.verifyMfaCode('123456');
+
+      final verificationRequest = adapter.requests.firstWhere(
+        (request) => request.uri.path == '/login/auth_code/verify/',
+      );
+      expect(verificationRequest.headers['Cookie'], isNot(contains('ses=')));
+    });
+
+    test(
+      'logout clears the in-memory MFA challenge before deleting credentials',
+      () async {
+        when(mockAuthRepository.clearAll()).thenAnswer((_) async {});
+        final adapter = _MfaLoginAdapter();
+        final service = NarouAuthService(
+          authRepository: mockAuthRepository,
+          dio: Dio()..httpClientAdapter = adapter,
+        );
+
+        final firstStep = await service.login(
+          narouid: 'reader-id',
+          password: 'do-not-log-this-password',
+        );
+        expect(firstStep.requiresMfa, isTrue);
+
+        await service.logout();
+        final result = await service.verifyMfaCode('123456');
+
+        expect(result.isSuccess, isFalse);
+        expect(
+          adapter.requests.where(
+            (request) => request.uri.path == '/login/auth_code/verify/',
+          ),
+          isEmpty,
+        );
+      },
+    );
 
     test('外部originへのログインredirectを追跡せずCookieも送らない', () async {
       final adapter = _MfaLoginAdapter(
