@@ -79,5 +79,15 @@ void main() {
           .text,
       isEmpty,
     );
+
+    expect(find.text('最初からやり直す'), findsOneWidget);
+    await tester.tap(find.text('最初からやり直す'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.widgetWithText(TextFormField, 'ユーザーIDまたはメールアドレス'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('narou-mfa-code')), findsNothing);
   });
 }

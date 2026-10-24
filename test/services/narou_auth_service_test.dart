@@ -11,6 +11,13 @@ import 'package:novelty/services/narou_auth_service.dart';
 
 import 'narou_auth_service_test.mocks.dart';
 
+const _defaultMfaChallengeHtml =
+    '<h2>二段階認証 認証コードを入力</h2> '
+    '<form action="/login/auth_code/verify/" method="post"> '
+    '<input type="hidden" name="csrf" value="csrf-value"> '
+    '<input type="text" name="auth_code" autocomplete="one-time-code"> '
+    '</form>';
+
 class _LoginAdapter implements HttpClientAdapter {
   @override
   Future<ResponseBody> fetch(
@@ -58,11 +65,18 @@ class _MfaLoginAdapter implements HttpClientAdapter {
   _MfaLoginAdapter({
     this.challengeLocation = '/login/auth_code/',
     this.failVerification = false,
+    this.sessionCookiesOnChallenge = false,
+    this.returnRefreshedChallengeOnce = false,
+    this.challengeHtml = _defaultMfaChallengeHtml,
   });
 
   final String challengeLocation;
   final bool failVerification;
-  final requests = <RequestOptions>[];
+  final bool sessionCookiesOnChallenge;
+  final bool returnRefreshedChallengeOnce;
+  final String challengeHtml;
+  final List<RequestOptions> requests = <RequestOptions>[];
+  int verificationAttempts = 0;
 
   @override
   Future<ResponseBody> fetch(
@@ -79,6 +93,20 @@ class _MfaLoginAdapter implements HttpClientAdapter {
             message: 'password=do-not-log-this-password code=123456',
           );
         }
+        if (returnRefreshedChallengeOnce && verificationAttempts++ == 0) {
+          return ResponseBody.fromString(
+            '<h2>二段階認証 認証コードを確認</h2> '
+            '<form action="/login/auth_code/verify/" method="post"> '
+            '<input type="hidden" name="csrf" value="csrf-refreshed"> '
+            '<input type="text" name="auth_code" '
+            'autocomplete="one-time-code"> '
+            '</form>',
+            200,
+            headers: <String, List<String>>{
+              'content-type': ['text/html; charset=utf-8'],
+            },
+          );
+        }
         return ResponseBody.fromString(
           '',
           302,
@@ -92,12 +120,20 @@ class _MfaLoginAdapter implements HttpClientAdapter {
           },
         );
       }
+      final cookies = <String>['challenge=temporary; Path=/; HttpOnly'];
+      if (sessionCookiesOnChallenge) {
+        cookies.addAll(<String>[
+          'ks2=stale-ks2; Path=/; Secure',
+          'ses=stale-ses; Path=/; HttpOnly; Secure',
+          'userl=stale-userl; Path=/; HttpOnly; Secure',
+        ]);
+      }
       return ResponseBody.fromString(
         '',
         302,
         headers: <String, List<String>>{
           'location': [challengeLocation],
-          'set-cookie': ['challenge=temporary; Path=/; HttpOnly'],
+          'set-cookie': cookies,
         },
       );
     }
@@ -119,11 +155,7 @@ class _MfaLoginAdapter implements HttpClientAdapter {
       );
     }
     return ResponseBody.fromString(
-      '<h2>二段階認証 認証コードを入力</h2> '
-      '<form action="/login/auth_code/verify/" method="post"> '
-      '<input type="hidden" name="csrf" value="csrf-value"> '
-      '<input type="text" name="auth_code" autocomplete="one-time-code"> '
-      '</form>',
+      challengeHtml,
       200,
       headers: <String, List<String>>{
         'content-type': ['text/html; charset=utf-8'],
@@ -334,6 +366,73 @@ void main() {
           userl: 'userl-value',
         ),
       ).called(1);
+    });
+
+    test('古いsession Cookieがあっても失敗コードでは保存せず更新されたCSRFで再試行する', () async {
+      final adapter = _MfaLoginAdapter(
+        sessionCookiesOnChallenge: true,
+        returnRefreshedChallengeOnce: true,
+      );
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final rejectedCode = await service.verifyMfaCode('123456');
+
+      expect(rejectedCode.isSuccess, isFalse);
+      verifyNever(mockAuthRepository.saveNarouid(any));
+      verifyNever(
+        mockAuthRepository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
+
+      final acceptedCode = await service.verifyMfaCode('654321');
+
+      expect(acceptedCode.isSuccess, isTrue);
+      final verificationRequests = adapter.requests
+          .where((request) => request.uri.path == '/login/auth_code/verify/')
+          .toList();
+      expect(verificationRequests, hasLength(2));
+      final firstRequestData = Map<String, String>.from(
+        verificationRequests[0].data as Map,
+      );
+      final secondRequestData = Map<String, String>.from(
+        verificationRequests[1].data as Map,
+      );
+      expect(firstRequestData['csrf'], 'csrf-value');
+      expect(secondRequestData['csrf'], 'csrf-refreshed');
+    });
+
+    test('二段階認証の説明と電話番号欄だけではMFA入力画面と判定しない', () async {
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()
+          ..httpClientAdapter = _MfaLoginAdapter(
+            challengeHtml:
+                '<h2>二段階認証について</h2> '
+                '<form><input type="tel" name="phone_number"></form>',
+          ),
+      );
+
+      final result = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+
+      expect(result.requiresMfa, isFalse);
+      expect(result.isSuccess, isFalse);
+      expect(result.error, contains('二段階認証画面を確認できませんでした'));
+      verifyNever(mockAuthRepository.saveNarouid(any));
     });
 
     test('外部originへのログインredirectを追跡せずCookieも送らない', () async {

@@ -136,7 +136,7 @@ class NarouAuthService {
       );
       if (pending == null) {
         return const NarouLoginResult.failure(
-          'ログインに失敗しました。入力内容を確認してください。',
+          '二段階認証画面を確認できませんでした。ログインをやり直してください。',
         );
       }
       _pendingMfa = pending;
@@ -179,16 +179,12 @@ class NarouAuthService {
       );
       _mergeCookies(pending.cookies, response.headers.map['set-cookie']);
       var redirect = _responseRedirect(response);
-      for (
-        var redirects = 0;
-        !_hasSessionCookies(pending.cookies) &&
-            redirect != null &&
-            redirects < 5;
-        redirects++
-      ) {
+      for (var redirects = 0; redirect != null && redirects < 5; redirects++) {
         if (!_isNarouUri(redirect)) {
           _pendingMfa = null;
-          return const NarouLoginResult.failure('認証先を安全に確認できませんでした');
+          return const NarouLoginResult.failure(
+            '認証先を安全に確認できませんでした。ログインをやり直してください。',
+          );
         }
         response = await _dio.get<String>(
           redirect.toString(),
@@ -201,18 +197,39 @@ class NarouAuthService {
         _mergeCookies(pending.cookies, response.headers.map['set-cookie']);
         redirect = _responseRedirect(response);
       }
-      if (!_hasSessionCookies(pending.cookies)) {
-        if (redirect != null && !_isNarouUri(redirect)) {
-          _pendingMfa = null;
-          return const NarouLoginResult.failure('認証先を安全に確認できませんでした');
-        }
+      if (redirect != null) {
+        _pendingMfa = null;
+        return const NarouLoginResult.failure(
+          '認証画面への転送回数が上限を超えました。ログインをやり直してください。',
+        );
+      }
+
+      final refreshedChallenge = _parseMfaChallenge(
+        response.data ?? '',
+        response.realUri,
+        pending.cookies,
+        pending.narouid,
+      );
+      if (refreshedChallenge != null) {
+        _pendingMfa = refreshedChallenge;
         return const NarouLoginResult.failure(
           '認証コードを確認できませんでした。コードを確認して再入力してください。',
         );
       }
 
+      final username = _extractUsername(response.data);
+      if (response.statusCode != 200 ||
+          !_isNarouUri(response.realUri) ||
+          username == null ||
+          !_hasSessionCookies(pending.cookies)) {
+        _pendingMfa = null;
+        return const NarouLoginResult.failure(
+          '認証コードを確認できませんでした。ログインをやり直してください。',
+        );
+      }
+
       _pendingMfa = null;
-      return _finishLogin(pending.cookies, pending.narouid);
+      return _finishLogin(pending.cookies, pending.narouid, username);
     } on DioException catch (e) {
       debugPrint(
         '[NarouAuth] MFA通信失敗 type=${e.type} status=${e.response?.statusCode}',
@@ -263,46 +280,11 @@ class NarouAuthService {
   Future<void> logout() => authRepository.clearAll();
 
   /// ブックマーク一覧ページからユーザー名を取得する（ログイン後に呼ぶ）。
-  Future<String?> _fetchUsername({
-    required String ks2,
-    required String ses,
-    required String userl,
-  }) async {
-    try {
-      final response = await _dio.get<String>(
-        _bookmarkListUrl,
-        options: Options(
-          headers: {
-            'User-Agent': narouUserAgent,
-            'Cookie': 'ks2=$ks2; ses=$ses; userl=$userl',
-          },
-          followRedirects: false,
-          responseType: ResponseType.plain,
-        ),
-      );
-      if (response.data == null) return null;
-      final responseData = response.data!;
-      final doc = parser.parse(responseData);
-      // ユーザー名は `.p-up-header-pc__username` から取得
-      final nameEl = doc.querySelector('.p-up-header-pc__username');
-      return nameEl?.text.trim().replaceAll(RegExp(r'\s+'), ' ');
-    } on Exception catch (e) {
-      debugPrint('[NarouAuth] ユーザー名取得失敗 type=${e.runtimeType}');
-      return null;
-    }
-  }
-
   Future<NarouLoginResult> _finishLogin(
     Map<String, String> cookies,
     String narouid,
+    String username,
   ) async {
-    final username =
-        await _fetchUsername(
-          ks2: cookies['ks2']!,
-          ses: cookies['ses']!,
-          userl: cookies['userl']!,
-        ) ??
-        narouid;
     await authRepository.saveNarouid(narouid);
     await authRepository.saveUsername(username);
     await authRepository.saveSessionCookies(
@@ -311,6 +293,17 @@ class NarouAuthService {
       userl: cookies['userl']!,
     );
     return NarouLoginResult.success(username: username);
+  }
+
+  String? _extractUsername(String? html) {
+    if (html == null || html.isEmpty) return null;
+    final name = parser
+        .parse(html)
+        .querySelector('.p-up-header-pc__username')
+        ?.text
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
+    return name == null || name.isEmpty ? null : name;
   }
 
   Options _htmlOptions({Map<String, Object>? headers}) => Options(
@@ -402,27 +395,29 @@ class NarouAuthService {
     for (final input in form.querySelectorAll('input')) {
       final type = input.attributes['type']?.toLowerCase();
       if (type == 'hidden' || type == 'submit' || type == 'button') continue;
-      final attributes = <String>[
+      final nameAndLabels = <String>[
         input.attributes['name'] ?? '',
         input.attributes['id'] ?? '',
-        input.attributes['autocomplete'] ?? '',
         input.attributes['aria-label'] ?? '',
         input.attributes['placeholder'] ?? '',
       ].join(' ').toLowerCase();
-      if (attributes.contains('one-time-code') ||
-          attributes.contains('otp') ||
-          attributes.contains('code') ||
-          attributes.contains('認証') ||
-          attributes.contains('確認')) {
+      final autocomplete = input.attributes['autocomplete']?.toLowerCase();
+      final codeFieldPattern = RegExp(
+        '(^|[^a-z0-9])'
+        '(otp|auth[_-]?code|mfa[_-]?code|verification[_-]?code|'
+        'security[_-]?code|confirmation[_-]?code)'
+        '([^a-z0-9]|(?![a-z0-9]))',
+      );
+      final hasCodeMarker =
+          autocomplete == 'one-time-code' ||
+          codeFieldPattern.hasMatch(nameAndLabels) ||
+          nameAndLabels.contains('認証コード') ||
+          nameAndLabels.contains('確認コード') ||
+          nameAndLabels.contains('ワンタイム');
+      if (hasCodeMarker) {
         return input;
       }
-      if (type == 'number' || type == 'tel') return input;
     }
-    final visibleInputs = form
-        .querySelectorAll('input')
-        .where((input) => input.attributes['type']?.toLowerCase() != 'hidden')
-        .toList();
-    if (visibleInputs.length == 1) return visibleInputs.single;
     return null;
   }
 

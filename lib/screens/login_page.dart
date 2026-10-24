@@ -84,6 +84,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     }
   }
 
+  void _restartLogin() {
+    setState(() {
+      _awaitingMfa = false;
+      _mfaCodeController.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(narouLoginProvider);
@@ -198,6 +205,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         )
                       : Text(_awaitingMfa ? '認証コードを確認' : 'ログイン'),
                 ),
+                if (_awaitingMfa) ...[
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: _isLoading ? null : _restartLogin,
+                    child: const Text('最初からやり直す'),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Text(
                   [
