@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
@@ -30,11 +31,102 @@ class _LoginAdapter implements HttpClientAdapter {
         },
       );
     }
+    if (options.uri.path == '/login/input/') {
+      return ResponseBody.fromString(
+        '<form action="/login/login/"> '
+        '<input name="narouid"><input name="pass"></form>',
+        200,
+        headers: <String, List<String>>{
+          Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
+        },
+      );
+    }
     return ResponseBody.fromString(
       '<span class="p-up-header-pc__username">テストユーザー</span>',
       200,
       headers: <String, List<String>>{
         Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _MfaLoginAdapter implements HttpClientAdapter {
+  _MfaLoginAdapter({
+    this.challengeLocation = '/login/auth_code/',
+    this.failVerification = false,
+  });
+
+  final String challengeLocation;
+  final bool failVerification;
+  final requests = <RequestOptions>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add(options);
+    if (options.method == 'POST') {
+      if (options.uri.path == '/login/auth_code/verify/') {
+        if (failVerification) {
+          throw DioException(
+            requestOptions: options,
+            message: 'password=do-not-log-this-password code=123456',
+          );
+        }
+        return ResponseBody.fromString(
+          '',
+          302,
+          headers: <String, List<String>>{
+            'location': ['/favnovelmain/list/'],
+            'set-cookie': <String>[
+              'ks2=ks2-value; Path=/; Secure',
+              'ses=ses-value; Path=/; HttpOnly; Secure',
+              'userl=userl-value; Path=/; HttpOnly; Secure',
+            ],
+          },
+        );
+      }
+      return ResponseBody.fromString(
+        '',
+        302,
+        headers: <String, List<String>>{
+          'location': [challengeLocation],
+          'set-cookie': ['challenge=temporary; Path=/; HttpOnly'],
+        },
+      );
+    }
+    if (options.uri.path == '/login/input/') {
+      return ResponseBody.fromString(
+        '<form action="/login/login/" method="post"> '
+        '<input name="narouid"><input name="pass"></form>',
+        200,
+        headers: <String, List<String>>{
+          Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
+          'set-cookie': ['form_session=form-value; Path=/; Secure'],
+        },
+      );
+    }
+    if (options.uri.path == '/favnovelmain/list/') {
+      return ResponseBody.fromString(
+        '<span class="p-up-header-pc__username">認証済みユーザー</span>',
+        200,
+      );
+    }
+    return ResponseBody.fromString(
+      '<h2>二段階認証 認証コードを入力</h2> '
+      '<form action="/login/auth_code/verify/" method="post"> '
+      '<input type="hidden" name="csrf" value="csrf-value"> '
+      '<input type="text" name="auth_code" autocomplete="one-time-code"> '
+      '</form>',
+      200,
+      headers: <String, List<String>>{
+        'content-type': ['text/html; charset=utf-8'],
       },
     );
   }
@@ -134,6 +226,137 @@ void main() {
       } finally {
         repository.releaseAll();
         await loginFuture;
+      }
+    });
+
+    test('パスワード確認後は二段階認証を待ちセッション情報を保存しない', () async {
+      final adapter = _MfaLoginAdapter();
+      final dio = Dio()..httpClientAdapter = adapter;
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: dio,
+      );
+
+      final result = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+
+      expect(result.isSuccess, isFalse);
+      expect(
+        result.requiresMfa,
+        isTrue,
+        reason:
+            '${result.error} requests=${adapter.requests.map((r) => r.uri)}',
+      );
+      expect(result.error, isNull);
+      expect(adapter.requests, hasLength(3));
+      expect(
+        adapter.requests[2].headers['Cookie'],
+        'form_session=form-value; challenge=temporary',
+      );
+      verifyNever(mockAuthRepository.saveNarouid(any));
+      verifyNever(
+        mockAuthRepository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
+    });
+
+    test('確認コードを同一originのchallenge formへ送り成功後だけsessionを保存する', () async {
+      final adapter = _MfaLoginAdapter();
+      final dio = Dio()..httpClientAdapter = adapter;
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: dio,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('123456');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.username, '認証済みユーザー');
+      expect(adapter.requests, hasLength(5));
+      final challengeRequest = adapter.requests[3];
+      expect(
+        challengeRequest.uri.toString(),
+        'https://syosetu.com/login/auth_code/verify/',
+      );
+      expect(challengeRequest.data, {
+        'csrf': 'csrf-value',
+        'auth_code': '123456',
+      });
+      expect(
+        challengeRequest.headers['Cookie'],
+        'form_session=form-value; challenge=temporary',
+      );
+      verify(mockAuthRepository.saveNarouid('reader-id')).called(1);
+      verify(
+        mockAuthRepository.saveSessionCookies(
+          ks2: 'ks2-value',
+          ses: 'ses-value',
+          userl: 'userl-value',
+        ),
+      ).called(1);
+    });
+
+    test('外部originへのログインredirectを追跡せずCookieも送らない', () async {
+      final adapter = _MfaLoginAdapter(
+        challengeLocation: 'https://attacker.example/login/auth_code/',
+      );
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final result = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+
+      expect(result.isSuccess, isFalse);
+      expect(adapter.requests, hasLength(2));
+      verifyNever(mockAuthRepository.saveNarouid(any));
+      verifyNever(
+        mockAuthRepository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
+    });
+
+    test('HTTP例外に資格情報とコードが含まれても結果やログへ出さない', () async {
+      final adapter = _MfaLoginAdapter(failVerification: true);
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+      final logs = <String>[];
+      final originalDebugPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) => logs.add(message ?? '');
+
+      try {
+        final firstStep = await service.login(
+          narouid: 'reader-id',
+          password: 'do-not-log-this-password',
+        );
+        expect(firstStep.requiresMfa, isTrue);
+        final result = await service.verifyMfaCode('123456');
+
+        expect(result.error, isNot(contains('do-not-log-this-password')));
+        expect(result.error, isNot(contains('123456')));
+        expect(logs.join('\n'), isNot(contains('do-not-log-this-password')));
+        expect(logs.join('\n'), isNot(contains('123456')));
+      } finally {
+        debugPrint = originalDebugPrint;
       }
     });
 
