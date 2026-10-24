@@ -62,6 +62,30 @@ class KakuyomuHttpException implements Exception {
   String toString() => 'KakuyomuHttpException($statusCode): $url';
 }
 
+/// カクヨムで許可されないURLを指定した場合の例外。
+class KakuyomuUrlException implements Exception {
+  /// コンストラクタ。
+  const KakuyomuUrlException(this.message);
+
+  /// エラーの説明。
+  final String message;
+
+  @override
+  String toString() => 'KakuyomuUrlException: $message';
+}
+
+/// リダイレクト回数が上限を超えた場合の例外。
+class KakuyomuRedirectException implements Exception {
+  /// コンストラクタ。
+  const KakuyomuRedirectException(this.url);
+
+  /// 上限に達したリクエストURL。
+  final String url;
+
+  @override
+  String toString() => 'KakuyomuRedirectException: リダイレクト回数が上限を超えました: $url';
+}
+
 /// カクヨムのサイト定義。
 ///
 /// 公式APIが存在しないため、公開HTMLの取得・解析のみで
@@ -209,7 +233,7 @@ class KakuyomuSite implements NovelSite {
     final episodes = await fetchToc(workId);
     final episode = episodes.where((e) => e.index == index).firstOrNull;
     if (episode?.url == null) {
-      throw StateError('エピソード $index が見つかりません: $workId');
+      throw KakuyomuUrlException('エピソード $index に有効なURLがありません: $workId');
     }
     return episode!.url!;
   }
@@ -272,7 +296,7 @@ class KakuyomuSite implements NovelSite {
   void _assertAllowed(String path) {
     for (final pattern in _disallowedPathPatterns) {
       if (pattern.hasMatch(path)) {
-        throw StateError('robots.txtにより取得が禁止されています: $path');
+        throw KakuyomuUrlException('robots.txtにより取得が禁止されています: $path');
       }
     }
   }
@@ -284,13 +308,13 @@ class KakuyomuSite implements NovelSite {
     try {
       uri = base.resolve(reference.trim());
     } on FormatException {
-      throw StateError('不正なカクヨムURLです');
+      throw const KakuyomuUrlException('不正なカクヨムURLです');
     }
     if (uri.scheme != 'https' ||
         uri.host != 'kakuyomu.jp' ||
         uri.port != 443 ||
         uri.userInfo.isNotEmpty) {
-      throw StateError('許可されていないカクヨムURLです');
+      throw const KakuyomuUrlException('許可されていないカクヨムURLです');
     }
     _assertAllowed(uri.path);
     return uri;
@@ -315,8 +339,11 @@ class KakuyomuSite implements NovelSite {
       final statusCode = response.statusCode ?? -1;
       if (statusCode >= 300 && statusCode < 400) {
         final location = response.headers.map['location']?.first;
-        if (location == null || redirectCount == 5) {
+        if (location == null) {
           throw KakuyomuHttpException(statusCode, uri.toString());
+        }
+        if (redirectCount == 5) {
+          throw KakuyomuRedirectException(uri.toString());
         }
         uri = _resolveAllowedUri(location, baseUri: uri);
         continue;
@@ -326,7 +353,7 @@ class KakuyomuSite implements NovelSite {
       }
       return response.data ?? '';
     }
-    throw StateError('リダイレクト回数が上限を超えました: $uri');
+    throw KakuyomuRedirectException(uri.toString());
   }
 
   /// 作品ページの `__NEXT_DATA__` から [NovelInfo] を組み立てる。
@@ -518,6 +545,10 @@ class KakuyomuSite implements NovelSite {
     if (href == null || href.trim().isEmpty) {
       return null;
     }
-    return _resolveAllowedUri(href).toString();
+    try {
+      return _resolveAllowedUri(href).toString();
+    } on KakuyomuUrlException {
+      return null;
+    }
   }
 }

@@ -198,22 +198,28 @@ void main() {
         );
       });
 
-      test('外部originや不正な目次hrefを拒否する', () async {
+      test('許可外や禁止パスのhrefがあっても目次全体を保ち当該URLだけnullにする', () async {
         for (final href in <String>[
           'https://evil.example/works/$_workId/episodes/1',
           'http://kakuyomu.jp/works/$_workId/episodes/1',
           'https://kakuyomu.jp:444/works/$_workId/episodes/1',
           'https://user@kakuyomu.jp/works/$_workId/episodes/1',
           'http://[invalid',
+          'https://kakuyomu.jp/works/$_workId/episodes/1/read',
         ]) {
           final adapter = _FixtureAdapter(<String, String>{
             '/works/$_workId': _fixture('work_page.html'),
             '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar':
-                _tocWithHref(href),
+                '<li class="widget-toc-episode"><a class="widget-toc-episode-episodeTitle" href="$href"><span class="widget-toc-episode-titleLabel">不正URL</span></a></li> '
+                '<li class="widget-toc-episode"><a class="widget-toc-episode-episodeTitle" href="/works/$_workId/episodes/$_firstEpisodeId"><span class="widget-toc-episode-titleLabel">有効URL</span></a></li>',
           });
           final site = _createSite(adapter);
 
-          await expectLater(site.fetchToc(_workId), throwsStateError);
+          final episodes = await site.fetchToc(_workId);
+
+          expect(episodes, hasLength(2));
+          expect(episodes.first.url, isNull);
+          expect(episodes.last.url, contains('/episodes/$_firstEpisodeId'));
           expect(adapter.requestedPaths, hasLength(2));
         }
       });
@@ -301,7 +307,7 @@ void main() {
 
           await expectLater(
             site.fetchEpisode(_workId, 1, url: url),
-            throwsStateError,
+            throwsA(isA<KakuyomuUrlException>()),
           );
           expect(adapter.requestedPaths, isEmpty);
         }
@@ -317,7 +323,7 @@ void main() {
             1,
             url: 'https://kakuyomu.jp/works/$_workId/episodes/1/read',
           ),
-          throwsStateError,
+          throwsA(isA<KakuyomuUrlException>()),
         );
         // リクエストが一切発行されないこと
         expect(adapter.requestedPaths, isEmpty);
@@ -531,6 +537,28 @@ void main() {
         );
       });
 
+      test('リダイレクト上限はExceptionで通知する', () async {
+        const rankingUrl =
+            'https://kakuyomu.jp/rankings/all/daily?work_variation=long';
+        final redirectAdapter = _RedirectAdapter(
+          redirectFrom: rankingUrl,
+          redirectTo: rankingUrl,
+          targetHtml: _fixture('ranking_page.html'),
+        );
+        final dio = Dio()..httpClientAdapter = redirectAdapter;
+        final site = KakuyomuSite(
+          dio: dio,
+          rateLimiter: KakuyomuRateLimiter(interval: Duration.zero),
+        );
+
+        await expectLater(
+          site.fetchRanking('daily'),
+          throwsA(isA<KakuyomuRedirectException>()),
+        );
+
+        expect(redirectAdapter.requestedUris, hasLength(6));
+      });
+
       test('禁止パスへのリダイレクト先は取得しない', () async {
         final redirectAdapter = _RedirectAdapter(
           redirectFrom:
@@ -544,7 +572,10 @@ void main() {
           rateLimiter: KakuyomuRateLimiter(interval: Duration.zero),
         );
 
-        await expectLater(site.fetchRanking('daily'), throwsStateError);
+        await expectLater(
+          site.fetchRanking('daily'),
+          throwsA(isA<KakuyomuUrlException>()),
+        );
 
         expect(redirectAdapter.requestedUris, hasLength(1));
       });
@@ -568,7 +599,10 @@ void main() {
             rateLimiter: KakuyomuRateLimiter(interval: Duration.zero),
           );
 
-          await expectLater(site.fetchRanking('daily'), throwsStateError);
+          await expectLater(
+            site.fetchRanking('daily'),
+            throwsA(isA<KakuyomuUrlException>()),
+          );
           expect(redirectAdapter.requestedUris, hasLength(1));
         }
       });
