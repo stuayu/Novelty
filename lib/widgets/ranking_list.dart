@@ -53,6 +53,37 @@ class RankingList extends HookConsumerWidget {
       return () => scrollController.removeListener(onScroll);
     }, [scrollController]);
 
+    // 件数が少なくリストがスクロールできない場合は、次ページを自動取得して
+    // スクロール可能な高さになるまで画面を埋める。
+    useEffect(
+      () {
+        if (rankingState.novels.isEmpty ||
+            rankingState.isLoading ||
+            rankingState.isLoadingMore ||
+            !rankingState.hasMore) {
+          return null;
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted || !scrollController.hasClients) return;
+          if (scrollController.position.maxScrollExtent <= 0) {
+            unawaited(
+              ref
+                  .read(rankingProvider(source, rankingType).notifier)
+                  .fetchNextPage(),
+            );
+          }
+        });
+        return null;
+      },
+      [
+        rankingState.novels.length,
+        rankingState.isLoading,
+        rankingState.isLoadingMore,
+        rankingState.hasMore,
+        scrollController,
+      ],
+    );
+
     // 初回ロード失敗時のリトライボタン
     if (rankingState.error != null && rankingState.novels.isEmpty) {
       return Center(

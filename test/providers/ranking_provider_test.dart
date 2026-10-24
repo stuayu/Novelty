@@ -159,6 +159,59 @@ void main() {
   });
 
   group('RankingNotifier（破棄時の安全性）', () {
+    test('なろう側でAからBを経て戻った後に旧Aの例外が状態を上書きしない', () async {
+      final mockApiService = MockApiService();
+      final responses = List<Completer<NovelSearchResult>>.generate(
+        3,
+        (_) => Completer<NovelSearchResult>(),
+      );
+      var callCount = 0;
+      when(
+        mockApiService.searchNovels(any),
+      ).thenAnswer((_) => responses[callCount++].future);
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(mockApiService),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final subscription = container.listen(
+        rankingProvider(NovelSource.narou, 'm'),
+        (_, _) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+      final setOngoing = container
+          .read(rankingFilterStateProvider(NovelSource.narou, 'm').notifier)
+          .setShowOnlyOngoing;
+      setOngoing(value: true);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      setOngoing(value: false);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      responses[2].complete(
+        const NovelSearchResult(
+          novels: <NovelInfo>[NovelInfo(title: '最新作品', ncode: 'n3')],
+          allCount: 1,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      responses[0].completeError(Exception('古いリクエストの失敗'));
+      responses[1].complete(
+        const NovelSearchResult(novels: <NovelInfo>[], allCount: 0),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final state = container.read(rankingProvider(NovelSource.narou, 'm'));
+      expect(state.error, isNull);
+      expect(state.novels.single.title, '最新作品');
+      subscription.close();
+    });
+
     test('プロバイダ破棄後にfetchNextPageが完了しても例外を投げない', () async {
       final mockApiService = MockApiService();
       final completer = Completer<NovelSearchResult>();
@@ -198,6 +251,49 @@ void main() {
   });
 
   group('RankingNotifier（カクヨムのサイト実装経路）', () {
+    testWidgets('画面を満たさない結果でも次ページがある間は自動で続きが読まれる', (
+      tester,
+    ) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(400, 240);
+      final site = _StubRankingSite(const <RankingPage>[
+        RankingPage(
+          novels: <NovelInfo>[NovelInfo(title: '作品A', ncode: 'n1')],
+          hasNextPage: true,
+        ),
+        RankingPage(
+          novels: <NovelInfo>[NovelInfo(title: '作品B', ncode: 'n2')],
+          hasNextPage: false,
+        ),
+      ]);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            novelSiteRegistryProvider.overrideWithValue(
+              <NovelSource, NovelSite>{NovelSource.kakuyomu: site},
+            ),
+            isOfflineModeProvider.overrideWithValue(false),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: RankingList(
+                source: NovelSource.kakuyomu,
+                rankingType: 'daily',
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      expect(site.callCount, 2);
+      expect(find.text('作品B'), findsOneWidget);
+    });
+
     testWidgets('フィルタ結果が空でも空状態を表示する', (tester) async {
       final site = _StubRankingSite(const <RankingPage>[
         RankingPage(novels: <NovelInfo>[], hasNextPage: false),
@@ -325,6 +421,78 @@ void main() {
         rankingProvider(NovelSource.kakuyomu, 'daily'),
       );
       expect(state.novels.single.title, '新しい結果');
+      subscription.close();
+    });
+
+    test('AからBを経てAに戻った後も最初のAの応答は最新結果を上書きしない', () async {
+      final responses = List<Completer<RankingPage>>.generate(
+        3,
+        (_) => Completer<RankingPage>(),
+      );
+      var fetchCount = 0;
+      final site = _StubRankingSite(
+        const <RankingPage>[],
+        onFetch: (_) => responses[fetchCount++].future,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          novelSiteRegistryProvider.overrideWithValue(
+            <NovelSource, NovelSite>{NovelSource.kakuyomu: site},
+          ),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final subscription = container.listen(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+        (_, _) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+      final setOngoing = container
+          .read(
+            rankingFilterStateProvider(NovelSource.kakuyomu, 'daily').notifier,
+          )
+          .setShowOnlyOngoing;
+      setOngoing(value: true);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      setOngoing(value: false);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      responses[2].complete(
+        const RankingPage(
+          novels: <NovelInfo>[
+            NovelInfo(title: '最新A', ncode: 'n3'),
+          ],
+          hasNextPage: false,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      responses[0].complete(
+        const RankingPage(
+          novels: <NovelInfo>[
+            NovelInfo(title: '古いA', ncode: 'n1'),
+          ],
+          hasNextPage: false,
+        ),
+      );
+      responses[1].complete(
+        const RankingPage(
+          novels: <NovelInfo>[
+            NovelInfo(title: 'B', ncode: 'n2', end: 1),
+          ],
+          hasNextPage: false,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final state = container.read(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+      );
+      expect(state.novels.single.title, '最新A');
       subscription.close();
     });
 

@@ -105,6 +105,8 @@ class RankingState {
 ///
 /// familyキーは `(source, rankingType)`。
 class RankingNotifier extends _$RankingNotifier {
+  int _requestGeneration = 0;
+
   @override
   RankingState build(NovelSource source, String rankingType) {
     // Watch filter state to trigger rebuild when it changes
@@ -142,14 +144,14 @@ class RankingNotifier extends _$RankingNotifier {
       isLoading: isFirstPage,
       isLoadingMore: !isFirstPage,
     );
+    final requestGeneration = ++_requestGeneration;
+    final filter = ref.read(rankingFilterStateProvider(source, rankingType));
 
     try {
-      final filter = ref.read(rankingFilterStateProvider(source, rankingType));
-
       if (source == NovelSource.narou) {
-        await _fetchNarouRanking(filter, currentState);
+        await _fetchNarouRanking(filter, currentState, requestGeneration);
       } else {
-        await _fetchSiteRanking(filter, currentState);
+        await _fetchSiteRanking(filter, currentState, requestGeneration);
       }
     } on Object catch (e, stackTrace) {
       _logRanking(
@@ -157,7 +159,9 @@ class RankingNotifier extends _$RankingNotifier {
         'mounted=${ref.mounted} error=$e\n$stackTrace',
       );
       // タブ切替等でプロバイダが破棄された場合は状態を更新しない
-      if (!ref.mounted) {
+      if (!ref.mounted ||
+          requestGeneration != _requestGeneration ||
+          ref.read(rankingFilterStateProvider(source, rankingType)) != filter) {
         return;
       }
       state = state.copyWith(
@@ -172,6 +176,7 @@ class RankingNotifier extends _$RankingNotifier {
   Future<void> _fetchNarouRanking(
     RankingFilterState filter,
     RankingState currentState,
+    int requestGeneration,
   ) async {
     final apiService = ref.read(apiServiceProvider);
     final order = _mapRankingTypeToOrder(rankingType);
@@ -198,7 +203,7 @@ class RankingNotifier extends _$RankingNotifier {
       final result = await apiService.searchNovels(query);
 
       // タブ切替等でプロバイダが破棄された場合は中断する
-      if (!ref.mounted) {
+      if (!ref.mounted || requestGeneration != _requestGeneration) {
         _logRanking(
           'fetchNextPage(narou): プロバイダ破棄のため中断 '
           '(page=$currentPageToFetch)',
@@ -234,7 +239,8 @@ class RankingNotifier extends _$RankingNotifier {
       pagesFetched++;
     }
 
-    if (ref.read(rankingFilterStateProvider(source, rankingType)) != filter) {
+    if (requestGeneration != _requestGeneration ||
+        ref.read(rankingFilterStateProvider(source, rankingType)) != filter) {
       return;
     }
     state = currentState.copyWith(
@@ -251,6 +257,7 @@ class RankingNotifier extends _$RankingNotifier {
   Future<void> _fetchSiteRanking(
     RankingFilterState filter,
     RankingState currentState,
+    int requestGeneration,
   ) async {
     final site = ref.read(novelSiteRegistryProvider)[source]!;
     _logRanking(
@@ -268,6 +275,7 @@ class RankingNotifier extends _$RankingNotifier {
 
       // タブ切替やフィルタ変更後の古い応答は状態へ反映しない。
       if (!ref.mounted ||
+          requestGeneration != _requestGeneration ||
           ref.read(rankingFilterStateProvider(source, rankingType)) != filter) {
         return;
       }
@@ -289,6 +297,7 @@ class RankingNotifier extends _$RankingNotifier {
       pagesFetched++;
     } while (filtered.isEmpty && hasMore && pagesFetched < maxPagesPerFetch);
 
+    if (requestGeneration != _requestGeneration) return;
     state = currentState.copyWith(
       novels: [...currentState.novels, ...filtered],
       isLoading: false,
