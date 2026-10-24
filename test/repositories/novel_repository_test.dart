@@ -157,8 +157,10 @@ class _DownloadTestKakuyomuSite extends NovelSite {
     required this.totalEpisodes,
     this.infoFailure,
     this.tocFailure,
+    this.episodeFailure,
     this.tocEpisodeIds,
     this.tocEpisodeUrls,
+    this.tocEpisodeRevisions,
     this.failEpisodeIndexOnce,
   });
 
@@ -166,8 +168,10 @@ class _DownloadTestKakuyomuSite extends NovelSite {
   final int totalEpisodes;
   final Exception? infoFailure;
   final Exception? tocFailure;
+  final Exception? episodeFailure;
   final List<String>? tocEpisodeIds;
   final List<String?>? tocEpisodeUrls;
+  final List<String?>? tocEpisodeRevisions;
   int? failEpisodeIndexOnce;
   int infoFetchCount = 0;
   int tocFetchCount = 0;
@@ -213,6 +217,7 @@ class _DownloadTestKakuyomuSite extends NovelSite {
             ? tocEpisodeUrls![index]
             : 'https://kakuyomu.jp/works/$workId/episodes/'
                   '${tocEpisodeIds?[index] ?? index + 1}',
+        revised: tocEpisodeRevisions?[index],
       ),
     );
   }
@@ -221,6 +226,7 @@ class _DownloadTestKakuyomuSite extends NovelSite {
   Future<Episode> fetchEpisode(String workId, int index, {String? url}) async {
     episodeFetchCount++;
     episodeFetchUrls.add(url);
+    if (episodeFailure case final failure?) throw failure;
     if (index == failEpisodeIndexOnce) {
       failEpisodeIndexOnce = null;
       final request = RequestOptions(path: url ?? '');
@@ -1108,6 +1114,50 @@ void main() {
       );
     });
 
+    test('同じURLでも改稿日時が更新された話は本文を再取得する', () async {
+      const workId = 'work';
+      const episodeUrl = 'https://kakuyomu.jp/works/work/episodes/101';
+      await database.upsertEpisodes([
+        const db.EpisodeListEntriesCompanion(
+          source: drift.Value(NovelSource.kakuyomu),
+          workId: drift.Value(workId),
+          episodeId: drift.Value(1),
+          url: drift.Value(episodeUrl),
+          revisedAt: drift.Value('2024-01-01'),
+        ),
+      ]);
+      await database.updateEpisodeContent(
+        source: NovelSource.kakuyomu,
+        workId: workId,
+        episodeId: 1,
+        content: [NovelContentElement.plainText('古い本文')],
+        fetchedAt: 1,
+        revisedAt: '2024-01-01',
+      );
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 1,
+        tocEpisodeIds: const <String>['101'],
+        tocEpisodeRevisions: const <String?>['2024-02-01'],
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.downloadNovel(NovelSource.kakuyomu, workId, 1);
+
+      expect(site.episodeFetchCount, 1);
+      final episode = await database.getEpisodeData(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+      );
+      expect(
+        episode!.content!.whereType<PlainText>().first.text,
+        '本文',
+      );
+      expect(episode.fetchedAt, isNot(1));
+    });
+
     test('目次画面でURLが先に更新されても一括取得で本文を取り直す', () async {
       const workId = 'work';
       await database.upsertEpisodes(
@@ -1350,6 +1400,43 @@ void main() {
       expect(cached?.url, isNull);
       expect(cached?.content, isEmpty);
       expect(site.episodeFetchCount, 0);
+    });
+
+    test('本文初回取得の通信失敗は競合エラーに置き換えず失敗記録を残す', () async {
+      const workId = 'work';
+      await database.upsertEpisodes([
+        const db.EpisodeListEntriesCompanion(
+          source: drift.Value(NovelSource.kakuyomu),
+          workId: drift.Value(workId),
+          episodeId: drift.Value(1),
+          url: drift.Value('https://kakuyomu.jp/works/work/episodes/101'),
+        ),
+      ]);
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 1,
+        episodeFailure: Exception('通信失敗'),
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await expectLater(
+        repository.getEpisode(NovelSource.kakuyomu, workId, 1),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('通信失敗'),
+          ),
+        ),
+      );
+
+      final cached = await database.getEpisodeData(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+      );
+      expect(cached?.content, isEmpty);
     });
 
     test('カクヨムの空目次を通常の目次更新で成功扱いにしない', () async {

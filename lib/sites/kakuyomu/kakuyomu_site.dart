@@ -9,42 +9,18 @@ import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/serial_request_limiter.dart';
 
-/// カクヨムへのリクエスト間隔を制御するレートリミッター。
+/// カクヨムへのリクエストを直列化し、開始間隔を制御するレートリミッター。
 ///
 /// サーバー負荷軽減のため、連続リクエスト間に最低限の間隔を設ける。
 /// 壁時計（DateTime）ではなくモノトニッククロック（Stopwatch）を
 /// 使用することで、システム時刻の変更の影響を受けない。
-class KakuyomuRateLimiter {
+class KakuyomuRateLimiter extends SerialRequestLimiter {
   /// コンストラクタ。
   KakuyomuRateLimiter({
-    this.interval = const Duration(seconds: 1),
+    super.interval = const Duration(seconds: 1),
   });
-
-  /// リクエスト間隔。
-  final Duration interval;
-
-  final Stopwatch _stopwatch = Stopwatch();
-  Future<void> _waitQueue = Future<void>.value();
-
-  /// 直前のリクエストから [interval] 以上経過するまで待機する。
-  Future<void> wait() {
-    final queuedWait = _waitQueue.then((_) async {
-      if (_stopwatch.isRunning) {
-        final elapsed = _stopwatch.elapsed;
-        if (elapsed < interval) {
-          await Future<void>.delayed(interval - elapsed);
-        }
-        _stopwatch
-          ..reset()
-          ..start();
-      } else {
-        _stopwatch.start();
-      }
-    });
-    _waitQueue = queuedWait;
-    return queuedWait;
-  }
 }
 
 /// カクヨムからのHTTP取得に失敗した場合の例外。
@@ -349,16 +325,17 @@ class KakuyomuSite implements NovelSite {
         ? _resolveAllowedUri(pathOrUrl)
         : _resolveAllowedEpisodeUri(pathOrUrl, episodeWorkId);
     for (var redirectCount = 0; redirectCount <= 5; redirectCount++) {
-      await _rateLimiter.wait();
-      final response = await _dio.get<String>(
-        uri.toString(),
-        options: Options(
-          headers: <String, String>{'User-Agent': _userAgent},
-          connectTimeout: _connectTimeout,
-          receiveTimeout: _receiveTimeout,
-          responseType: ResponseType.plain,
-          followRedirects: false,
-          validateStatus: (status) => status != null && status < 400,
+      final response = await _rateLimiter.run(
+        () => _dio.get<String>(
+          uri.toString(),
+          options: Options(
+            headers: <String, String>{'User-Agent': _userAgent},
+            connectTimeout: _connectTimeout,
+            receiveTimeout: _receiveTimeout,
+            responseType: ResponseType.plain,
+            followRedirects: false,
+            validateStatus: (status) => status != null && status < 400,
+          ),
         ),
       );
       final statusCode = response.statusCode ?? -1;

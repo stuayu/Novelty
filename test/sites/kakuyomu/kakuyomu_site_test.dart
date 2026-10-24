@@ -9,13 +9,20 @@ import 'package:novelty/sites/novel_source.dart';
 
 /// パスごとにフィクスチャを返すHTTPアダプタ。
 class _FixtureAdapter implements HttpClientAdapter {
-  _FixtureAdapter(this._fixtures, {this.statusCode = 200});
+  _FixtureAdapter(
+    this._fixtures, {
+    this.statusCode = 200,
+    this.responseDelay = Duration.zero,
+  });
 
   /// key: パス（例: `/works/123`）、value: HTML文字列
   final Map<String, String> _fixtures;
   final int statusCode;
+  final Duration responseDelay;
 
   final List<String> requestedPaths = <String>[];
+  int activeRequests = 0;
+  int maximumActiveRequests = 0;
 
   /// リクエストされた完全なURI（クエリ含む）の一覧。
   final List<String> requestedUris = <String>[];
@@ -28,22 +35,31 @@ class _FixtureAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
-    final uri = Uri.parse(options.path);
-    connectTimeouts.add(options.connectTimeout);
-    receiveTimeouts.add(options.receiveTimeout);
-    requestedPaths.add(uri.path);
-    requestedUris.add(options.path);
-    final html = _fixtures[uri.path];
-    if (html == null) {
-      return ResponseBody.fromString('not found', 404);
+    activeRequests++;
+    if (activeRequests > maximumActiveRequests) {
+      maximumActiveRequests = activeRequests;
     }
-    return ResponseBody.fromString(
-      html,
-      statusCode,
-      headers: <String, List<String>>{
-        Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
-      },
-    );
+    try {
+      await Future<void>.delayed(responseDelay);
+      final uri = Uri.parse(options.path);
+      connectTimeouts.add(options.connectTimeout);
+      receiveTimeouts.add(options.receiveTimeout);
+      requestedPaths.add(uri.path);
+      requestedUris.add(options.path);
+      final html = _fixtures[uri.path];
+      if (html == null) {
+        return ResponseBody.fromString('not found', 404);
+      }
+      return ResponseBody.fromString(
+        html,
+        statusCode,
+        headers: <String, List<String>>{
+          Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
+        },
+      );
+    } finally {
+      activeRequests--;
+    }
   }
 
   @override
@@ -141,6 +157,24 @@ void main() {
         expect(info.keyword, contains('剣と魔法'));
         expect(info.generalFirstup, '2024-01-15T12:32:34Z');
         expect(info.generalLastup, '2026-07-13T08:04:50Z');
+      });
+
+      test('同一サイトへの遅延応答中は次のHTTPリクエストを開始しない', () async {
+        final adapter = _FixtureAdapter(
+          <String, String>{
+            '/works/$_workId': _fixture('work_page.html'),
+          },
+          responseDelay: const Duration(milliseconds: 20),
+        );
+        final site = _createSite(adapter);
+
+        await Future.wait([
+          site.fetchNovelInfo(_workId),
+          site.fetchNovelInfo(_workId),
+        ]);
+
+        expect(adapter.requestedPaths, hasLength(2));
+        expect(adapter.maximumActiveRequests, 1);
       });
 
       test('__NEXT_DATA__が無い場合はFormatExceptionを投げる', () async {
@@ -399,15 +433,15 @@ void main() {
         }
       });
 
-      test('レートリミッターがリクエスト間隔を保証する', () async {
+      test('レートリミッターが処理を直列化しリクエスト間隔を保証する', () async {
         // タイマー解像度の影響を考慮し、間隔300msに対して250ms以上を検証する
         final limiter = KakuyomuRateLimiter(
           interval: const Duration(milliseconds: 300),
         );
         final stopwatch = Stopwatch()..start();
 
-        await limiter.wait();
-        await limiter.wait();
+        await limiter.run(() async {});
+        await limiter.run(() async {});
 
         stopwatch.stop();
         expect(
@@ -416,13 +450,13 @@ void main() {
         );
       });
 
-      test('並列waitでも予約したリクエスト間隔を維持する', () async {
+      test('並列リクエストでも完了順を保ち開始間隔を維持する', () async {
         const interval = Duration(milliseconds: 300);
         final limiter = KakuyomuRateLimiter(interval: interval);
         final stopwatch = Stopwatch()..start();
 
         await Future.wait(
-          List<Future<void>>.generate(3, (_) => limiter.wait()),
+          List<Future<void>>.generate(3, (_) => limiter.run(() async {})),
         );
 
         stopwatch.stop();

@@ -10,6 +10,7 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/utils/ncode_utils.dart';
+import 'package:novelty/utils/serial_request_limiter.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'api_service.g.dart';
@@ -47,31 +48,6 @@ const String userAgent =
 const Duration _connectTimeout = Duration(seconds: 10);
 const Duration _receiveTimeout = Duration(seconds: 30);
 
-class _SerializedRateLimiter {
-  static const Duration _interval = Duration(seconds: 1);
-
-  final Stopwatch _stopwatch = Stopwatch();
-  Future<void> _waitQueue = Future<void>.value();
-
-  Future<void> wait() {
-    final queuedWait = _waitQueue.then((_) async {
-      if (_stopwatch.isRunning) {
-        final elapsed = _stopwatch.elapsed;
-        if (elapsed < _interval) {
-          await Future<void>.delayed(_interval - elapsed);
-        }
-        _stopwatch
-          ..reset()
-          ..start();
-      } else {
-        _stopwatch.start();
-      }
-    });
-    _waitQueue = queuedWait;
-    return queuedWait;
-  }
-}
-
 @Riverpod(keepAlive: true)
 /// APIサービスのプロバイダー
 ApiService apiService(Ref ref) => ApiService();
@@ -90,20 +66,25 @@ class ApiService {
           );
 
   final Dio _dio;
-  final _SerializedRateLimiter _apiRateLimiter = _SerializedRateLimiter();
-  final _SerializedRateLimiter _ncodeRateLimiter = _SerializedRateLimiter();
+  final SerialRequestLimiter _apiRateLimiter = SerialRequestLimiter(
+    interval: const Duration(seconds: 1),
+  );
+  final SerialRequestLimiter _ncodeRateLimiter = SerialRequestLimiter(
+    interval: const Duration(seconds: 1),
+  );
 
   Future<Response<String>> _fetchWithCache(String url) async {
-    await _ncodeRateLimiter.wait();
-    final response = await _dio.get<String>(
-      url,
-      options: Options(
-        connectTimeout: _connectTimeout,
-        receiveTimeout: _receiveTimeout,
-        headers: {
-          'User-Agent': userAgent,
-        },
-        responseType: ResponseType.plain,
+    final response = await _ncodeRateLimiter.run(
+      () => _dio.get<String>(
+        url,
+        options: Options(
+          connectTimeout: _connectTimeout,
+          receiveTimeout: _receiveTimeout,
+          headers: {
+            'User-Agent': userAgent,
+          },
+          responseType: ResponseType.plain,
+        ),
       ),
     );
     return response;
@@ -477,16 +458,17 @@ class ApiService {
   }
 
   Future<List<dynamic>> _fetchData(String url) async {
-    await _apiRateLimiter.wait();
-    final response = await _dio.get<List<int>>(
-      url,
-      options: Options(
-        connectTimeout: _connectTimeout,
-        receiveTimeout: _receiveTimeout,
-        headers: {
-          'User-Agent': userAgent,
-        },
-        responseType: ResponseType.bytes,
+    final response = await _apiRateLimiter.run(
+      () => _dio.get<List<int>>(
+        url,
+        options: Options(
+          connectTimeout: _connectTimeout,
+          receiveTimeout: _receiveTimeout,
+          headers: {
+            'User-Agent': userAgent,
+          },
+          responseType: ResponseType.bytes,
+        ),
       ),
     );
 

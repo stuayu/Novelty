@@ -223,9 +223,9 @@ class NovelRepository {
       NovelSource.kakuyomu,
       workId,
     );
-    final previousUrlsByIndex = <int, String?>{
+    final previousEpisodesByUrl = <String, Episode>{
       for (final episode in previousEpisodes)
-        if (episode.index != null) episode.index!: episode.url,
+        if (episode.url != null) episode.url!: episode,
     };
     final episodes = await _sites[NovelSource.kakuyomu]!.fetchToc(workId);
     if (episodes.isEmpty && expectedEpisodeCount > 0) {
@@ -235,7 +235,10 @@ class NovelRepository {
       for (final episode in episodes)
         if (episode.index != null &&
             episode.url != null &&
-            previousUrlsByIndex[episode.index] != episode.url)
+            (previousEpisodesByUrl[episode.url] == null ||
+                (episode.revised != null &&
+                    previousEpisodesByUrl[episode.url]!.revised !=
+                        episode.revised)))
           episode.index!,
     };
     final unverifiedEpisodeIndexes = <int>{
@@ -289,10 +292,17 @@ class NovelRepository {
     if (source == NovelSource.narou) {
       return apiService.fetchEpisodeList(workId, page);
     }
-    final all = await _sites[source]!.fetchToc(workId);
-    if (source == NovelSource.kakuyomu && page == 1 && all.isEmpty) {
-      throw const _KakuyomuEmptyTocException();
-    }
+    final all = await _fetchKakuyomuToc(workId);
+    return _sliceKakuyomuEpisodeList(all, page);
+  }
+
+  Future<List<Episode>> _fetchKakuyomuToc(String workId) async {
+    final all = await _sites[NovelSource.kakuyomu]!.fetchToc(workId);
+    if (all.isEmpty) throw const _KakuyomuEmptyTocException();
+    return all;
+  }
+
+  List<Episode> _sliceKakuyomuEpisodeList(List<Episode> all, int page) {
     final start = (page - 1) * 100;
     final end = math.min(start + 100, all.length);
     if (start >= all.length) {
@@ -343,7 +353,10 @@ class NovelRepository {
 
     // 既にダウンロード成功済みかチェック
     final existing = await _db.getEpisodeData(source, workId, episode);
-    final expectedUrl = source == NovelSource.kakuyomu ? existing?.url : null;
+    final expectedSnapshot = source == NovelSource.kakuyomu
+        ? await _db.getEpisodeListEntrySnapshot(source, workId, episode)
+        : null;
+    final hasCachedBody = existing?.content?.isNotEmpty == true;
     if (existing != null &&
         existing.content != null &&
         existing.content!.isNotEmpty) {
@@ -378,9 +391,7 @@ class NovelRepository {
         subtitle: ep.subtitle,
         url: ep.url,
         publishedAt: ep.update,
-        expectedUrl: expectedUrl,
-        verifyExpectedUrl: source == NovelSource.kakuyomu,
-        expectedEpisodeExists: existing != null,
+        expectedSnapshot: expectedSnapshot,
       );
 
       return true;
@@ -391,20 +402,20 @@ class NovelRepository {
       // フェッチに失敗した場合、空の本文で失敗記録を残す。
       // subtitle/urlは指定せず、既存の目次メタデータを上書きしない。
 
-      try {
-        await _db.updateEpisodeContent(
-          source: source,
-          workId: workId,
-          episodeId: episode,
-          content: const [], // 空の本文
-          fetchedAt: now,
-          revisedAt: revised,
-          expectedUrl: expectedUrl,
-          verifyExpectedUrl: source == NovelSource.kakuyomu,
-          expectedEpisodeExists: existing != null,
-        );
-      } on Exception catch (_) {
-        // 二次的な失敗は無視する
+      if (!hasCachedBody) {
+        try {
+          await _db.updateEpisodeContent(
+            source: source,
+            workId: workId,
+            episodeId: episode,
+            content: const [], // 空の本文
+            fetchedAt: now,
+            revisedAt: revised,
+            expectedSnapshot: expectedSnapshot,
+          );
+        } on Exception catch (_) {
+          // 二次的な失敗は無視する
+        }
       }
 
       if (rethrowRateLimited && _isRateLimited(error)) {
@@ -423,8 +434,25 @@ class NovelRepository {
     String workId,
     int episode, {
     String? revised,
+  }) => _getEpisode(
+    source,
+    workId,
+    episode,
+    revised: revised,
+    retryOnStale: true,
+  );
+
+  Future<List<NovelContentElement>> _getEpisode(
+    NovelSource source,
+    String workId,
+    int episode, {
+    required bool retryOnStale,
+    String? revised,
   }) async {
     final cached = await _db.getEpisodeData(source, workId, episode);
+    final expectedSnapshot = source == NovelSource.kakuyomu
+        ? await _db.getEpisodeListEntrySnapshot(source, workId, episode)
+        : null;
 
     // ネットワーク接続状態を確認
     final isOffline = ref.read(isOfflineModeProvider);
@@ -465,22 +493,30 @@ class NovelRepository {
         subtitle: ep.subtitle,
         url: ep.url,
         publishedAt: ep.update,
-        expectedUrl: source == NovelSource.kakuyomu ? cached?.url : null,
-        verifyExpectedUrl: source == NovelSource.kakuyomu,
-        expectedEpisodeExists: cached != null,
+        expectedSnapshot: expectedSnapshot,
       );
       return content;
     } on Exception catch (error) {
-      if (error is StaleKakuyomuEpisodeContentException) rethrow;
+      if (error is StaleKakuyomuEpisodeContentException) {
+        if (retryOnStale) {
+          return _getEpisode(
+            source,
+            workId,
+            episode,
+            revised: revised,
+            retryOnStale: false,
+          );
+        }
+        rethrow;
+      }
 
-      if (source == NovelSource.kakuyomu && cached != null) {
-        final current = await _db.getEpisodeData(source, workId, episode);
-        if (current == null ||
-            current.url != cached.url ||
-            current.subtitle != cached.subtitle ||
-            current.publishedAt != cached.publishedAt ||
-            current.content == null ||
-            current.content!.isEmpty) {
+      if (source == NovelSource.kakuyomu && expectedSnapshot != null) {
+        final currentSnapshot = await _db.getEpisodeListEntrySnapshot(
+          source,
+          workId,
+          episode,
+        );
+        if (currentSnapshot != expectedSnapshot) {
           throw const StaleKakuyomuEpisodeContentException();
         }
       }
@@ -503,9 +539,7 @@ class NovelRepository {
           content: const [],
           fetchedAt: DateTime.now().millisecondsSinceEpoch,
           revisedAt: revised,
-          expectedUrl: source == NovelSource.kakuyomu ? cached?.url : null,
-          verifyExpectedUrl: source == NovelSource.kakuyomu,
-          expectedEpisodeExists: cached != null,
+          expectedSnapshot: expectedSnapshot,
         );
       } on Exception catch (_) {}
       rethrow;
@@ -620,6 +654,11 @@ class NovelRepository {
             unverifiedKakuyomuEpisodeIndexes.contains(i);
         if (isUnverifiedKakuyomuEpisode) {
           final cached = await _db.getEpisodesRange(source, workId, i, i);
+          final expectedSnapshot = await _db.getEpisodeListEntrySnapshot(
+            source,
+            workId,
+            i,
+          );
           if (cached.isEmpty || !cached.single.isDownloaded) {
             try {
               await _db.updateEpisodeContent(
@@ -628,7 +667,7 @@ class NovelRepository {
                 episodeId: i,
                 content: const [],
                 fetchedAt: DateTime.now().millisecondsSinceEpoch,
-                verifyExpectedUrl: true,
+                expectedSnapshot: expectedSnapshot,
               );
             } on StaleKakuyomuEpisodeContentException {
               // 目次が再更新された場合は、新しいURL側の状態を維持する。
@@ -793,11 +832,15 @@ class NovelRepository {
     }
 
     try {
-      // オンラインの場合はAPI（サイト実装）から取得
-      final episodes = await _fetchEpisodeList(source, workId, page);
+      final episodesToUpsert = source == NovelSource.kakuyomu
+          ? await _fetchKakuyomuToc(workId)
+          : await _fetchEpisodeList(source, workId, page);
+      final episodes = source == NovelSource.kakuyomu
+          ? _sliceKakuyomuEpisodeList(episodesToUpsert, page)
+          : episodesToUpsert;
 
-      // DBに保存
-      final episodesCompanions = episodes.map((e) {
+      // カクヨムは全目次を保存し、目次順変更時のキャッシュをURLで対応付ける。
+      final episodesCompanions = episodesToUpsert.map((e) {
         return EpisodeListEntriesCompanion(
           source: Value(source),
           workId: Value(workId),
@@ -965,7 +1008,9 @@ class NovelRepository {
     }
 
     try {
-      final episodes = await _fetchEpisodeList(source, workId, page);
+      final episodes = source == NovelSource.kakuyomu
+          ? await _fetchKakuyomuToc(workId)
+          : await _fetchEpisodeList(source, workId, page);
       final companions = episodes.map((e) {
         return EpisodeListEntriesCompanion(
           source: Value(source),

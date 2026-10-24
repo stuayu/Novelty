@@ -19,6 +19,15 @@ export 'migration_helper.dart';
 
 part 'database.g.dart';
 
+/// 本文取得開始時点のカクヨム目次メタデータ。
+typedef EpisodeListEntrySnapshot = ({
+  bool exists,
+  String? url,
+  String? subtitle,
+  String? publishedAt,
+  String? revisedAt,
+});
+
 /// 目次URLが更新された後に古いリクエストが本文を書き込もうとした。
 class StaleKakuyomuEpisodeContentException implements Exception {
   /// URL世代の不一致を示す例外を作成する。
@@ -1383,7 +1392,11 @@ class AppDatabase extends _$AppDatabase {
 
     await transaction(() async {
       final previousEpisodesByWorkId = <String, Map<int, Episode>>{};
-      final changedEpisodeIdsByWorkId = <String, Set<int>>{};
+      final previousEpisodeIndexesByUrlByWorkId = <String, Map<String, int>>{};
+      final previousContentsByWorkId = <String, Map<int, EpisodeContent>>{};
+      final episodeContentsToClearByWorkId = <String, Set<int>>{};
+      final episodeContentsToMoveByWorkId =
+          <String, Map<int, EpisodeContent>>{};
       final episodesToUpsert = <EpisodeListEntriesCompanion>[];
 
       for (final episode in newEpisodes) {
@@ -1402,14 +1415,45 @@ class AppDatabase extends _$AppDatabase {
               for (final existing in existingEpisodes)
                 if (existing.index != null) existing.index!: existing,
             };
+            previousEpisodeIndexesByUrlByWorkId[workId] = {
+              for (final existing in existingEpisodes)
+                if (existing.index != null && existing.url != null)
+                  existing.url!: existing.index!,
+            };
+            final existingContents =
+                await (select(episodeContents)..where(
+                      (content) =>
+                          content.source.equalsValue(NovelSource.kakuyomu) &
+                          content.workId.equals(workId),
+                    ))
+                    .get();
+            previousContentsByWorkId[workId] = {
+              for (final content in existingContents)
+                content.episodeId: content,
+            };
           }
 
-          final previous =
-              previousEpisodesByWorkId[workId]![episode.episodeId.value];
+          final episodeId = episode.episodeId.value;
+          final previous = previousEpisodesByWorkId[workId]![episodeId];
           if (episode.url.present && episode.url.value != null) {
-            if (previous?.url != episode.url.value) {
-              (changedEpisodeIdsByWorkId[workId] ??= <int>{}).add(
-                episode.episodeId.value,
+            final url = episode.url.value!;
+            final previousIndex =
+                previousEpisodeIndexesByUrlByWorkId[workId]![url];
+            if (previousIndex != null && previousIndex != episodeId) {
+              final oldContent =
+                  previousContentsByWorkId[workId]![previousIndex];
+              (episodeContentsToClearByWorkId[workId] ??= <int>{})
+                ..add(previousIndex)
+                ..add(episodeId);
+              if (oldContent?.content?.isNotEmpty == true) {
+                (episodeContentsToMoveByWorkId[workId] ??=
+                        <int, EpisodeContent>{})[episodeId] =
+                    oldContent!;
+              }
+            } else if (previous?.url != url) {
+              // URLが既存話と一致しないときだけ、古い話の本文を破棄する。
+              (episodeContentsToClearByWorkId[workId] ??= <int>{}).add(
+                episodeId,
               );
             }
           } else if (episode.url.present && previous != null) {
@@ -1426,8 +1470,8 @@ class AppDatabase extends _$AppDatabase {
                     incomingPublishedAt != previous.update);
             if (identityChanged) {
               // URLを検証できなくても、話の識別情報が変わった場合は本文を残さない。
-              (changedEpisodeIdsByWorkId[workId] ??= <int>{}).add(
-                episode.episodeId.value,
+              (episodeContentsToClearByWorkId[workId] ??= <int>{}).add(
+                episodeId,
               );
               episodeToUpsert = episode.copyWith(url: const Value(null));
             } else {
@@ -1446,7 +1490,7 @@ class AppDatabase extends _$AppDatabase {
         episodesToUpsert.add(episodeToUpsert);
       }
 
-      for (final entry in changedEpisodeIdsByWorkId.entries) {
+      for (final entry in episodeContentsToClearByWorkId.entries) {
         await (update(episodeContents)..where(
               (content) =>
                   content.source.equalsValue(NovelSource.kakuyomu) &
@@ -1462,6 +1506,14 @@ class AppDatabase extends _$AppDatabase {
             );
       }
 
+      for (final workEntry in episodeContentsToMoveByWorkId.entries) {
+        for (final entry in workEntry.value.entries) {
+          await into(episodeContents).insertOnConflictUpdate(
+            entry.value.copyWith(episodeId: entry.key),
+          );
+        }
+      }
+
       await batch((batch) {
         for (final episode in episodesToUpsert) {
           batch.insert(
@@ -1471,6 +1523,48 @@ class AppDatabase extends _$AppDatabase {
           );
         }
       });
+
+      final newEpisodeIndexesByUrlByWorkId = <String, Map<String, int>>{};
+      for (final episode in episodesToUpsert) {
+        if (episode.source.present &&
+            episode.source.value == NovelSource.kakuyomu &&
+            episode.workId.present &&
+            episode.episodeId.present &&
+            episode.url.present &&
+            episode.url.value != null) {
+          (newEpisodeIndexesByUrlByWorkId[episode.workId.value] ??=
+                  <String, int>{})[episode.url.value!] =
+              episode.episodeId.value;
+        }
+      }
+      for (final entry in newEpisodeIndexesByUrlByWorkId.entries) {
+        final history =
+            await (select(readingHistory)..where(
+                  (row) =>
+                      row.source.equalsValue(NovelSource.kakuyomu) &
+                      row.workId.equals(entry.key),
+                ))
+                .getSingleOrNull();
+        final previousReadIndex = history?.lastEpisodeId;
+        final previousReadUrl = previousReadIndex == null
+            ? null
+            : previousEpisodesByWorkId[entry.key]?[previousReadIndex]?.url;
+        final newReadIndex = previousReadUrl == null
+            ? null
+            : entry.value[previousReadUrl];
+        if (history != null &&
+            newReadIndex != null &&
+            newReadIndex != previousReadIndex) {
+          await (update(readingHistory)..where(
+                (row) =>
+                    row.source.equalsValue(NovelSource.kakuyomu) &
+                    row.workId.equals(entry.key),
+              ))
+              .write(
+                ReadingHistoryCompanion(lastEpisodeId: Value(newReadIndex)),
+              );
+        }
+      }
     });
   }
 
@@ -1485,12 +1579,10 @@ class AppDatabase extends _$AppDatabase {
     String? subtitle,
     String? url,
     String? publishedAt,
-    String? expectedUrl,
-    bool verifyExpectedUrl = false,
-    bool expectedEpisodeExists = true,
+    EpisodeListEntrySnapshot? expectedSnapshot,
   }) async {
     await transaction(() async {
-      if (source == NovelSource.kakuyomu && verifyExpectedUrl) {
+      if (source == NovelSource.kakuyomu && expectedSnapshot != null) {
         final current =
             await (select(episodeListEntries)..where(
                   (entry) =>
@@ -1499,8 +1591,22 @@ class AppDatabase extends _$AppDatabase {
                       entry.episodeId.equals(episodeId),
                 ))
                 .getSingleOrNull();
-        if ((current != null) != expectedEpisodeExists ||
-            current?.url != expectedUrl) {
+        final currentSnapshot = current == null
+            ? (
+                exists: false,
+                url: null,
+                subtitle: null,
+                publishedAt: null,
+                revisedAt: null,
+              )
+            : (
+                exists: true,
+                url: current.url,
+                subtitle: current.subtitle,
+                publishedAt: current.publishedAt,
+                revisedAt: current.revisedAt,
+              );
+        if (currentSnapshot != expectedSnapshot) {
           throw const StaleKakuyomuEpisodeContentException();
         }
       }
@@ -1545,6 +1651,38 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
     });
+  }
+
+  /// 目次テーブルの現在状態を、本文取得の競合検出用スナップショットとして返す。
+  Future<EpisodeListEntrySnapshot> getEpisodeListEntrySnapshot(
+    NovelSource source,
+    String workId,
+    int episodeId,
+  ) async {
+    final current =
+        await (select(episodeListEntries)..where(
+              (entry) =>
+                  entry.source.equalsValue(source) &
+                  entry.workId.equals(workId) &
+                  entry.episodeId.equals(episodeId),
+            ))
+            .getSingleOrNull();
+    if (current == null) {
+      return (
+        exists: false,
+        url: null,
+        subtitle: null,
+        publishedAt: null,
+        revisedAt: null,
+      );
+    }
+    return (
+      exists: true,
+      url: current.url,
+      subtitle: current.subtitle,
+      publishedAt: current.publishedAt,
+      revisedAt: current.revisedAt,
+    );
   }
 
   // ...

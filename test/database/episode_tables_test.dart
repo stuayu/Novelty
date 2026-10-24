@@ -218,6 +218,11 @@ void main() {
           url: Value(oldUrl),
         ),
       ]);
+      final snapshot = await db.getEpisodeListEntrySnapshot(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+      );
 
       await db.upsertEpisodes([
         const EpisodeListEntriesCompanion(
@@ -236,14 +241,176 @@ void main() {
           content: [NovelContentElement.plainText('古い本文')],
           fetchedAt: 123,
           url: oldUrl,
-          expectedUrl: oldUrl,
-          verifyExpectedUrl: true,
+          expectedSnapshot: snapshot,
         ),
         throwsA(isA<Exception>()),
       );
 
       final episode = await db.getEpisodeData(NovelSource.kakuyomu, workId, 1);
       expect(episode?.url, newUrl);
+      expect(episode?.content, isNull);
+    });
+
+    test('目次の改稿日時が変わっても同じURLの本文キャッシュを保持する', () async {
+      const workId = 'work';
+      const url = 'https://kakuyomu.jp/works/work/episodes/101';
+      await db.upsertEpisodes([
+        const EpisodeListEntriesCompanion(
+          source: Value(NovelSource.kakuyomu),
+          workId: Value(workId),
+          episodeId: Value(1),
+          url: Value(url),
+          revisedAt: Value('2024-01-01'),
+        ),
+      ]);
+      await db.updateEpisodeContent(
+        source: NovelSource.kakuyomu,
+        workId: workId,
+        episodeId: 1,
+        content: [NovelContentElement.plainText('旧本文')],
+        fetchedAt: 123,
+        revisedAt: '2024-01-01',
+      );
+
+      await db.upsertEpisodes([
+        const EpisodeListEntriesCompanion(
+          source: Value(NovelSource.kakuyomu),
+          workId: Value(workId),
+          episodeId: Value(1),
+          url: Value(url),
+          revisedAt: Value('2024-02-01'),
+        ),
+      ]);
+
+      final episode = await db.getEpisodeData(NovelSource.kakuyomu, workId, 1);
+      expect(episode?.url, url);
+      expect(episode?.content, isNotEmpty);
+      final listEpisode = await db.getEpisodesRange(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+        1,
+      );
+      expect(listEpisode.single.revised, '2024-02-01');
+    });
+
+    test('新しいカクヨム話の挿入時に本文と既読位置を安定URL基準で移動する', () async {
+      const workId = 'work';
+      const urls = <String>[
+        'https://kakuyomu.jp/works/work/episodes/101',
+        'https://kakuyomu.jp/works/work/episodes/102',
+        'https://kakuyomu.jp/works/work/episodes/103',
+      ];
+      await db.upsertEpisodes([
+        for (var index = 0; index < urls.length; index++)
+          EpisodeListEntriesCompanion(
+            source: const Value(NovelSource.kakuyomu),
+            workId: const Value(workId),
+            episodeId: Value(index + 1),
+            url: Value(urls[index]),
+          ),
+      ]);
+      for (var index = 0; index < urls.length; index++) {
+        await db.updateEpisodeContent(
+          source: NovelSource.kakuyomu,
+          workId: workId,
+          episodeId: index + 1,
+          content: [NovelContentElement.plainText('本文${index + 1}')],
+          fetchedAt: index + 10,
+        );
+      }
+      await db.addToHistory(
+        const ReadingHistoryCompanion(
+          source: Value(NovelSource.kakuyomu),
+          workId: Value(workId),
+          lastEpisodeId: Value(2),
+        ),
+      );
+
+      await db.upsertEpisodes([
+        const EpisodeListEntriesCompanion(
+          source: Value(NovelSource.kakuyomu),
+          workId: Value(workId),
+          episodeId: Value(1),
+          url: Value('https://kakuyomu.jp/works/work/episodes/100'),
+        ),
+        for (var index = 0; index < urls.length; index++)
+          EpisodeListEntriesCompanion(
+            source: const Value(NovelSource.kakuyomu),
+            workId: const Value(workId),
+            episodeId: Value(index + 2),
+            url: Value(urls[index]),
+          ),
+      ]);
+
+      final newEpisode = await db.getEpisodeData(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+      );
+      expect(newEpisode?.content, isNull);
+      for (var index = 0; index < urls.length; index++) {
+        final episode = await db.getEpisodeData(
+          NovelSource.kakuyomu,
+          workId,
+          index + 2,
+        );
+        expect(episode?.url, urls[index]);
+        expect(
+          (episode!.content!.single as PlainText).text,
+          '本文${index + 1}',
+        );
+      }
+      final history =
+          await (db.select(
+                db.readingHistory,
+              )..where((row) => row.source.equalsValue(NovelSource.kakuyomu)))
+              .getSingle();
+      expect(history.lastEpisodeId, 3);
+    });
+
+    test('改稿中の古い本文応答は目次スナップショット不一致で拒否する', () async {
+      const workId = 'work';
+      const url = 'https://kakuyomu.jp/works/work/episodes/101';
+      await db.upsertEpisodes([
+        const EpisodeListEntriesCompanion(
+          source: Value(NovelSource.kakuyomu),
+          workId: Value(workId),
+          episodeId: Value(1),
+          url: Value(url),
+          revisedAt: Value('2024-01-01'),
+        ),
+      ]);
+      final snapshot = await db.getEpisodeListEntrySnapshot(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+      );
+      await db.upsertEpisodes([
+        const EpisodeListEntriesCompanion(
+          source: Value(NovelSource.kakuyomu),
+          workId: Value(workId),
+          episodeId: Value(1),
+          url: Value(url),
+          revisedAt: Value('2024-02-01'),
+        ),
+      ]);
+
+      await expectLater(
+        db.updateEpisodeContent(
+          source: NovelSource.kakuyomu,
+          workId: workId,
+          episodeId: 1,
+          content: [NovelContentElement.plainText('旧応答')],
+          fetchedAt: 123,
+          url: url,
+          expectedSnapshot: snapshot,
+        ),
+        throwsA(isA<Exception>()),
+      );
+
+      final episode = await db.getEpisodeData(NovelSource.kakuyomu, workId, 1);
+      expect(episode?.revisedAt, '2024-02-01');
       expect(episode?.content, isNull);
     });
 

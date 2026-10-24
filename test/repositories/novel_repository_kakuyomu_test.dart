@@ -84,6 +84,17 @@ void main() {
       when(
         mockDatabase.getEpisodes(any, any),
       ).thenAnswer((_) async => <Episode>[]);
+      when(
+        mockDatabase.getEpisodeListEntrySnapshot(any, any, any),
+      ).thenAnswer(
+        (_) async => (
+          exists: false,
+          url: null,
+          subtitle: null,
+          publishedAt: null,
+          revisedAt: null,
+        ),
+      );
       mockApiService = MockApiService();
       adapter = _FixtureAdapter(<String, String>{
         '/works/$_workId': _fixture('work_page.html'),
@@ -197,9 +208,7 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
-          expectedUrl: anyNamed('expectedUrl'),
-          verifyExpectedUrl: anyNamed('verifyExpectedUrl'),
-          expectedEpisodeExists: anyNamed('expectedEpisodeExists'),
+          expectedSnapshot: anyNamed('expectedSnapshot'),
         ),
       ).called(1);
     });
@@ -227,9 +236,7 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
-          expectedUrl: anyNamed('expectedUrl'),
-          verifyExpectedUrl: anyNamed('verifyExpectedUrl'),
-          expectedEpisodeExists: anyNamed('expectedEpisodeExists'),
+          expectedSnapshot: anyNamed('expectedSnapshot'),
         ),
       ).thenAnswer((_) async {});
 
@@ -250,9 +257,7 @@ void main() {
           episodeId: 1,
           content: const [],
           fetchedAt: anyNamed('fetchedAt'),
-          expectedUrl: anyNamed('expectedUrl'),
-          verifyExpectedUrl: true,
-          expectedEpisodeExists: false,
+          expectedSnapshot: anyNamed('expectedSnapshot'),
         ),
       ).called(1);
       expect(
@@ -281,9 +286,7 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
-          expectedUrl: anyNamed('expectedUrl'),
-          verifyExpectedUrl: anyNamed('verifyExpectedUrl'),
-          expectedEpisodeExists: anyNamed('expectedEpisodeExists'),
+          expectedSnapshot: anyNamed('expectedSnapshot'),
         ),
       ).thenAnswer((_) async {});
 
@@ -303,9 +306,7 @@ void main() {
           episodeId: 1,
           content: const [],
           fetchedAt: anyNamed('fetchedAt'),
-          expectedUrl: anyNamed('expectedUrl'),
-          verifyExpectedUrl: true,
-          expectedEpisodeExists: false,
+          expectedSnapshot: anyNamed('expectedSnapshot'),
         ),
       ).called(1);
     });
@@ -328,9 +329,7 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
-          expectedUrl: anyNamed('expectedUrl'),
-          verifyExpectedUrl: anyNamed('verifyExpectedUrl'),
-          expectedEpisodeExists: anyNamed('expectedEpisodeExists'),
+          expectedSnapshot: anyNamed('expectedSnapshot'),
         ),
       ).thenAnswer((_) async {});
 
@@ -368,9 +367,7 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
-          expectedUrl: anyNamed('expectedUrl'),
-          verifyExpectedUrl: anyNamed('verifyExpectedUrl'),
-          expectedEpisodeExists: anyNamed('expectedEpisodeExists'),
+          expectedSnapshot: anyNamed('expectedSnapshot'),
         ),
       ).thenAnswer((_) async {});
       final repository = container.read(novelRepositoryProvider);

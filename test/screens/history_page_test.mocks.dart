@@ -558,9 +558,14 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
     String? subtitle,
     String? url,
     String? publishedAt,
-    String? expectedUrl,
-    bool? verifyExpectedUrl = false,
-    bool? expectedEpisodeExists = true,
+    ({
+      bool exists,
+      String? publishedAt,
+      String? revisedAt,
+      String? subtitle,
+      String? url,
+    })?
+    expectedSnapshot,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#updateEpisodeContent, [], {
@@ -573,14 +578,60 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
               #subtitle: subtitle,
               #url: url,
               #publishedAt: publishedAt,
-              #expectedUrl: expectedUrl,
-              #verifyExpectedUrl: verifyExpectedUrl,
-              #expectedEpisodeExists: expectedEpisodeExists,
+              #expectedSnapshot: expectedSnapshot,
             }),
             returnValue: _i5.Future<void>.value(),
             returnValueForMissingStub: _i5.Future<void>.value(),
           )
           as _i5.Future<void>);
+
+  @override
+  _i5.Future<
+    ({
+      bool exists,
+      String? publishedAt,
+      String? revisedAt,
+      String? subtitle,
+      String? url,
+    })
+  >
+  getEpisodeListEntrySnapshot(
+    _i7.NovelSource? source,
+    String? workId,
+    int? episodeId,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#getEpisodeListEntrySnapshot, [
+              source,
+              workId,
+              episodeId,
+            ]),
+            returnValue:
+                _i5.Future<
+                  ({
+                    bool exists,
+                    String? publishedAt,
+                    String? revisedAt,
+                    String? subtitle,
+                    String? url,
+                  })
+                >.value((
+                  exists: false,
+                  publishedAt: null,
+                  revisedAt: null,
+                  subtitle: null,
+                  url: null,
+                )),
+          )
+          as _i5.Future<
+            ({
+              bool exists,
+              String? publishedAt,
+              String? revisedAt,
+              String? subtitle,
+              String? url,
+            })
+          >);
 
   @override
   _i5.Future<_i3.EpisodeData?> getEpisodeData(
