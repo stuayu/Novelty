@@ -19,6 +19,16 @@ export 'migration_helper.dart';
 
 part 'database.g.dart';
 
+/// 目次URLが更新された後に古いリクエストが本文を書き込もうとした。
+class StaleKakuyomuEpisodeContentException implements Exception {
+  /// URL世代の不一致を示す例外を作成する。
+  const StaleKakuyomuEpisodeContentException();
+
+  /// エラーをログ表示用の日本語メッセージに変換する。
+  @override
+  String toString() => 'エピソードURLが更新されたため、古い本文を保存できません';
+}
+
 /// [NovelSource] と DB の TEXT カラムを相互変換するコンバータ。
 class NovelSourceConverter extends TypeConverter<NovelSource, String> {
   /// コンストラクタ
@@ -1371,14 +1381,96 @@ class AppDatabase extends _$AppDatabase {
     // 目次の取得日時
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    await batch((batch) {
+    await transaction(() async {
+      final previousEpisodesByWorkId = <String, Map<int, Episode>>{};
+      final changedEpisodeIdsByWorkId = <String, Set<int>>{};
+      final episodesToUpsert = <EpisodeListEntriesCompanion>[];
+
       for (final episode in newEpisodes) {
-        batch.insert(
-          episodeListEntries,
-          episode.copyWith(fetchedAt: Value(now)),
-          mode: InsertMode.insertOrReplace,
-        );
+        var episodeToUpsert = episode;
+        if (episode.source.present &&
+            episode.source.value == NovelSource.kakuyomu &&
+            episode.workId.present &&
+            episode.episodeId.present) {
+          final workId = episode.workId.value;
+          if (!previousEpisodesByWorkId.containsKey(workId)) {
+            final existingEpisodes = await getEpisodes(
+              NovelSource.kakuyomu,
+              workId,
+            );
+            previousEpisodesByWorkId[workId] = {
+              for (final existing in existingEpisodes)
+                if (existing.index != null) existing.index!: existing,
+            };
+          }
+
+          final previous =
+              previousEpisodesByWorkId[workId]![episode.episodeId.value];
+          if (episode.url.present && episode.url.value != null) {
+            if (previous?.url != episode.url.value) {
+              (changedEpisodeIdsByWorkId[workId] ??= <int>{}).add(
+                episode.episodeId.value,
+              );
+            }
+          } else if (episode.url.present && previous != null) {
+            final incomingSubtitle = episode.subtitle.present
+                ? episode.subtitle.value
+                : null;
+            final incomingPublishedAt = episode.publishedAt.present
+                ? episode.publishedAt.value
+                : null;
+            final identityChanged =
+                (incomingSubtitle?.isNotEmpty == true &&
+                    incomingSubtitle != previous.subtitle) ||
+                (incomingPublishedAt?.isNotEmpty == true &&
+                    incomingPublishedAt != previous.update);
+            if (identityChanged) {
+              // URLを検証できなくても、話の識別情報が変わった場合は本文を残さない。
+              (changedEpisodeIdsByWorkId[workId] ??= <int>{}).add(
+                episode.episodeId.value,
+              );
+              episodeToUpsert = episode.copyWith(url: const Value(null));
+            } else {
+              // URL検証に失敗した目次では、以前の表示情報と本文を保持する。
+              episodeToUpsert = episode.copyWith(
+                subtitle: Value(previous.subtitle),
+                url: const Value(null),
+                publishedAt: Value(previous.update),
+                revisedAt: Value(previous.revised),
+              );
+            }
+          } else if (!episode.url.present && previous != null) {
+            episodeToUpsert = episode.copyWith(url: Value(previous.url));
+          }
+        }
+        episodesToUpsert.add(episodeToUpsert);
       }
+
+      for (final entry in changedEpisodeIdsByWorkId.entries) {
+        await (update(episodeContents)..where(
+              (content) =>
+                  content.source.equalsValue(NovelSource.kakuyomu) &
+                  content.workId.equals(entry.key) &
+                  content.episodeId.isIn(entry.value),
+            ))
+            .write(
+              const EpisodeContentsCompanion(
+                content: Value<List<NovelContentElement>?>(null),
+                fetchedAt: Value<int?>(null),
+                revisedAt: Value<String?>(null),
+              ),
+            );
+      }
+
+      await batch((batch) {
+        for (final episode in episodesToUpsert) {
+          batch.insert(
+            episodeListEntries,
+            episode.copyWith(fetchedAt: Value(now)),
+            mode: InsertMode.insertOrReplace,
+          );
+        }
+      });
     });
   }
 
@@ -1393,36 +1485,66 @@ class AppDatabase extends _$AppDatabase {
     String? subtitle,
     String? url,
     String? publishedAt,
+    String? expectedUrl,
+    bool verifyExpectedUrl = false,
+    bool expectedEpisodeExists = true,
   }) async {
-    // メタデータが指定されている場合は目次テーブルも更新する
-    // 指定されなかった項目は既存の値を保持する
-    await customStatement(
-      '''
-      INSERT INTO episode_list_entries
-        (source, work_id, episode_id, subtitle, url, published_at, revised_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(source, work_id, episode_id) DO UPDATE SET
-        subtitle = COALESCE(excluded.subtitle, episode_list_entries.subtitle),
-        url = COALESCE(excluded.url, episode_list_entries.url),
-        published_at =
-          COALESCE(excluded.published_at, episode_list_entries.published_at),
-        revised_at =
-          COALESCE(excluded.revised_at, episode_list_entries.revised_at);
-    ''',
-      [source.dbId, workId, episodeId, subtitle, url, publishedAt, revisedAt],
-    );
+    await transaction(() async {
+      if (source == NovelSource.kakuyomu && verifyExpectedUrl) {
+        final current =
+            await (select(episodeListEntries)..where(
+                  (entry) =>
+                      entry.source.equalsValue(source) &
+                      entry.workId.equals(workId) &
+                      entry.episodeId.equals(episodeId),
+                ))
+                .getSingleOrNull();
+        if ((current != null) != expectedEpisodeExists ||
+            current?.url != expectedUrl) {
+          throw const StaleKakuyomuEpisodeContentException();
+        }
+      }
 
-    // 本文テーブルを更新する
-    await into(episodeContents).insertOnConflictUpdate(
-      EpisodeContentsCompanion(
-        source: Value(source),
-        workId: Value(workId),
-        episodeId: Value(episodeId),
-        content: Value(content),
-        fetchedAt: Value(fetchedAt),
-        revisedAt: revisedAt != null ? Value(revisedAt) : const Value.absent(),
-      ),
-    );
+      // メタデータが指定されている場合は目次テーブルも更新する
+      // 指定されなかった項目は既存の値を保持する
+      await customStatement(
+        '''
+        INSERT INTO episode_list_entries
+          (source, work_id, episode_id, subtitle, url, published_at, revised_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source, work_id, episode_id) DO UPDATE SET
+          subtitle = COALESCE(excluded.subtitle, episode_list_entries.subtitle),
+          url = COALESCE(excluded.url, episode_list_entries.url),
+          published_at =
+            COALESCE(excluded.published_at, episode_list_entries.published_at),
+          revised_at =
+            COALESCE(excluded.revised_at, episode_list_entries.revised_at);
+      ''',
+        [
+          source.dbId,
+          workId,
+          episodeId,
+          subtitle,
+          url,
+          publishedAt,
+          revisedAt,
+        ],
+      );
+
+      // 本文テーブルを更新する
+      await into(episodeContents).insertOnConflictUpdate(
+        EpisodeContentsCompanion(
+          source: Value(source),
+          workId: Value(workId),
+          episodeId: Value(episodeId),
+          content: Value(content),
+          fetchedAt: Value(fetchedAt),
+          revisedAt: revisedAt != null
+              ? Value(revisedAt)
+              : const Value.absent(),
+        ),
+      );
+    });
   }
 
   // ...

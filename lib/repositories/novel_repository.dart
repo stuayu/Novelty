@@ -23,6 +23,19 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'novel_repository.g.dart';
 
+typedef _KakuyomuTocRefresh = ({
+  int episodeCount,
+  Set<int> changedEpisodeIndexes,
+  Set<int> unverifiedEpisodeIndexes,
+});
+
+class _KakuyomuEmptyTocException implements Exception {
+  const _KakuyomuEmptyTocException();
+
+  @override
+  String toString() => 'カクヨム目次が空です';
+}
+
 @Riverpod(keepAlive: true)
 /// 小説のダウンロードと管理を行うリポジトリ。
 NovelRepository novelRepository(Ref ref) {
@@ -202,27 +215,33 @@ class NovelRepository {
   bool _isRateLimited(Exception error) =>
       error is DioException && error.response?.statusCode == 429;
 
-  Future<void> _ensureKakuyomuEpisodeUrls(
-    String workId,
-    int totalEpisodes,
-  ) async {
-    final cachedEpisodes = await _db.getEpisodesRange(
+  Future<_KakuyomuTocRefresh> _refreshKakuyomuEpisodeUrls(
+    String workId, {
+    required int expectedEpisodeCount,
+  }) async {
+    final previousEpisodes = await _db.getEpisodes(
       NovelSource.kakuyomu,
       workId,
-      1,
-      totalEpisodes,
     );
-    final urlsByIndex = <int, String?>{
-      for (final episode in cachedEpisodes)
+    final previousUrlsByIndex = <int, String?>{
+      for (final episode in previousEpisodes)
         if (episode.index != null) episode.index!: episode.url,
     };
-    final hasAllUrls = List<bool>.generate(
-      totalEpisodes,
-      (index) => urlsByIndex[index + 1]?.trim().isNotEmpty ?? false,
-    ).every((hasUrl) => hasUrl);
-    if (hasAllUrls) return;
-
     final episodes = await _sites[NovelSource.kakuyomu]!.fetchToc(workId);
+    if (episodes.isEmpty && expectedEpisodeCount > 0) {
+      throw const _KakuyomuEmptyTocException();
+    }
+    final changedEpisodeIndexes = <int>{
+      for (final episode in episodes)
+        if (episode.index != null &&
+            episode.url != null &&
+            previousUrlsByIndex[episode.index] != episode.url)
+          episode.index!,
+    };
+    final unverifiedEpisodeIndexes = <int>{
+      for (final episode in episodes)
+        if (episode.index != null && episode.url == null) episode.index!,
+    };
     await _db.upsertEpisodes(
       episodes
           .map(
@@ -237,6 +256,11 @@ class NovelRepository {
             ),
           )
           .toList(),
+    );
+    return (
+      episodeCount: episodes.length,
+      changedEpisodeIndexes: changedEpisodeIndexes,
+      unverifiedEpisodeIndexes: unverifiedEpisodeIndexes,
     );
   }
 
@@ -266,6 +290,9 @@ class NovelRepository {
       return apiService.fetchEpisodeList(workId, page);
     }
     final all = await _sites[source]!.fetchToc(workId);
+    if (source == NovelSource.kakuyomu && page == 1 && all.isEmpty) {
+      throw const _KakuyomuEmptyTocException();
+    }
     final start = (page - 1) * 100;
     final end = math.min(start + 100, all.length);
     if (start >= all.length) {
@@ -309,17 +336,20 @@ class NovelRepository {
     String? revised,
     NovelInfo? novelInfo,
     bool requireStoredEpisodeUrl = false,
+    bool forceDownload = false,
     bool rethrowRateLimited = false,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     // 既にダウンロード成功済みかチェック
     final existing = await _db.getEpisodeData(source, workId, episode);
+    final expectedUrl = source == NovelSource.kakuyomu ? existing?.url : null;
     if (existing != null &&
         existing.content != null &&
         existing.content!.isNotEmpty) {
       // revisedが指定されていない、または一致する場合はスキップ
-      if (revised == null || existing.revisedAt == revised) {
+      if (!forceDownload &&
+          (revised == null || existing.revisedAt == revised)) {
         return true;
       }
     }
@@ -348,10 +378,15 @@ class NovelRepository {
         subtitle: ep.subtitle,
         url: ep.url,
         publishedAt: ep.update,
+        expectedUrl: expectedUrl,
+        verifyExpectedUrl: source == NovelSource.kakuyomu,
+        expectedEpisodeExists: existing != null,
       );
 
       return true;
     } on Exception catch (error) {
+      if (error is StaleKakuyomuEpisodeContentException) return false;
+
       // データベースに保存（失敗）
       // フェッチに失敗した場合、空の本文で失敗記録を残す。
       // subtitle/urlは指定せず、既存の目次メタデータを上書きしない。
@@ -364,6 +399,9 @@ class NovelRepository {
           content: const [], // 空の本文
           fetchedAt: now,
           revisedAt: revised,
+          expectedUrl: expectedUrl,
+          verifyExpectedUrl: source == NovelSource.kakuyomu,
+          expectedEpisodeExists: existing != null,
         );
       } on Exception catch (_) {
         // 二次的な失敗は無視する
@@ -427,9 +465,26 @@ class NovelRepository {
         subtitle: ep.subtitle,
         url: ep.url,
         publishedAt: ep.update,
+        expectedUrl: source == NovelSource.kakuyomu ? cached?.url : null,
+        verifyExpectedUrl: source == NovelSource.kakuyomu,
+        expectedEpisodeExists: cached != null,
       );
       return content;
-    } on Exception {
+    } on Exception catch (error) {
+      if (error is StaleKakuyomuEpisodeContentException) rethrow;
+
+      if (source == NovelSource.kakuyomu && cached != null) {
+        final current = await _db.getEpisodeData(source, workId, episode);
+        if (current == null ||
+            current.url != cached.url ||
+            current.subtitle != cached.subtitle ||
+            current.publishedAt != cached.publishedAt ||
+            current.content == null ||
+            current.content!.isEmpty) {
+          throw const StaleKakuyomuEpisodeContentException();
+        }
+      }
+
       // 失敗時はキャッシュがあればフォールバックして返す
       if (cached != null &&
           cached.content != null &&
@@ -448,6 +503,9 @@ class NovelRepository {
           content: const [],
           fetchedAt: DateTime.now().millisecondsSinceEpoch,
           revisedAt: revised,
+          expectedUrl: source == NovelSource.kakuyomu ? cached?.url : null,
+          verifyExpectedUrl: source == NovelSource.kakuyomu,
+          expectedEpisodeExists: cached != null,
         );
       } on Exception catch (_) {}
       rethrow;
@@ -480,13 +538,16 @@ class NovelRepository {
         )];
     var successCount = 0;
     var failureCount = 0;
+    var downloadTotalEpisodes = totalEpisodes;
+    final changedKakuyomuEpisodeIndexes = <int>{};
+    final unverifiedKakuyomuEpisodeIndexes = <int>{};
 
     try {
       // 初期進捗を通知
       progressController?.add(
         DownloadProgress(
           currentEpisode: 0,
-          totalEpisodes: totalEpisodes,
+          totalEpisodes: downloadTotalEpisodes,
           isDownloading: true,
         ),
       );
@@ -522,25 +583,70 @@ class NovelRepository {
 
       if (source == NovelSource.kakuyomu) {
         try {
-          await _ensureKakuyomuEpisodeUrls(workId, totalEpisodes);
+          final tocRefresh = await _refreshKakuyomuEpisodeUrls(
+            workId,
+            expectedEpisodeCount: totalEpisodes,
+          );
+          downloadTotalEpisodes = math.min(
+            totalEpisodes,
+            tocRefresh.episodeCount,
+          );
+          changedKakuyomuEpisodeIndexes.addAll(
+            tocRefresh.changedEpisodeIndexes,
+          );
+          unverifiedKakuyomuEpisodeIndexes.addAll(
+            tocRefresh.unverifiedEpisodeIndexes,
+          );
         } on Exception catch (error) {
-          if (_isRateLimited(error)) rethrow;
+          if (_isRateLimited(error) || error is _KakuyomuEmptyTocException) {
+            rethrow;
+          }
           // 目次取得に失敗した場合はキャッシュ済みURLで取得を続け、欠落分は失敗記録にする。
         }
+        progressController?.add(
+          DownloadProgress(
+            currentEpisode: successCount,
+            totalEpisodes: downloadTotalEpisodes,
+            isDownloading: true,
+          ),
+        );
       }
 
       // 各エピソードをダウンロード
-      for (var i = 1; i <= totalEpisodes; i++) {
+      for (var i = 1; i <= downloadTotalEpisodes; i++) {
         final revised = revisedMap[i];
-        final success = await _downloadSingleEpisode(
-          source,
-          workId,
-          i,
-          revised: revised,
-          novelInfo: novelInfo,
-          requireStoredEpisodeUrl: source == NovelSource.kakuyomu,
-          rethrowRateLimited: true,
-        );
+        final isUnverifiedKakuyomuEpisode =
+            source == NovelSource.kakuyomu &&
+            unverifiedKakuyomuEpisodeIndexes.contains(i);
+        if (isUnverifiedKakuyomuEpisode) {
+          final cached = await _db.getEpisodesRange(source, workId, i, i);
+          if (cached.isEmpty || !cached.single.isDownloaded) {
+            try {
+              await _db.updateEpisodeContent(
+                source: source,
+                workId: workId,
+                episodeId: i,
+                content: const [],
+                fetchedAt: DateTime.now().millisecondsSinceEpoch,
+                verifyExpectedUrl: true,
+              );
+            } on StaleKakuyomuEpisodeContentException {
+              // 目次が再更新された場合は、新しいURL側の状態を維持する。
+            }
+          }
+        }
+        final success =
+            !isUnverifiedKakuyomuEpisode &&
+            await _downloadSingleEpisode(
+              source,
+              workId,
+              i,
+              revised: revised,
+              novelInfo: novelInfo,
+              requireStoredEpisodeUrl: source == NovelSource.kakuyomu,
+              forceDownload: changedKakuyomuEpisodeIndexes.contains(i),
+              rethrowRateLimited: true,
+            );
 
         if (success) {
           successCount++;
@@ -552,7 +658,7 @@ class NovelRepository {
         progressController?.add(
           DownloadProgress(
             currentEpisode: successCount,
-            totalEpisodes: totalEpisodes,
+            totalEpisodes: downloadTotalEpisodes,
             isDownloading: true,
           ),
         );
@@ -562,7 +668,7 @@ class NovelRepository {
       progressController?.add(
         DownloadProgress(
           currentEpisode: successCount,
-          totalEpisodes: totalEpisodes,
+          totalEpisodes: downloadTotalEpisodes,
           isDownloading: false,
           errorMessage: failureCount > 0
               ? '$failureCount話のダウンロードに失敗しました'
@@ -574,7 +680,7 @@ class NovelRepository {
       progressController?.add(
         DownloadProgress(
           currentEpisode: successCount,
-          totalEpisodes: totalEpisodes,
+          totalEpisodes: downloadTotalEpisodes,
           isDownloading: false,
           errorMessage: e.toString(),
         ),
@@ -866,7 +972,7 @@ class NovelRepository {
           workId: Value(workId),
           episodeId: Value(e.index ?? 0),
           subtitle: Value(e.subtitle ?? ''),
-          url: Value(e.url ?? ''),
+          url: Value(e.url),
           publishedAt: Value(e.update ?? ''),
           revisedAt: Value(e.revised ?? ''),
         );

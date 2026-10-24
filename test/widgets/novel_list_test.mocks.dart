@@ -578,6 +578,9 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
     String? subtitle,
     String? url,
     String? publishedAt,
+    String? expectedUrl,
+    bool? verifyExpectedUrl = false,
+    bool? expectedEpisodeExists = true,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#updateEpisodeContent, [], {
@@ -590,6 +593,9 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
               #subtitle: subtitle,
               #url: url,
               #publishedAt: publishedAt,
+              #expectedUrl: expectedUrl,
+              #verifyExpectedUrl: verifyExpectedUrl,
+              #expectedEpisodeExists: expectedEpisodeExists,
             }),
             returnValue: _i5.Future<void>.value(),
             returnValueForMissingStub: _i5.Future<void>.value(),

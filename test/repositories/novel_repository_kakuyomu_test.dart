@@ -81,6 +81,9 @@ void main() {
 
     setUp(() {
       mockDatabase = MockAppDatabase();
+      when(
+        mockDatabase.getEpisodes(any, any),
+      ).thenAnswer((_) async => <Episode>[]);
       mockApiService = MockApiService();
       adapter = _FixtureAdapter(<String, String>{
         '/works/$_workId': _fixture('work_page.html'),
@@ -194,6 +197,9 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
+          expectedUrl: anyNamed('expectedUrl'),
+          verifyExpectedUrl: anyNamed('verifyExpectedUrl'),
+          expectedEpisodeExists: anyNamed('expectedEpisodeExists'),
         ),
       ).called(1);
     });
@@ -221,6 +227,9 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
+          expectedUrl: anyNamed('expectedUrl'),
+          verifyExpectedUrl: anyNamed('verifyExpectedUrl'),
+          expectedEpisodeExists: anyNamed('expectedEpisodeExists'),
         ),
       ).thenAnswer((_) async {});
 
@@ -241,6 +250,9 @@ void main() {
           episodeId: 1,
           content: const [],
           fetchedAt: anyNamed('fetchedAt'),
+          expectedUrl: anyNamed('expectedUrl'),
+          verifyExpectedUrl: true,
+          expectedEpisodeExists: false,
         ),
       ).called(1);
       expect(
@@ -269,6 +281,9 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
+          expectedUrl: anyNamed('expectedUrl'),
+          verifyExpectedUrl: anyNamed('verifyExpectedUrl'),
+          expectedEpisodeExists: anyNamed('expectedEpisodeExists'),
         ),
       ).thenAnswer((_) async {});
 
@@ -288,6 +303,9 @@ void main() {
           episodeId: 1,
           content: const [],
           fetchedAt: anyNamed('fetchedAt'),
+          expectedUrl: anyNamed('expectedUrl'),
+          verifyExpectedUrl: true,
+          expectedEpisodeExists: false,
         ),
       ).called(1);
     });
@@ -310,6 +328,9 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
+          expectedUrl: anyNamed('expectedUrl'),
+          verifyExpectedUrl: anyNamed('verifyExpectedUrl'),
+          expectedEpisodeExists: anyNamed('expectedEpisodeExists'),
         ),
       ).thenAnswer((_) async {});
 
@@ -347,6 +368,9 @@ void main() {
           subtitle: anyNamed('subtitle'),
           url: anyNamed('url'),
           publishedAt: anyNamed('publishedAt'),
+          expectedUrl: anyNamed('expectedUrl'),
+          verifyExpectedUrl: anyNamed('verifyExpectedUrl'),
+          expectedEpisodeExists: anyNamed('expectedEpisodeExists'),
         ),
       ).thenAnswer((_) async {});
       final repository = container.read(novelRepositoryProvider);

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
@@ -155,12 +157,18 @@ class _DownloadTestKakuyomuSite extends NovelSite {
     required this.totalEpisodes,
     this.infoFailure,
     this.tocFailure,
+    this.tocEpisodeIds,
+    this.tocEpisodeUrls,
+    this.failEpisodeIndexOnce,
   });
 
   final String workId;
   final int totalEpisodes;
   final Exception? infoFailure;
   final Exception? tocFailure;
+  final List<String>? tocEpisodeIds;
+  final List<String?>? tocEpisodeUrls;
+  int? failEpisodeIndexOnce;
   int infoFetchCount = 0;
   int tocFetchCount = 0;
   int episodeFetchCount = 0;
@@ -194,12 +202,17 @@ class _DownloadTestKakuyomuSite extends NovelSite {
   Future<List<Episode>> fetchToc(String workId) async {
     tocFetchCount++;
     if (tocFailure case final failure?) throw failure;
+    final episodeCount =
+        tocEpisodeUrls?.length ?? tocEpisodeIds?.length ?? totalEpisodes;
     return List<Episode>.generate(
-      totalEpisodes,
+      episodeCount,
       (index) => Episode(
         source: NovelSource.kakuyomu,
         index: index + 1,
-        url: 'https://kakuyomu.jp/works/$workId/episodes/${index + 1}',
+        url: tocEpisodeUrls != null
+            ? tocEpisodeUrls![index]
+            : 'https://kakuyomu.jp/works/$workId/episodes/'
+                  '${tocEpisodeIds?[index] ?? index + 1}',
       ),
     );
   }
@@ -208,6 +221,14 @@ class _DownloadTestKakuyomuSite extends NovelSite {
   Future<Episode> fetchEpisode(String workId, int index, {String? url}) async {
     episodeFetchCount++;
     episodeFetchUrls.add(url);
+    if (index == failEpisodeIndexOnce) {
+      failEpisodeIndexOnce = null;
+      final request = RequestOptions(path: url ?? '');
+      throw DioException(
+        requestOptions: request,
+        response: Response<dynamic>(requestOptions: request, statusCode: 429),
+      );
+    }
     return Episode(
       source: NovelSource.kakuyomu,
       index: index,
@@ -215,6 +236,21 @@ class _DownloadTestKakuyomuSite extends NovelSite {
       body: '<p>本文</p>',
       url: url,
     );
+  }
+}
+
+class _DeferredKakuyomuSite extends _DownloadTestKakuyomuSite {
+  _DeferredKakuyomuSite({required super.workId}) : super(totalEpisodes: 1);
+
+  final Completer<void> requestStarted = Completer<void>();
+  final Completer<Episode> episodeResponse = Completer<Episode>();
+
+  @override
+  Future<Episode> fetchEpisode(String workId, int index, {String? url}) {
+    episodeFetchCount++;
+    episodeFetchUrls.add(url);
+    requestStarted.complete();
+    return episodeResponse.future;
   }
 }
 
@@ -982,7 +1018,7 @@ void main() {
       );
     });
 
-    test('カクヨム一括取得で全URLがキャッシュ済みなら目次を再取得しない', () async {
+    test('カクヨム一括取得でURLが変わった話は本文を再取得する', () async {
       const workId = 'work';
       await database.upsertEpisodes(
         List<db.EpisodeListEntriesCompanion>.generate(
@@ -992,7 +1028,420 @@ void main() {
             workId: const drift.Value(workId),
             episodeId: drift.Value(index + 1),
             url: drift.Value(
-              'https://kakuyomu.jp/works/work/episodes/${index + 1}',
+              'https://kakuyomu.jp/works/work/episodes/${index + 90}',
+            ),
+          ),
+        ),
+      );
+      for (var episodeId = 1; episodeId <= 2; episodeId++) {
+        await database.updateEpisodeContent(
+          source: NovelSource.kakuyomu,
+          workId: workId,
+          episodeId: episodeId,
+          content: [NovelContentElement.plainText('古い本文$episodeId')],
+          fetchedAt: 1,
+        );
+      }
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 2,
+        tocEpisodeIds: const <String>['101', '102'],
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.downloadNovel(NovelSource.kakuyomu, workId, 2);
+
+      expect(site.tocFetchCount, 1);
+      expect(site.episodeFetchCount, 2);
+      expect(site.episodeFetchUrls, hasLength(2));
+      expect(site.episodeFetchUrls, <String?>[
+        'https://kakuyomu.jp/works/work/episodes/101',
+        'https://kakuyomu.jp/works/work/episodes/102',
+      ]);
+    });
+
+    test('カクヨム一括取得でURLが同じ話のキャッシュ本文は再取得しない', () async {
+      const workId = 'work';
+      await database.upsertEpisodes(
+        List<db.EpisodeListEntriesCompanion>.generate(
+          2,
+          (index) => db.EpisodeListEntriesCompanion(
+            source: const drift.Value(NovelSource.kakuyomu),
+            workId: const drift.Value(workId),
+            episodeId: drift.Value(index + 1),
+            url: drift.Value(
+              'https://kakuyomu.jp/works/work/episodes/${index + 101}',
+            ),
+          ),
+        ),
+      );
+      for (var episodeId = 1; episodeId <= 2; episodeId++) {
+        await database.updateEpisodeContent(
+          source: NovelSource.kakuyomu,
+          workId: workId,
+          episodeId: episodeId,
+          content: [NovelContentElement.plainText('本文$episodeId')],
+          fetchedAt: 1,
+        );
+      }
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 2,
+        tocEpisodeIds: const <String>['101', '102'],
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.downloadNovel(NovelSource.kakuyomu, workId, 2);
+
+      expect(site.tocFetchCount, 1);
+      expect(site.episodeFetchCount, 0);
+      expect(site.episodeFetchUrls, isEmpty);
+      expect(
+        (await database.getEpisodeData(
+          NovelSource.kakuyomu,
+          workId,
+          1,
+        ))?.content,
+        isNotEmpty,
+      );
+    });
+
+    test('目次画面でURLが先に更新されても一括取得で本文を取り直す', () async {
+      const workId = 'work';
+      await database.upsertEpisodes(
+        List<db.EpisodeListEntriesCompanion>.generate(
+          2,
+          (index) => db.EpisodeListEntriesCompanion(
+            source: const drift.Value(NovelSource.kakuyomu),
+            workId: const drift.Value(workId),
+            episodeId: drift.Value(index + 1),
+            url: drift.Value(
+              'https://kakuyomu.jp/works/work/episodes/${index + 90}',
+            ),
+          ),
+        ),
+      );
+      for (var episodeId = 1; episodeId <= 2; episodeId++) {
+        await database.updateEpisodeContent(
+          source: NovelSource.kakuyomu,
+          workId: workId,
+          episodeId: episodeId,
+          content: [NovelContentElement.plainText('古い本文$episodeId')],
+          fetchedAt: 1,
+        );
+      }
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 2,
+        tocEpisodeIds: const <String>['101', '102'],
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.fetchEpisodeList(NovelSource.kakuyomu, workId, 1);
+
+      expect(
+        (await database.getEpisodeData(
+          NovelSource.kakuyomu,
+          workId,
+          1,
+        ))?.content,
+        isNull,
+      );
+      await repository.downloadNovel(NovelSource.kakuyomu, workId, 2);
+
+      expect(site.episodeFetchCount, 2);
+      expect(
+        site.episodeFetchUrls,
+        <String?>[
+          'https://kakuyomu.jp/works/work/episodes/101',
+          'https://kakuyomu.jp/works/work/episodes/102',
+        ],
+      );
+    });
+
+    test('URL変更後の429中断は次回の一括取得で未処理の本文も再取得する', () async {
+      const workId = 'work';
+      await database.upsertEpisodes(
+        List<db.EpisodeListEntriesCompanion>.generate(
+          2,
+          (index) => db.EpisodeListEntriesCompanion(
+            source: const drift.Value(NovelSource.kakuyomu),
+            workId: const drift.Value(workId),
+            episodeId: drift.Value(index + 1),
+            url: drift.Value(
+              'https://kakuyomu.jp/works/work/episodes/${index + 90}',
+            ),
+          ),
+        ),
+      );
+      for (var episodeId = 1; episodeId <= 2; episodeId++) {
+        await database.updateEpisodeContent(
+          source: NovelSource.kakuyomu,
+          workId: workId,
+          episodeId: episodeId,
+          content: [NovelContentElement.plainText('古い本文$episodeId')],
+          fetchedAt: 1,
+        );
+      }
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 2,
+        tocEpisodeIds: const <String>['101', '102'],
+        failEpisodeIndexOnce: 1,
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await expectLater(
+        repository.downloadNovel(NovelSource.kakuyomu, workId, 2),
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.response?.statusCode,
+            'statusCode',
+            429,
+          ),
+        ),
+      );
+      expect(
+        (await database.getEpisodeData(
+          NovelSource.kakuyomu,
+          workId,
+          2,
+        ))?.content,
+        isNull,
+      );
+
+      await repository.downloadNovel(NovelSource.kakuyomu, workId, 2);
+
+      expect(site.episodeFetchCount, 3);
+      expect(
+        site.episodeFetchUrls,
+        <String?>[
+          'https://kakuyomu.jp/works/work/episodes/101',
+          'https://kakuyomu.jp/works/work/episodes/101',
+          'https://kakuyomu.jp/works/work/episodes/102',
+        ],
+      );
+    });
+
+    test('目次URL更新中に返った古い本文を保存しない', () async {
+      const workId = 'work';
+      const oldUrl = 'https://kakuyomu.jp/works/work/episodes/101';
+      const newUrl = 'https://kakuyomu.jp/works/work/episodes/102';
+      await database.upsertEpisodes([
+        const db.EpisodeListEntriesCompanion(
+          source: drift.Value(NovelSource.kakuyomu),
+          workId: drift.Value(workId),
+          episodeId: drift.Value(1),
+          url: drift.Value(oldUrl),
+        ),
+      ]);
+      await database.updateEpisodeContent(
+        source: NovelSource.kakuyomu,
+        workId: workId,
+        episodeId: 1,
+        content: [NovelContentElement.plainText('以前の本文')],
+        fetchedAt: 1,
+        revisedAt: 'old',
+      );
+      final site = _DeferredKakuyomuSite(workId: workId);
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      final download = repository.downloadSingleEpisode(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+        revised: 'new',
+      );
+      await site.requestStarted.future;
+      await database.upsertEpisodes([
+        const db.EpisodeListEntriesCompanion(
+          source: drift.Value(NovelSource.kakuyomu),
+          workId: drift.Value(workId),
+          episodeId: drift.Value(1),
+          url: drift.Value(newUrl),
+        ),
+      ]);
+      site.episodeResponse.complete(
+        const Episode(
+          source: NovelSource.kakuyomu,
+          index: 1,
+          url: oldUrl,
+          body: '<p>古い応答</p>',
+        ),
+      );
+
+      expect(await download, isFalse);
+      final cached = await database.getEpisodeData(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+      );
+      expect(cached?.url, newUrl);
+      expect(cached?.content, isNull);
+    });
+
+    test('無効な目次URLは本文を保持し一括取得では失敗として数える', () async {
+      const workId = 'work';
+      await database.upsertEpisodes([
+        const db.EpisodeListEntriesCompanion(
+          source: drift.Value(NovelSource.kakuyomu),
+          workId: drift.Value(workId),
+          episodeId: drift.Value(1),
+          subtitle: drift.Value('以前のタイトル'),
+          url: drift.Value('https://kakuyomu.jp/works/work/episodes/101'),
+        ),
+      ]);
+      await database.updateEpisodeContent(
+        source: NovelSource.kakuyomu,
+        workId: workId,
+        episodeId: 1,
+        content: [NovelContentElement.plainText('以前の本文')],
+        fetchedAt: 1,
+      );
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 1,
+        tocEpisodeUrls: const <String?>[null],
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+      final progressFuture = repository
+          .watchDownloadProgress(NovelSource.kakuyomu, workId)
+          .toList();
+
+      await repository.downloadNovel(NovelSource.kakuyomu, workId, 1);
+
+      final progress = await progressFuture;
+      expect(progress.last.isDownloading, isFalse);
+      expect(progress.last.errorMessage, contains('1話'));
+      expect(site.episodeFetchCount, 0);
+      final cached = await database.getEpisodeData(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+      );
+      expect(cached?.subtitle, '以前のタイトル');
+      expect(cached?.url, isNull);
+      expect(cached?.content, isNotEmpty);
+    });
+
+    test('本文未取得の無効URLは一括取得の失敗記録を残す', () async {
+      const workId = 'work';
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 1,
+        tocEpisodeUrls: const <String?>[null],
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.downloadNovel(NovelSource.kakuyomu, workId, 1);
+
+      final cached = await database.getEpisodeData(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+      );
+      expect(cached?.url, isNull);
+      expect(cached?.content, isEmpty);
+      expect(site.episodeFetchCount, 0);
+    });
+
+    test('カクヨムの空目次を通常の目次更新で成功扱いにしない', () async {
+      const workId = 'work';
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 1,
+        tocEpisodeUrls: const <String?>[],
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await expectLater(
+        repository.refreshEpisodeList(NovelSource.kakuyomu, workId, 1),
+        throwsA(isA<Exception>()),
+      );
+      expect(site.tocFetchCount, 1);
+    });
+
+    test('目次更新の無効なURLは空文字にせず既存の本文を保持する', () async {
+      const workId = 'work';
+      await database.upsertEpisodes([
+        const db.EpisodeListEntriesCompanion(
+          source: drift.Value(NovelSource.kakuyomu),
+          workId: drift.Value(workId),
+          episodeId: drift.Value(1),
+          subtitle: drift.Value('以前のタイトル'),
+          url: drift.Value('https://kakuyomu.jp/works/work/episodes/101'),
+        ),
+      ]);
+      await database.updateEpisodeContent(
+        source: NovelSource.kakuyomu,
+        workId: workId,
+        episodeId: 1,
+        content: [NovelContentElement.plainText('以前の本文')],
+        fetchedAt: 1,
+      );
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 1,
+        tocEpisodeUrls: const <String?>[null],
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.refreshEpisodeList(NovelSource.kakuyomu, workId, 1);
+
+      final cached = await database.getEpisodeData(
+        NovelSource.kakuyomu,
+        workId,
+        1,
+      );
+      expect(cached?.subtitle, '以前のタイトル');
+      expect(cached?.url, isNull);
+      expect(cached?.content, isNotEmpty);
+    });
+
+    test('カクヨムの取得済み目次が空なら成功扱いにしない', () async {
+      const workId = 'work';
+      final site = _DownloadTestKakuyomuSite(
+        workId: workId,
+        totalEpisodes: 1,
+        tocEpisodeUrls: const <String?>[],
+      );
+      container = createContainer(apiService: ApiService(), kakuyomuSite: site);
+      final repository = container.read(novelRepositoryProvider);
+      final progressFuture = repository
+          .watchDownloadProgress(NovelSource.kakuyomu, workId)
+          .toList();
+
+      await expectLater(
+        repository.downloadNovel(NovelSource.kakuyomu, workId, 1),
+        throwsA(isA<Exception>()),
+      );
+
+      final progress = await progressFuture;
+      expect(progress.last.isDownloading, isFalse);
+      expect(progress.last.errorMessage, isNotNull);
+      expect(site.episodeFetchCount, 0);
+    });
+
+    test('カクヨム一括取得は最新目次の話数を上限にする', () async {
+      const workId = 'work';
+      await database.upsertEpisodes(
+        List<db.EpisodeListEntriesCompanion>.generate(
+          2,
+          (index) => db.EpisodeListEntriesCompanion(
+            source: const drift.Value(NovelSource.kakuyomu),
+            workId: const drift.Value(workId),
+            episodeId: drift.Value(index + 1),
+            url: drift.Value(
+              'https://kakuyomu.jp/works/work/episodes/${index + 90}',
             ),
           ),
         ),
@@ -1000,15 +1449,18 @@ void main() {
       final site = _DownloadTestKakuyomuSite(
         workId: workId,
         totalEpisodes: 2,
+        tocEpisodeIds: const <String>['101'],
       );
       container = createContainer(apiService: ApiService(), kakuyomuSite: site);
       final repository = container.read(novelRepositoryProvider);
 
       await repository.downloadNovel(NovelSource.kakuyomu, workId, 2);
 
-      expect(site.tocFetchCount, 0);
-      expect(site.episodeFetchUrls, hasLength(2));
-      expect(site.episodeFetchUrls, everyElement(isNotNull));
+      expect(site.tocFetchCount, 1);
+      expect(site.episodeFetchCount, 1);
+      expect(site.episodeFetchUrls, <String?>[
+        'https://kakuyomu.jp/works/work/episodes/101',
+      ]);
     });
   });
 
