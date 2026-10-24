@@ -27,7 +27,8 @@ bool isAllowedHamelnSubframeNavigationUri(Uri? uri) {
     return true;
   }
   if (isAllowedHamelnNavigationUri(uri)) return true;
-  return isTrustedHttpsOrigin(uri, host: 'challenges.cloudflare.com');
+  return isTrustedHttpsOrigin(uri, host: 'challenges.cloudflare.com') &&
+      uri.path.startsWith('/cdn-cgi/challenge-platform/');
 }
 
 /// ハーメルンの作品URLを組み立てる。

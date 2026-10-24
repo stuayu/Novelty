@@ -264,7 +264,8 @@ class NarouAuthService {
 
       if (username == null) {
         String? bookmarkHtml;
-        if (_isAuthenticatedBookmarkListHtml(response.data)) {
+        if (_isNarouBookmarkListUri(response.realUri) &&
+            _isAuthenticatedBookmarkListHtml(response.data)) {
           bookmarkHtml = response.data;
         } else {
           try {
@@ -344,7 +345,11 @@ class NarouAuthService {
         ),
       );
       final data = response.data;
-      if (response.statusCode != 200 || data == null) return false;
+      if (response.statusCode != 200 ||
+          !_isNarouBookmarkListUri(response.realUri) ||
+          data == null) {
+        return false;
+      }
       return _isAuthenticatedBookmarkListHtml(data);
     } on Exception {
       return false;
@@ -454,7 +459,7 @@ class NarouAuthService {
         document.querySelector('form[action*="/login/login/"]') != null;
     final hasBookmarkPage =
         document.querySelector('.p-up-bookmark-item') != null ||
-        html.contains('ブックマーク');
+        _extractUsername(html) != null;
     return !hasLoginForm && hasBookmarkPage;
   }
 
@@ -465,7 +470,8 @@ class NarouAuthService {
       _bookmarkListUrl,
       options: _htmlOptions(headers: {...?_cookieHeaderMap(cookies)}),
     );
-    if (response.statusCode != 200 || !_isNarouUri(response.realUri)) {
+    if (response.statusCode != 200 ||
+        !_isNarouBookmarkListUri(response.realUri)) {
       return null;
     }
     final html = response.data;
@@ -494,6 +500,12 @@ class NarouAuthService {
       uri.host == 'syosetu.com' &&
       uri.port == 443 &&
       uri.userInfo.isEmpty;
+
+  bool _isNarouBookmarkListUri(Uri uri) =>
+      _isNarouUri(uri) &&
+      uri.path == Uri.parse(_bookmarkListUrl).path &&
+      uri.query.isEmpty &&
+      uri.fragment.isEmpty;
 
   bool _isNarouLoginAction(Uri uri) =>
       _isNarouUri(uri) && uri.path == Uri.parse(_loginUrl).path;

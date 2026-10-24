@@ -133,6 +133,12 @@ void main() {
       );
       expect(
         isAllowedHamelnSubframeNavigationUri(
+          Uri.parse('https://challenges.cloudflare.com/other/'),
+        ),
+        isFalse,
+      );
+      expect(
+        isAllowedHamelnSubframeNavigationUri(
           Uri.parse('https://syosetu.org/?mode=ss_detail3'),
         ),
         isFalse,

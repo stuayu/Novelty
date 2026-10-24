@@ -194,7 +194,10 @@ class _MfaLoginAdapter implements HttpClientAdapter {
         );
       }
       if (bookmarkPageWithoutUsername) {
-        return ResponseBody.fromString('<div>ブックマーク一覧</div>', 200);
+        return ResponseBody.fromString(
+          '<li class="p-up-bookmark-item">ブックマーク</li>',
+          200,
+        );
       }
       return ResponseBody.fromString(
         '<span class="p-up-header-pc__username">認証済みユーザー</span>'
@@ -203,7 +206,10 @@ class _MfaLoginAdapter implements HttpClientAdapter {
       );
     }
     if (options.uri.path == '/mypage/') {
-      return ResponseBody.fromString('<html><body>ログイン完了</body></html>', 200);
+      return ResponseBody.fromString(
+        '<html><body>ログイン完了 <a>ブックマーク</a></body></html>',
+        200,
+      );
     }
     final started = challengeStarted;
     if (started != null && !started.isCompleted) started.complete();
