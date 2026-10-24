@@ -103,9 +103,6 @@ class NarouAuthService {
       _mergeCookies(cookies, response.headers.map['set-cookie']);
       var challengeUri = _responseRedirect(response);
       Response<String>? challengeResponse;
-      if (_hasSessionCookies(cookies)) {
-        return _finishLogin(cookies, narouid);
-      }
       for (
         var redirects = 0;
         challengeUri != null && redirects < 5;
@@ -124,9 +121,6 @@ class NarouAuthService {
         );
         _mergeCookies(cookies, challengeResponse.headers.map['set-cookie']);
         challengeUri = _responseRedirect(challengeResponse);
-        if (_hasSessionCookies(cookies)) {
-          return _finishLogin(cookies, narouid);
-        }
       }
       if (challengeUri != null) {
         return const NarouLoginResult.failure('認証画面への転送回数が上限を超えました');

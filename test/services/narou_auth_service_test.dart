@@ -200,13 +200,18 @@ void main() {
 
     test('認証情報は前の保存完了後に次の保存を開始する', () async {
       final repository = _OrderedAuthRepository();
-      final dio = Dio()..httpClientAdapter = _LoginAdapter();
+      final dio = Dio()..httpClientAdapter = _MfaLoginAdapter();
       final service = NarouAuthService(
         authRepository: repository,
         dio: dio,
       );
 
-      final loginFuture = service.login(narouid: 'test-id', password: 'pass');
+      final firstStep = await service.login(
+        narouid: 'test-id',
+        password: 'pass',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+      final loginFuture = service.verifyMfaCode('123456');
 
       try {
         await repository.narouidStarted.future;
@@ -227,6 +232,30 @@ void main() {
         repository.releaseAll();
         await loginFuture;
       }
+    });
+
+    test('パスワードだけでセッションCookieが返っても必須MFA完了前は保存しない', () async {
+      final repository = MockAuthRepository();
+      final service = NarouAuthService(
+        authRepository: repository,
+        dio: Dio()..httpClientAdapter = _LoginAdapter(),
+      );
+
+      final result = await service.login(
+        narouid: 'reader-id',
+        password: 'secret-password',
+      );
+
+      expect(result.isSuccess, isFalse);
+      expect(result.requiresMfa, isFalse);
+      verifyNever(repository.saveNarouid(any));
+      verifyNever(
+        repository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
     });
 
     test('パスワード確認後は二段階認証を待ちセッション情報を保存しない', () async {
