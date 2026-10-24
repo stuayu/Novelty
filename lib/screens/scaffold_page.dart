@@ -14,23 +14,62 @@ class ScaffoldPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    const items = <BottomNavigationBarItem>[
-      BottomNavigationBarItem(icon: Icon(Icons.book), label: 'ライブラリ'),
-      BottomNavigationBarItem(icon: Icon(Icons.explore), label: '見つける'),
-      BottomNavigationBarItem(icon: Icon(Icons.history), label: '履歴'),
-      BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: 'もっと'),
+    const destinations = <NavigationDestination>[
+      NavigationDestination(
+        icon: Icon(Icons.book),
+        label: 'ライブラリ',
+        tooltip: 'ライブラリ',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.explore),
+        label: '見つける',
+        tooltip: '見つける',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.history),
+        label: '履歴',
+        tooltip: '履歴',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.more_horiz),
+        label: 'もっと',
+        tooltip: 'もっと',
+      ),
     ];
+    final width = MediaQuery.sizeOf(context).width;
+    final useNavigationRail = width >= 600;
+    final selectedIndex = _calculateSelectedIndex(context);
 
     return Scaffold(
-      body: child,
-      bottomNavigationBar: BottomNavigationBar(
-        items: items,
-        currentIndex: _calculateSelectedIndex(context),
-        selectedItemColor: Theme.of(context).colorScheme.primary,
-        unselectedItemColor: Colors.grey,
-        onTap: (idx) => _onItemTapped(idx, context),
-        type: BottomNavigationBarType.fixed,
-      ),
+      body: useNavigationRail
+          ? Row(
+              children: [
+                NavigationRail(
+                  extended: width >= 840,
+                  selectedIndex: selectedIndex,
+                  onDestinationSelected: (index) =>
+                      _onItemTapped(index, context),
+                  destinations: [
+                    for (final destination in destinations)
+                      NavigationRailDestination(
+                        icon: destination.icon,
+                        selectedIcon: destination.selectedIcon,
+                        label: Text(destination.label),
+                      ),
+                  ],
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: child),
+              ],
+            )
+          : child,
+      bottomNavigationBar: useNavigationRail
+          ? null
+          : NavigationBar(
+              selectedIndex: selectedIndex,
+              onDestinationSelected: (index) => _onItemTapped(index, context),
+              destinations: destinations,
+            ),
     );
   }
 
