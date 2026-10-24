@@ -96,7 +96,7 @@ class NovelListTile extends HookWidget {
           );
         }
       },
-      [item.ncode],
+      [item.workId, item.ncode, item.source, context],
     );
 
     // ステータスに応じた色とラベル定義

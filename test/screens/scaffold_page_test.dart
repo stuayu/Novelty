@@ -8,6 +8,8 @@ void main() {
   testWidgets('広い画面ではNavigationRail、狭い画面では下部ナビを表示する', (
     tester,
   ) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final router = GoRouter(
       routes: [
         GoRoute(
