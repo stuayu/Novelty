@@ -252,15 +252,50 @@ class NarouAuthService {
         );
       }
 
-      final username = _extractUsername(response.data);
+      var username = _extractUsername(response.data);
       if (response.statusCode != 200 ||
           !_isNarouUri(response.realUri) ||
-          username == null ||
           !_hasSessionCookies(pending.cookies)) {
         _pendingMfa = null;
         return const NarouLoginResult.failure(
           '認証コードを確認できませんでした。ログインをやり直してください。',
         );
+      }
+
+      if (username == null) {
+        String? bookmarkHtml;
+        if (_isAuthenticatedBookmarkListHtml(response.data)) {
+          bookmarkHtml = response.data;
+        } else {
+          try {
+            bookmarkHtml = await _fetchAuthenticatedBookmarkList(
+              pending.cookies,
+            );
+          } on DioException catch (error) {
+            if (!_isCurrentMfaChallenge(generation, pending)) {
+              return _cancelledLoginResult;
+            }
+            _pendingMfa = null;
+            debugPrint(
+              '[NarouAuth] MFA後のセッション確認失敗 '
+              'type=${error.type} status=${error.response?.statusCode}',
+            );
+            return const NarouLoginResult.failure(
+              '認証後のセッションを確認できませんでした。ログインをやり直してください。',
+            );
+          }
+          if (!_isCurrentMfaChallenge(generation, pending)) {
+            return _cancelledLoginResult;
+          }
+        }
+
+        if (bookmarkHtml == null) {
+          _pendingMfa = null;
+          return const NarouLoginResult.failure(
+            '認証後のセッションを確認できませんでした。ログインをやり直してください。',
+          );
+        }
+        username = _extractUsername(bookmarkHtml) ?? pending.narouid;
       }
 
       _pendingMfa = null;
@@ -310,13 +345,7 @@ class NarouAuthService {
       );
       final data = response.data;
       if (response.statusCode != 200 || data == null) return false;
-      final doc = parser.parse(data);
-      final hasLoginForm =
-          doc.querySelector('form[action*="/login/login/"]') != null;
-      final hasBookmarkPage =
-          doc.querySelector('.p-up-bookmark-item') != null ||
-          data.contains('ブックマーク');
-      return !hasLoginForm && hasBookmarkPage;
+      return _isAuthenticatedBookmarkListHtml(data);
     } on Exception {
       return false;
     }
@@ -416,6 +445,31 @@ class NarouAuthService {
         .trim()
         .replaceAll(RegExp(r'\s+'), ' ');
     return name == null || name.isEmpty ? null : name;
+  }
+
+  bool _isAuthenticatedBookmarkListHtml(String? html) {
+    if (html == null || html.isEmpty) return false;
+    final document = parser.parse(html);
+    final hasLoginForm =
+        document.querySelector('form[action*="/login/login/"]') != null;
+    final hasBookmarkPage =
+        document.querySelector('.p-up-bookmark-item') != null ||
+        html.contains('ブックマーク');
+    return !hasLoginForm && hasBookmarkPage;
+  }
+
+  Future<String?> _fetchAuthenticatedBookmarkList(
+    Map<String, String> cookies,
+  ) async {
+    final response = await _dio.get<String>(
+      _bookmarkListUrl,
+      options: _htmlOptions(headers: {...?_cookieHeaderMap(cookies)}),
+    );
+    if (response.statusCode != 200 || !_isNarouUri(response.realUri)) {
+      return null;
+    }
+    final html = response.data;
+    return _isAuthenticatedBookmarkListHtml(html) ? html : null;
   }
 
   Options _htmlOptions({Map<String, Object>? headers}) => Options(

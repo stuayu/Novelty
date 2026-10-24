@@ -71,6 +71,9 @@ class _MfaLoginAdapter implements HttpClientAdapter {
     this.credentialErrorHtml,
     this.loginFormAction = '/login/login/',
     this.expireSesWithExpires = false,
+    this.redirectAfterVerificationToGenericPage = false,
+    this.bookmarkPageWithoutUsername = false,
+    this.bookmarkPageIsLogin = false,
     this.challengeStarted,
     this.releaseChallenge,
     this.verificationStarted,
@@ -85,6 +88,9 @@ class _MfaLoginAdapter implements HttpClientAdapter {
   final String? credentialErrorHtml;
   final String loginFormAction;
   final bool expireSesWithExpires;
+  final bool redirectAfterVerificationToGenericPage;
+  final bool bookmarkPageWithoutUsername;
+  final bool bookmarkPageIsLogin;
   final Completer<void>? challengeStarted;
   final Completer<void>? releaseChallenge;
   final Completer<void>? verificationStarted;
@@ -128,7 +134,12 @@ class _MfaLoginAdapter implements HttpClientAdapter {
           '',
           302,
           headers: <String, List<String>>{
-            'location': ['/favnovelmain/list/'],
+            'location': [
+              if (redirectAfterVerificationToGenericPage)
+                '/mypage/'
+              else
+                '/favnovelmain/list/',
+            ],
             'set-cookie': <String>[
               'ks2=ks2-value; Path=/; Secure',
               'ses=ses-value; Path=/; HttpOnly; Secure',
@@ -176,10 +187,23 @@ class _MfaLoginAdapter implements HttpClientAdapter {
       );
     }
     if (options.uri.path == '/favnovelmain/list/') {
+      if (bookmarkPageIsLogin) {
+        return ResponseBody.fromString(
+          '<form action="/login/login/"><input name="narouid"></form>',
+          200,
+        );
+      }
+      if (bookmarkPageWithoutUsername) {
+        return ResponseBody.fromString('<div>ブックマーク一覧</div>', 200);
+      }
       return ResponseBody.fromString(
-        '<span class="p-up-header-pc__username">認証済みユーザー</span>',
+        '<span class="p-up-header-pc__username">認証済みユーザー</span>'
+        ' <div>ブックマーク一覧</div>',
         200,
       );
+    }
+    if (options.uri.path == '/mypage/') {
+      return ResponseBody.fromString('<html><body>ログイン完了</body></html>', 200);
     }
     final started = challengeStarted;
     if (started != null && !started.isCompleted) started.complete();
@@ -409,6 +433,87 @@ void main() {
           userl: 'userl-value',
         ),
       ).called(1);
+    });
+
+    test('MFA後の最終ページにユーザー名がなくてもブックマークページで確認してログインする', () async {
+      final adapter = _MfaLoginAdapter(
+        redirectAfterVerificationToGenericPage: true,
+      );
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('123456');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.username, '認証済みユーザー');
+      expect(adapter.requests, hasLength(6));
+      expect(adapter.requests.last.uri.path, '/favnovelmain/list/');
+      expect(
+        adapter.requests.last.headers['Cookie'],
+        contains('ks2=ks2-value'),
+      );
+      verify(mockAuthRepository.saveNarouid('reader-id')).called(1);
+    });
+
+    test('MFA後のユーザー名がなくても有効なブックマークページがあればログインIDを表示名に使う', () async {
+      final adapter = _MfaLoginAdapter(
+        redirectAfterVerificationToGenericPage: true,
+        bookmarkPageWithoutUsername: true,
+      );
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('123456');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.username, 'reader-id');
+      verify(mockAuthRepository.saveUsername('reader-id')).called(1);
+    });
+
+    test('MFA後に認証済みブックマークページを確認できなければログインしない', () async {
+      final repository = MockAuthRepository();
+      final adapter = _MfaLoginAdapter(
+        redirectAfterVerificationToGenericPage: true,
+        bookmarkPageIsLogin: true,
+      );
+      final service = NarouAuthService(
+        authRepository: repository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('123456');
+
+      expect(result.isSuccess, isFalse);
+      verifyNever(repository.saveNarouid(any));
+      verifyNever(
+        repository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
     });
 
     test('MFA検証中にチャレンジをキャンセルすると遅れて届いた成功応答を破棄する', () async {
