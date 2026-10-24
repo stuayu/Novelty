@@ -146,8 +146,9 @@ void main() {
       test('episode_sidebarの目次から全エピソードを目次順連番で返す', () async {
         final adapter = _FixtureAdapter(<String, String>{
           '/works/$_workId': _fixture('work_page.html'),
-          '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar':
-              _fixture('toc.html'),
+          '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar': _fixture(
+            'toc.html',
+          ),
         });
         final site = _createSite(adapter);
 
@@ -170,8 +171,7 @@ void main() {
 
     group('fetchEpisode', () {
       test('エピソードページから本文とタイトルをパースできる', () async {
-        const episodePath =
-            '/works/$_workId/episodes/$_firstEpisodeId';
+        const episodePath = '/works/$_workId/episodes/$_firstEpisodeId';
         final adapter = _FixtureAdapter(<String, String>{
           episodePath: _fixture('episode_page.html'),
         });
@@ -192,12 +192,12 @@ void main() {
       });
 
       test('url省略時は目次からURLを解決して本文を取得する', () async {
-        const episodePath =
-            '/works/$_workId/episodes/$_firstEpisodeId';
+        const episodePath = '/works/$_workId/episodes/$_firstEpisodeId';
         final adapter = _FixtureAdapter(<String, String>{
           '/works/$_workId': _fixture('work_page.html'),
-          '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar':
-              _fixture('toc.html'),
+          '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar': _fixture(
+            'toc.html',
+          ),
           episodePath: _fixture('episode_page.html'),
         });
         final site = _createSite(adapter);
@@ -263,6 +263,24 @@ void main() {
         expect(first.title, isNotEmpty);
         expect(first.writer, isNotEmpty);
         expect(first.genreId, isNotNull);
+      });
+
+      test('公開話数が1話でも連載中なら短編として扱わない', () async {
+        final adapter = _FixtureAdapter(<String, String>{
+          '/search': _fixture('search_page.html'),
+        });
+        final site = _createSite(adapter);
+
+        final result = await site.searchNovels(
+          const NovelSearchQuery(word: 'test'),
+        );
+        final ongoingOneEpisode = result.novels.firstWhere(
+          (novel) => novel.workId == '2912051596226424848',
+        );
+
+        expect(ongoingOneEpisode.end, 1);
+        expect(ongoingOneEpisode.generalAllNo, 1);
+        expect(ongoingOneEpisode.novelType, 1);
       });
 
       test('ページング（page）をURLクエリに反映する', () async {

@@ -308,6 +308,7 @@ class KakuyomuSite implements NovelSite {
         : apollo[authorRef] as Map<String, dynamic>?;
     final writerName = author?['activityName'] ?? author?['name'];
     final publicEpisodeCount = work['publicEpisodeCount'] as int?;
+    final serialStatus = work['serialStatus'] as String?;
 
     return NovelInfo(
       source: NovelSource.kakuyomu,
@@ -317,15 +318,15 @@ class KakuyomuSite implements NovelSite {
       story: work['introduction'] as String?,
       genreId: work['genre'] as String?,
       // なろうのendと同義: 1=連載中, 0=完結
-      end: switch (work['serialStatus'] as String?) {
+      end: switch (serialStatus) {
         'RUNNING' => 1,
         'COMPLETED' => 0,
         _ => null,
       },
-      // エピソード数1件は短編扱い（なろうのnovelTypeと同義）
+      // 連載中の作品は公開話数が1件でも連載扱いにする。
       novelType: switch (publicEpisodeCount) {
         null => null,
-        1 => 2,
+        1 when serialStatus != 'RUNNING' => 2,
         _ => 1,
       },
       generalAllNo: publicEpisodeCount,
