@@ -60,13 +60,16 @@ void main() {
     testWidgets('例外が投げられても進捗表示が解除される', (tester) async {
       await pumpAndSubmit(
         tester,
-        (account, password) async => throw StateError('想定外の失敗'),
+        (account, password) async =>
+            throw StateError('password=secret-password Cookie=secret-cookie'),
       );
 
       // finally が無いと CircularProgressIndicator が回り続ける
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.widgetWithText(FilledButton, 'ログイン'), findsOneWidget);
-      expect(find.textContaining('ログインに失敗しました'), findsOneWidget);
+      expect(find.text('ログイン処理に失敗しました'), findsOneWidget);
+      expect(find.textContaining('secret-password'), findsNothing);
+      expect(find.textContaining('secret-cookie'), findsNothing);
     });
 
     testWidgets('失敗結果でも進捗表示が解除される', (tester) async {

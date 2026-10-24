@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:novelty/repositories/form_auth_session_repository.dart';
-import 'package:novelty/utils/auth_failure_message.dart';
 
 /// フォームPOSTログインのサイト別仕様。
 class FormPostAuthConfiguration {
@@ -82,6 +81,9 @@ class FormPostAuthService {
     required String accountId,
     required String password,
   }) async {
+    if (!_hasValidOrigins) {
+      return const FormAuthLoginResult.failure('ログイン先を安全に確認できませんでした');
+    }
     try {
       final loginResponse = await _dio.get<String>(
         _configuration.loginUri.toString(),
@@ -97,9 +99,17 @@ class FormPostAuthService {
       }
 
       final document = html_parser.parse(loginHtml);
+      final loginForm = _findLoginForm(document);
+      if (loginForm == null) {
+        return const FormAuthLoginResult.failure('ログイン画面の認証情報を取得できませんでした');
+      }
+      final formAction = _formAction(loginForm);
+      if (!_isTrustedPostAction(formAction)) {
+        return const FormAuthLoginResult.failure('ログイン先を安全に確認できませんでした');
+      }
       final fields = <String, String>{};
       for (final name in _configuration.hiddenFields) {
-        final value = document
+        final value = loginForm
             .querySelector('input[name="$name"]')
             ?.attributes['value'];
         if (value == null || value.isEmpty) {
@@ -122,7 +132,7 @@ class FormPostAuthService {
       );
 
       final postResponse = await _dio.post<String>(
-        _configuration.postUri.toString(),
+        formAction.toString(),
         data: fields,
         options: _plainHtmlOptions(
           headers: cookieHeader == null ? null : {'Cookie': cookieHeader},
@@ -136,7 +146,7 @@ class FormPostAuthService {
 
       debugPrint(
         '$_logTag login: POST status=${postResponse.statusCode} '
-        'location=${postResponse.headers.value('location')} '
+        'redirect=${postResponse.headers.value('location') != null} '
         'POST由来Cookie=${postCookies.keys.toList()} '
         'body=${postResponse.data?.length ?? 0}文字',
       );
@@ -157,22 +167,20 @@ class FormPostAuthService {
     } on DioException catch (error) {
       debugPrint(
         '$_logTag login: DioException type=${error.type} '
-        'status=${error.response?.statusCode} message=${error.message}',
+        'status=${error.response?.statusCode}',
       );
-      return FormAuthLoginResult.failure(
-        error.message ?? 'ネットワークエラーが発生しました',
-      );
-    } on Object catch (error, stackTrace) {
-      debugPrint('$_logTag login: 例外 ${error.runtimeType}: $error');
-      debugPrint('$_logTag login: $stackTrace');
+      return const FormAuthLoginResult.failure('ログイン通信に失敗しました');
+    } on Object catch (error) {
+      debugPrint('$_logTag login: 処理失敗 type=${error.runtimeType}');
       // Secure Storage の失敗など DioException 以外も失敗として返す。
       // ここで throw すると呼び出し元の進捗表示が解除されない。
-      return FormAuthLoginResult.failure(describeAuthFailure(error));
+      return const FormAuthLoginResult.failure('ログイン処理に失敗しました');
     }
   }
 
   /// 保存済みセッションが有効か要認証ページで確認する。
   Future<bool> isSessionValid() async {
+    if (!_hasValidOrigins) return false;
     final cookieHeader = await _sessionRepository.buildCookieHeader();
     if (cookieHeader == null || cookieHeader.isEmpty) {
       debugPrint('$_logTag isSessionValid: 保存Cookieなし');
@@ -190,7 +198,7 @@ class FormPostAuthService {
       final status = response.statusCode;
       final location = response.headers.value('location');
       debugPrint(
-        '$_logTag isSessionValid: status=$status location=$location '
+        '$_logTag isSessionValid: status=$status redirect=${location != null} '
         'body=${response.data?.length ?? 0}文字',
       );
       if (status == null || status < 200 || status >= 400) return false;
@@ -217,8 +225,8 @@ class FormPostAuthService {
       final hasError = _containsLoginError(document);
       debugPrint('$_logTag isSessionValid: エラー表示=$hasError');
       return !hasError;
-    } on Exception catch (e) {
-      debugPrint('$_logTag isSessionValid: 例外 ${e.runtimeType}: $e');
+    } on Exception catch (error) {
+      debugPrint('$_logTag isSessionValid: 失敗 type=${error.runtimeType}');
       return false;
     }
   }
@@ -285,6 +293,51 @@ class FormPostAuthService {
         );
   }
 
+  Element? _findLoginForm(Document document) {
+    for (final form in document.querySelectorAll('form')) {
+      if (form.querySelector(
+                'input[name="${_configuration.accountField}"]',
+              ) !=
+              null &&
+          form.querySelector(
+                'input[name="${_configuration.passwordField}"]',
+              ) !=
+              null) {
+        return form;
+      }
+    }
+    return null;
+  }
+
+  Uri _formAction(Element form) {
+    final action = form.attributes['action'];
+    return action == null || action.isEmpty
+        ? _configuration.postUri
+        : _configuration.loginUri.resolve(action);
+  }
+
+  bool get _hasValidOrigins {
+    final loginUri = _configuration.loginUri;
+    final secureLogin =
+        loginUri.scheme == 'https' &&
+        loginUri.host.isNotEmpty &&
+        loginUri.port == 443 &&
+        loginUri.userInfo.isEmpty;
+    return secureLogin &&
+        _isTrustedOrigin(_configuration.postUri) &&
+        (_configuration.sessionCheckUri == null ||
+            _isTrustedOrigin(_configuration.sessionCheckUri!));
+  }
+
+  bool _isTrustedOrigin(Uri uri) =>
+      uri.scheme == 'https' &&
+      uri.host == _configuration.loginUri.host &&
+      uri.port == 443 &&
+      uri.userInfo.isEmpty;
+
+  bool _isTrustedPostAction(Uri uri) =>
+      _isTrustedOrigin(uri) && uri.path == _configuration.postUri.path;
+
   bool _containsLoginError(Document document) {
     const selectors = <String>[
       '.alert-danger',
@@ -304,7 +357,7 @@ class FormPostAuthService {
 
   bool _redirectsAwayFromLogin(String location) {
     final target = _configuration.postUri.resolve(location);
-    if (target.host != _configuration.loginUri.host) return false;
+    if (!_isTrustedOrigin(target)) return false;
     if (target.path == _configuration.loginUri.path &&
         target.query == _configuration.loginUri.query) {
       return false;

@@ -65,8 +65,8 @@ class _FormAccountLoginPageState extends ConsumerState<FormAccountLoginPage> {
         _accountController.text.trim(),
         _passwordController.text,
       );
-    } on Object catch (e) {
-      result = FormAuthLoginResult.failure('ログインに失敗しました: $e');
+    } on Object {
+      result = const FormAuthLoginResult.failure('ログイン処理に失敗しました');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
