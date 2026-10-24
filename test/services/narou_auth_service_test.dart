@@ -68,6 +68,7 @@ class _MfaLoginAdapter implements HttpClientAdapter {
     this.failVerificationWithGenericPage = false,
     this.sessionCookiesOnChallenge = false,
     this.returnRefreshedChallengeOnce = false,
+    this.failVerificationWithRedirect = false,
     this.challengeHtml = _defaultMfaChallengeHtml,
     this.credentialErrorHtml,
     this.loginFormAction = '/login/login/',
@@ -86,6 +87,7 @@ class _MfaLoginAdapter implements HttpClientAdapter {
   final bool failVerificationWithGenericPage;
   final bool sessionCookiesOnChallenge;
   final bool returnRefreshedChallengeOnce;
+  final bool failVerificationWithRedirect;
   final String challengeHtml;
   final String? credentialErrorHtml;
   final String loginFormAction;
@@ -119,6 +121,15 @@ class _MfaLoginAdapter implements HttpClientAdapter {
           return ResponseBody.fromString(
             '<html><body>認証を確認できませんでした</body></html>',
             200,
+          );
+        }
+        if (failVerificationWithRedirect) {
+          return ResponseBody.fromString(
+            '',
+            302,
+            headers: <String, List<String>>{
+              'location': ['/error/'],
+            },
           );
         }
         if (returnRefreshedChallengeOnce && verificationAttempts++ == 0) {
@@ -216,6 +227,12 @@ class _MfaLoginAdapter implements HttpClientAdapter {
     if (options.uri.path == '/mypage/') {
       return ResponseBody.fromString(
         '<html><body>ログイン完了 <a>ブックマーク</a></body></html>',
+        200,
+      );
+    }
+    if (options.uri.path == '/error/') {
+      return ResponseBody.fromString(
+        '<html><body>認証コードを確認できませんでした</body></html>',
         200,
       );
     }
@@ -535,6 +552,36 @@ void main() {
       final adapter = _MfaLoginAdapter(
         sessionCookiesOnChallenge: true,
         failVerificationWithGenericPage: true,
+      );
+      final service = NarouAuthService(
+        authRepository: repository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('123456');
+
+      expect(result.isSuccess, isFalse);
+      verifyNever(repository.saveNarouid(any));
+      verifyNever(
+        repository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
+    });
+
+    test('MFAコードの失敗後に汎用ページへ転送されてもログインしない', () async {
+      final repository = MockAuthRepository();
+      final adapter = _MfaLoginAdapter(
+        sessionCookiesOnChallenge: true,
+        failVerificationWithRedirect: true,
       );
       final service = NarouAuthService(
         authRepository: repository,
