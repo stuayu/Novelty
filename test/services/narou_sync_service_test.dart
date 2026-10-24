@@ -416,6 +416,87 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
         );
       });
 
+      test('作品ページの同一origin redirectを追跡してブックマークを登録する', () async {
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          if (options.uri.host == 'ncode.syosetu.com' &&
+              !options.uri.queryParameters.containsKey('canonical')) {
+            return ResponseBody.fromString(
+              '',
+              302,
+              headers: <String, List<String>>{
+                'location': ['/n0156ia/?canonical=1'],
+              },
+            );
+          }
+          if (options.uri.host == 'ncode.syosetu.com') {
+            return ResponseBody.fromString(
+              '<input class="js-bookmark_url" '
+              'value="https://syosetu.com/favnovelmain/addajax/?ncode=n0156ia">',
+              200,
+            );
+          }
+          if (options.uri.path == '/favnovelmain/addajax/') {
+            return ResponseBody.fromString(
+              'result({"useridfavncode":"12345",'
+              '"favnovelmain_addend_token":"abcxyz","result":true})',
+              200,
+            );
+          }
+          return ResponseBody.fromString('', 200);
+        });
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        final result = await service.addBookmarkToNarou('n0156ia');
+
+        expect(result.outcome, NarouBookmarkSyncOutcome.success);
+        expect(fakeAdapter.requests, hasLength(4));
+        expect(fakeAdapter.requests[1].uri.queryParameters['canonical'], '1');
+        expect(
+          fakeAdapter.requests
+              .take(2)
+              .every(
+                (request) =>
+                    request.headers['Cookie'] == 'ks2=x; ses=y; userl=z',
+              ),
+          isTrue,
+        );
+      });
+
+      test('作品ページの外部origin redirect先へCookieを送らない', () async {
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          return ResponseBody.fromString(
+            '',
+            302,
+            headers: <String, List<String>>{
+              'location': ['https://attacker.example/collect'],
+            },
+          );
+        });
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=secret; ses=secret; userl=secret');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        final result = await service.addBookmarkToNarou('n0156ia');
+
+        expect(result.outcome, NarouBookmarkSyncOutcome.failed);
+        expect(fakeAdapter.requests, hasLength(1));
+        expect(fakeAdapter.requests.single.uri.host, 'ncode.syosetu.com');
+      });
+
       test(
         'addajaxが4xxを返した場合はfailedを返す',
         () async {
@@ -841,6 +922,50 @@ jQuery112409311262883829196_1783822237947({"useridfavncode":"1119968_3231307","u
         );
         expect(request.uri.queryParameters['callback'], isNotNull);
         expect(request.uri.queryParameters['_'], isNotNull);
+      });
+
+      test('エピソードページの同一origin redirect後に最新トークンを使う', () async {
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          if (options.uri.host == 'ncode.syosetu.com' &&
+              !options.uri.queryParameters.containsKey('canonical')) {
+            return ResponseBody.fromString(
+              '',
+              302,
+              headers: <String, List<String>>{
+                'location': ['/n0156ia/1/?canonical=1'],
+              },
+            );
+          }
+          if (options.uri.host == 'ncode.syosetu.com') {
+            return ResponseBody.fromString(
+              '<input name="auto_siori" data-primary="1119968_3212720"> '
+              '<input name="token" value="fresh-token">',
+              200,
+            );
+          }
+          return ResponseBody.fromString(
+            'jQuery123456({"result":true,"res_mes":""});',
+            200,
+          );
+        });
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        final result = await service.setShioriIfLoggedIn(
+          ncode: 'n0156ia',
+          episode: 1,
+        );
+
+        expect(result, isTrue);
+        expect(fakeAdapter.requests, hasLength(3));
+        expect(fakeAdapter.requests[1].uri.queryParameters['canonical'], '1');
       });
 
       test('ichiupdateajaxが例外を投げても静かに無視する', () async {

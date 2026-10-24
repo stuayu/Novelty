@@ -570,18 +570,12 @@ class NarouSyncService {
     String cookieHeader,
   ) async {
     try {
-      final response = await _dio.get<String>(
-        novelUrl,
-        options: Options(
-          headers: {
-            'User-Agent': narouUserAgent,
-            'Cookie': cookieHeader,
-          },
-          followRedirects: false,
-          responseType: ResponseType.plain,
-        ),
+      final response = await _fetchNarouContentPage(
+        Uri.parse(novelUrl),
+        cookieHeader,
       );
-      final data = response.data;
+      if (response?.statusCode != 200) return null;
+      final data = response?.data;
       if (data == null) return null;
       final doc = parser.parse(data);
 
@@ -618,6 +612,57 @@ class NarouSyncService {
       return null;
     }
   }
+
+  Future<Response<String>?> _fetchNarouContentPage(
+    Uri initialUri,
+    String cookieHeader,
+  ) async {
+    const allowedHost = 'ncode.syosetu.com';
+    if (!_isTrustedNarouContentUri(initialUri, allowedHost)) return null;
+
+    var current = initialUri;
+    final visited = <Uri>{};
+    for (var redirects = 0; redirects <= 5; redirects++) {
+      if (!_isTrustedNarouContentUri(current, allowedHost) ||
+          !visited.add(current)) {
+        return null;
+      }
+
+      final response = await _dio.get<String>(
+        current.toString(),
+        options: Options(
+          headers: {
+            'User-Agent': narouUserAgent,
+            'Cookie': cookieHeader,
+          },
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 600,
+          responseType: ResponseType.plain,
+        ),
+      );
+      if (!_isTrustedNarouContentUri(response.realUri, allowedHost)) {
+        return null;
+      }
+
+      final statusCode = response.statusCode ?? 0;
+      if (statusCode < 300 || statusCode >= 400) return response;
+
+      final location = response.headers.value('location');
+      if (location == null || location.isEmpty) return null;
+      final target = response.realUri.resolve(location);
+      if (!_isTrustedNarouContentUri(target, allowedHost) || redirects == 5) {
+        return null;
+      }
+      current = target;
+    }
+    return null;
+  }
+
+  bool _isTrustedNarouContentUri(Uri uri, String host) =>
+      uri.scheme == 'https' &&
+      uri.host == host &&
+      uri.port == 443 &&
+      uri.userInfo.isEmpty;
 
   /// なろうのJSONPエンドポイントへ認証付きGETを行い、デコード結果を返す。
   Future<Map<String, dynamic>?> _getJsonp(
@@ -741,20 +786,14 @@ class NarouSyncService {
     String? useridFavncode;
     String? token;
     try {
-      final pageResponse = await _dio.get<String>(
-        episodeUrl,
-        options: Options(
-          headers: {
-            'User-Agent': narouUserAgent,
-            'Cookie': cookieHeader,
-          },
-          followRedirects: false,
-          validateStatus: (status) =>
-              status != null && status >= 200 && status < 300,
-          responseType: ResponseType.plain,
-        ),
+      final fetchedPage = await _fetchNarouContentPage(
+        Uri.parse(episodeUrl),
+        cookieHeader,
       );
-      final doc = parser.parse(pageResponse.data ?? '');
+      if (fetchedPage == null || fetchedPage.statusCode != 200) {
+        throw Exception('なろうエピソードページを取得できませんでした');
+      }
+      final doc = parser.parse(fetchedPage.data ?? '');
       useridFavncode = doc
           .querySelector('input[name="auto_siori"]')
           ?.attributes['data-primary'];
