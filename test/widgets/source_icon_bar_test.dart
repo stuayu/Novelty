@@ -44,6 +44,19 @@ void main() {
       expect(changed, NovelSource.kakuyomu);
     });
 
+    testWidgets('各サイトのタップ領域は48dp以上ある', (tester) async {
+      tester.view.physicalSize = const Size(375, 667);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(buildSubject());
+
+      for (final source in NovelSource.values) {
+        final chip = find.byKey(Key('source_chip_${source.shortLabel}'));
+        expect(tester.getSize(chip).height, greaterThanOrEqualTo(48));
+      }
+    });
+
     /// 選択状態のチップのラベルを集める。
     List<String> selectedLabels(WidgetTester tester) {
       final colors = ThemeData().colorScheme;

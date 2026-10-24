@@ -17,7 +17,7 @@ class SourceIconBar extends StatelessWidget {
   });
 
   /// バーの高さ。
-  static const double barHeight = 44;
+  static const double barHeight = 56;
 
   /// 表示するサイト一覧。
   final List<NovelSource> sources;
