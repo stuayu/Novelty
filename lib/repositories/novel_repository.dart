@@ -200,8 +200,7 @@ class NovelRepository {
   }
 
   bool _isRateLimited(Exception error) =>
-      (error is DioException && error.response?.statusCode == 429) ||
-      (error is KakuyomuHttpException && error.statusCode == 429);
+      error is DioException && error.response?.statusCode == 429;
 
   Future<void> _ensureKakuyomuEpisodeUrls(
     String workId,

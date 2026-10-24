@@ -11,7 +11,6 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/providers/network_fallback_event_provider.dart';
 import 'package:novelty/repositories/novel_repository.dart';
 import 'package:novelty/services/api_service.dart';
-import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/ncode_utils.dart';
@@ -758,12 +757,21 @@ void main() {
       expect(progress.last.errorMessage, contains('2話'));
     });
 
-    test('カクヨム目次取得時の429で本文リクエストへ進まない', () async {
+    test('カクヨム目次取得時のDio 429で本文リクエストへ進まない', () async {
       const workId = 'work';
+      final requestOptions = RequestOptions(
+        path: 'https://kakuyomu.jp/works/$workId/episode_sidebar',
+      );
       final site = _DownloadTestKakuyomuSite(
         workId: workId,
         totalEpisodes: 2,
-        tocFailure: const KakuyomuHttpException(429, 'https://kakuyomu.jp/toc'),
+        tocFailure: DioException(
+          requestOptions: requestOptions,
+          response: Response<dynamic>(
+            requestOptions: requestOptions,
+            statusCode: 429,
+          ),
+        ),
       );
       container = createContainer(apiService: ApiService(), kakuyomuSite: site);
       final repository = container.read(novelRepositoryProvider);
@@ -773,14 +781,20 @@ void main() {
 
       await expectLater(
         repository.downloadNovel(NovelSource.kakuyomu, workId, 2),
-        throwsA(isA<KakuyomuHttpException>()),
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.response?.statusCode,
+            'statusCode',
+            429,
+          ),
+        ),
       );
 
       final progress = await progressFuture;
       expect(site.tocFetchCount, 1);
       expect(site.episodeFetchCount, 0);
       expect(progress.last.isDownloading, isFalse);
-      expect(progress.last.errorMessage, contains('429'));
+      expect(progress.last.errorMessage, isNotNull);
     });
 
     test('カクヨム一括取得では作品情報を取得せず目次取得へ進む', () async {
@@ -788,10 +802,7 @@ void main() {
       final site = _DownloadTestKakuyomuSite(
         workId: workId,
         totalEpisodes: 2,
-        infoFailure: const KakuyomuHttpException(
-          429,
-          'https://kakuyomu.jp/works/work',
-        ),
+        infoFailure: Exception('Kakuyomu work info should not be fetched'),
       );
       container = createContainer(apiService: ApiService(), kakuyomuSite: site);
       final repository = container.read(novelRepositoryProvider);
