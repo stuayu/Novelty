@@ -132,6 +132,76 @@ void main() {
     expect(entries.single.episodeId, episodeId);
   });
 
+  test('続きを読むの同一originリダイレクト先からepisode IDを解決する', () async {
+    final requestedUrls = <Uri>[];
+    final client = KakuyomuHistoryClient(
+      sessionRepository: _FakeSessionRepository('session=test'),
+      pageFetcher: (url, cookieHeader) async {
+        requestedUrls.add(url);
+        if (url.path.endsWith('/resume_reading')) {
+          return KakuyomuHistoryHttpResponse(
+            statusCode: 302,
+            realUri: url,
+            location: '/works/$workId/episodes/$episodeId',
+          );
+        }
+        if (url.path == '/works/$workId/episodes/$episodeId') {
+          return KakuyomuHistoryHttpResponse(
+            statusCode: 200,
+            realUri: url,
+            body: '<html></html>',
+          );
+        }
+        return KakuyomuHistoryHttpResponse(
+          statusCode: 200,
+          realUri: url,
+          body: authenticatedHtml,
+        );
+      },
+    );
+
+    final entries = await client.fetchAll();
+
+    expect(entries.single.episodeId, episodeId);
+    expect(
+      requestedUrls.map((url) => url.path),
+      containsAllInOrder(<String>[
+        '/my/antenna/reading_histories',
+        '/works/$workId/resume_reading',
+        '/works/$workId/episodes/$episodeId',
+      ]),
+    );
+  });
+
+  test('続きを読むの外部originリダイレクト先にCookieを送らない', () async {
+    final requestedUrls = <Uri>[];
+    final client = KakuyomuHistoryClient(
+      sessionRepository: _FakeSessionRepository('session=test'),
+      pageFetcher: (url, cookieHeader) async {
+        requestedUrls.add(url);
+        if (url.path.endsWith('/resume_reading')) {
+          return KakuyomuHistoryHttpResponse(
+            statusCode: 302,
+            realUri: url,
+            location: 'https://attacker.example/collect',
+          );
+        }
+        return KakuyomuHistoryHttpResponse(
+          statusCode: 200,
+          realUri: url,
+          body: authenticatedHtml,
+        );
+      },
+    );
+
+    await expectLater(client.fetchAll(), throwsA(isA<StateError>()));
+
+    expect(
+      requestedUrls.where((url) => url.host == 'attacker.example'),
+      isEmpty,
+    );
+  });
+
   test('Clientはguestページをセッション切れとして返す', () async {
     final client = KakuyomuHistoryClient(
       sessionRepository: _FakeSessionRepository('session=test'),
