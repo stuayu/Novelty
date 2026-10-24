@@ -38,6 +38,32 @@ class _FakeResponseAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+class _ChunkStatusAdapter implements HttpClientAdapter {
+  _ChunkStatusAdapter(this.statusCodes);
+
+  final List<int> statusCodes;
+  final List<Uri> requestedUris = <Uri>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requestedUris.add(options.uri);
+    final responseBytes = const GZipEncoder().encode(
+      utf8.encode('[{"allcount":0}]'),
+    );
+    return ResponseBody.fromBytes(
+      responseBytes,
+      statusCodes[requestedUris.length - 1],
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 class _TimedHostAdapter implements HttpClientAdapter {
   _TimedHostAdapter() {
     _stopwatch.start();
@@ -186,6 +212,44 @@ void main() {
 
       expect(adapter.requestedUris.single.queryParameters['ncode'], 'n1234ab');
       expect(result.keys, ['n1234ab']);
+    });
+
+    test('chunk中の429で残りのNコード送信を停止する', () async {
+      final adapter = _ChunkStatusAdapter([429, 200]);
+      final dio = Dio()..httpClientAdapter = adapter;
+      final service = ApiService(dio: dio);
+      final ncodes = List<String>.generate(
+        21,
+        (index) => 'N${index.toString().padLeft(6, '0')}',
+      );
+
+      await expectLater(
+        service.fetchMultipleNovelsInfo(ncodes),
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.response?.statusCode,
+            'statusCode',
+            429,
+          ),
+        ),
+      );
+
+      expect(adapter.requestedUris, hasLength(1));
+    });
+
+    test('429以外のchunk失敗ではbest-effortで次へ進む', () async {
+      final adapter = _ChunkStatusAdapter([500, 200]);
+      final dio = Dio()..httpClientAdapter = adapter;
+      final service = ApiService(dio: dio);
+      final ncodes = List<String>.generate(
+        21,
+        (index) => 'N${index.toString().padLeft(6, '0')}',
+      );
+
+      final result = await service.fetchMultipleNovelsInfo(ncodes);
+
+      expect(result, isEmpty);
+      expect(adapter.requestedUris, hasLength(2));
     });
 
     test('apiとncodeはホストごとに並列リクエストを1秒間隔に制限する', () async {

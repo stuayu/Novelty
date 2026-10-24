@@ -243,6 +243,9 @@ class ApiService {
             }
           }
         }
+      } on DioException catch (error) {
+        if (error.response?.statusCode == 429) rethrow;
+        // Continue with the next chunk for non-rate-limit errors.
       } on Exception {
         // Continue with the next chunk even if this one fails
       }
