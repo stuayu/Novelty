@@ -81,6 +81,11 @@ class ReaderSettingsPage extends ConsumerWidget {
     WidgetRef ref,
     AppSettings settings,
   ) {
+    final minLineHeight = settings.isRubyEnabled
+        ? Settings.minLineHeightWithRuby
+        : Settings.minLineHeightWithoutRuby;
+    final sliderLineHeight = settings.lineHeight.clamp(minLineHeight, 3.0);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -116,13 +121,11 @@ class ReaderSettingsPage extends ConsumerWidget {
                 ),
               // スライダー
               Slider(
-                value: settings.lineHeight,
-                min: settings.isRubyEnabled
-                    ? Settings.minLineHeightWithRuby
-                    : Settings.minLineHeightWithoutRuby,
+                value: sliderLineHeight,
+                min: minLineHeight,
                 max: 3,
                 divisions: settings.isRubyEnabled ? 17 : 20,
-                label: settings.lineHeight.toStringAsFixed(1),
+                label: sliderLineHeight.toStringAsFixed(1),
                 onChanged: (value) async {
                   try {
                     await ref

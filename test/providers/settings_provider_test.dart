@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novelty/screens/settings/reader_settings_page.dart';
 import 'package:novelty/utils/settings_provider.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
@@ -52,6 +53,18 @@ void main() {
 
       expect(settings.fontSize, equals(18.0));
       expect(settings.isVertical, equals(true));
+    });
+
+    testWidgets('保存済みの範囲外行間でもスライダーを有効な範囲に収める', (tester) async {
+      SharedPreferences.setMockInitialValues({'line_height': 1.0});
+      await tester.pumpWidget(
+        const ProviderScope(child: MaterialApp(home: ReaderSettingsPage())),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final slider = tester.widget<Slider>(find.byType(Slider).last);
+      expect(slider.value, equals(Settings.minLineHeightWithRuby));
     });
 
     test('should update font size setting', () async {
