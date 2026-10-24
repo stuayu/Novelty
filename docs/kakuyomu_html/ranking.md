@@ -8,8 +8,11 @@
 
 ## リダイレクト
 
-- `/rankings/all/{period}` は **302リダイレクト**し、`?work_variation=long`（長編）等に振り分けられる
-- アプリは `followRedirects: true` でフォローする
+- ランキングURLは `work_variation` などのクエリを指定して取得する
+- アプリは自動リダイレクトを無効にし、各 `Location` を解決してから
+  `https://kakuyomu.jp:443` の同一オリジンか検証する
+- リダイレクト先もrobots.txtの禁止パス検査を通し、最大5回まで追従する
+- 外部ホスト、HTTP、別ポート、userinfo付きURL、および禁止パスへの遷移は拒否する
 
 ## 構造
 

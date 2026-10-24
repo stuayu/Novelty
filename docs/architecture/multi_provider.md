@@ -64,11 +64,20 @@ ExplorePage (source 切替)
 - フィルタ状態（`RankingFilterState` / `LibraryFilterState`）は `source` + `selectedGenreId: String?` を持つ
 - ジャンル一覧はサイト実装の `genres` から取得（なろう: 大/小2階層、カクヨム: 単層）
 
-## アクセス方針（カクヨム）
+## アクセス方針（外部サイト）
 
-- **robots.txt 遵守**: `KakuyomuSite` がリクエスト前に禁止パス（`/read` ページ等）を検証して拒否
-- **レート制限**: リクエスト間隔1秒（`KakuyomuRateLimiter`、モノトニッククロック使用）
+- **資格情報**: サイトログイン機能はなく、サイトへのリクエストにCookieや認証情報を送らない
+- **なろうAPI**: HTTPSで接続し、`api.syosetu.com` と `ncode.syosetu.com` を別々に1秒間隔で制限する
+- **カクヨム**: HTTPSの `kakuyomu.jp:443` のみ許可し、robots.txtの禁止パスを初回URL・目次URL・リダイレクト先で検査する
+- **レート制限**: 同一ホストへの並列リクエストも直列化し、1秒間隔を保つ
+- **タイムアウト**: APIとHTML取得に接続10秒、受信30秒を設定
+- **エラー処理**: HTTP 403/429を自動再試行しない
 - **キャッシュファースト**: 本文は DB（`EpisodeContents`）にキャッシュし、差分（改稿日時）でのみ再取得
+
+2026-10-24に確認したカクヨムのrobots.txtでは `/shared_drafts/`、
+`/works/*/episodes/*/read`、ログイン・通報・フィードバック関連のパスが禁止されている。
+なろうAPI側のrobots.txtは `api.syosetu.com` と `ncode.syosetu.com` の両方に
+`Crawl-delay: 1` を指定している。アプリのホスト別1秒間隔制限もこれに合わせている。
 
 ## パーサーパッケージ
 
