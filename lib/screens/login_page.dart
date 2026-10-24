@@ -35,9 +35,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   @override
   void dispose() {
-    if (_awaitingMfa) {
-      _cancelMfaChallenge();
-    }
+    _cancelMfaChallenge();
     _narouidController.dispose();
     _passwordController.dispose();
     _mfaCodeController.dispose();

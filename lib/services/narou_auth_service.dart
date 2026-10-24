@@ -67,6 +67,8 @@ class NarouAuthService {
   /// HTTPクライアント。レート制限とタイムアウトは共通ファクトリで設定する。
   final Dio _dio;
   _PendingNarouMfa? _pendingMfa;
+  int _authOperationGeneration = 0;
+  Future<void> _sessionMutationQueue = Future<void>.value();
 
   /// ログインPOSTリクエストを送信し、セッションCookieを取得・保存する。
   ///
@@ -77,11 +79,13 @@ class NarouAuthService {
     required String password,
   }) async {
     cancelMfaChallenge();
+    final generation = _authOperationGeneration;
     try {
       final formResponse = await _dio.get<String>(
         _loginInputUrl,
         options: _htmlOptions(),
       );
+      if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
       final loginForm = _findForm(parser.parse(formResponse.data ?? ''), [
         'narouid',
         'pass',
@@ -114,6 +118,7 @@ class NarouAuthService {
           },
         ),
       );
+      if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
       _mergeCookies(cookies, response.headers.map['set-cookie']);
       var challengeUri = _responseRedirect(response);
       Response<String>? challengeResponse;
@@ -133,6 +138,9 @@ class NarouAuthService {
             },
           ),
         );
+        if (!_isCurrentAuthOperation(generation)) {
+          return _cancelledLoginResult;
+        }
         _mergeCookies(cookies, challengeResponse.headers.map['set-cookie']);
         challengeUri = _responseRedirect(challengeResponse);
       }
@@ -148,6 +156,7 @@ class NarouAuthService {
         cookies,
         narouid,
       );
+      if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
       if (pending == null) {
         return const NarouLoginResult.failure(
           'ログインに失敗しました。ID・パスワードと二段階認証の表示を確認してください。',
@@ -156,12 +165,14 @@ class NarouAuthService {
       _pendingMfa = pending;
       return const NarouLoginResult.mfaRequired();
     } on DioException catch (e) {
+      if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
       debugPrint(
         '[NarouAuth] login: 通信失敗 '
         'type=${e.type} status=${e.response?.statusCode}',
       );
       return const NarouLoginResult.failure('ログイン通信に失敗しました');
     } on Object catch (e) {
+      if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
       debugPrint('[NarouAuth] login: 処理失敗 type=${e.runtimeType}');
       return const NarouLoginResult.failure('ログイン処理に失敗しました');
     }
@@ -170,6 +181,7 @@ class NarouAuthService {
   /// メールまたは認証アプリで受け取った確認コードを一度だけ送信する。
   Future<NarouLoginResult> verifyMfaCode(String code) async {
     final pending = _pendingMfa;
+    final generation = _authOperationGeneration;
     if (pending == null) {
       return const NarouLoginResult.failure('認証コードを確認できません。最初からログインしてください。');
     }
@@ -191,6 +203,9 @@ class NarouAuthService {
           },
         ),
       );
+      if (!_isCurrentMfaChallenge(generation, pending)) {
+        return _cancelledLoginResult;
+      }
       _mergeCookies(pending.cookies, response.headers.map['set-cookie']);
       var redirect = _responseRedirect(response);
       for (var redirects = 0; redirect != null && redirects < 5; redirects++) {
@@ -208,6 +223,9 @@ class NarouAuthService {
             },
           ),
         );
+        if (!_isCurrentMfaChallenge(generation, pending)) {
+          return _cancelledLoginResult;
+        }
         _mergeCookies(pending.cookies, response.headers.map['set-cookie']);
         redirect = _responseRedirect(response);
       }
@@ -224,6 +242,9 @@ class NarouAuthService {
         pending.cookies,
         pending.narouid,
       );
+      if (!_isCurrentMfaChallenge(generation, pending)) {
+        return _cancelledLoginResult;
+      }
       if (refreshedChallenge != null) {
         _pendingMfa = refreshedChallenge;
         return const NarouLoginResult.failure(
@@ -243,13 +264,24 @@ class NarouAuthService {
       }
 
       _pendingMfa = null;
-      return _finishLogin(pending.cookies, pending.narouid, username);
+      return _finishLogin(
+        pending.cookies,
+        pending.narouid,
+        username,
+        generation: generation,
+      );
     } on DioException catch (e) {
+      if (!_isCurrentMfaChallenge(generation, pending)) {
+        return _cancelledLoginResult;
+      }
       debugPrint(
         '[NarouAuth] MFA通信失敗 type=${e.type} status=${e.response?.statusCode}',
       );
       return const NarouLoginResult.failure('認証コードの送信に失敗しました');
     } on Object catch (e) {
+      if (!_isCurrentMfaChallenge(generation, pending)) {
+        return _cancelledLoginResult;
+      }
       debugPrint('[NarouAuth] MFA処理失敗 type=${e.runtimeType}');
       return const NarouLoginResult.failure('認証コードの処理に失敗しました');
     }
@@ -292,6 +324,7 @@ class NarouAuthService {
 
   /// 保留中のMFAチャレンジと仮Cookieを破棄する。
   void cancelMfaChallenge() {
+    _authOperationGeneration++;
     _pendingMfa?.cookies.clear();
     _pendingMfa = null;
   }
@@ -299,24 +332,80 @@ class NarouAuthService {
   /// ログアウトして保存済み認証情報をすべて削除する。
   Future<void> logout() async {
     cancelMfaChallenge();
-    await authRepository.clearAll();
+    await _serializeSessionMutation(authRepository.clearAll);
   }
 
   /// ブックマーク一覧ページからユーザー名を取得する（ログイン後に呼ぶ）。
   Future<NarouLoginResult> _finishLogin(
     Map<String, String> cookies,
     String narouid,
-    String username,
-  ) async {
-    await authRepository.saveNarouid(narouid);
-    await authRepository.saveUsername(username);
-    await authRepository.saveSessionCookies(
-      ks2: cookies['ks2']!,
-      ses: cookies['ses']!,
-      userl: cookies['userl']!,
-    );
+    String username, {
+    required int generation,
+  }) async {
+    var cancelled = false;
+    var cleanedAfterCancellation = false;
+    await _serializeSessionMutation(() async {
+      if (!_isCurrentAuthOperation(generation)) {
+        cancelled = true;
+        return;
+      }
+
+      await authRepository.saveNarouid(narouid);
+      if (!_isCurrentAuthOperation(generation)) {
+        cancelled = true;
+        cleanedAfterCancellation = true;
+        await authRepository.clearAll();
+        return;
+      }
+
+      await authRepository.saveUsername(username);
+      if (!_isCurrentAuthOperation(generation)) {
+        cancelled = true;
+        cleanedAfterCancellation = true;
+        await authRepository.clearAll();
+        return;
+      }
+
+      await authRepository.saveSessionCookies(
+        ks2: cookies['ks2']!,
+        ses: cookies['ses']!,
+        userl: cookies['userl']!,
+      );
+      if (!_isCurrentAuthOperation(generation)) {
+        cancelled = true;
+        cleanedAfterCancellation = true;
+        await authRepository.clearAll();
+      }
+    });
+
+    if (cancelled || !_isCurrentAuthOperation(generation)) {
+      if (!cleanedAfterCancellation) {
+        await _serializeSessionMutation(authRepository.clearAll);
+      }
+      return _cancelledLoginResult;
+    }
     return NarouLoginResult.success(username: username);
   }
+
+  Future<void> _serializeSessionMutation(
+    Future<void> Function() mutation,
+  ) {
+    final operation = _sessionMutationQueue.then((_) => mutation());
+    _sessionMutationQueue = operation.catchError((Object _) {});
+    return operation;
+  }
+
+  bool _isCurrentAuthOperation(int generation) =>
+      generation == _authOperationGeneration;
+
+  bool _isCurrentMfaChallenge(
+    int generation,
+    _PendingNarouMfa pending,
+  ) => _isCurrentAuthOperation(generation) && identical(_pendingMfa, pending);
+
+  static const _cancelledLoginResult = NarouLoginResult.failure(
+    'ログイン処理はキャンセルされました',
+  );
 
   String? _extractUsername(String? html) {
     if (html == null || html.isEmpty) return null;

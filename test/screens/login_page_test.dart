@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,9 @@ class _MfaAuthService extends NarouAuthService {
   String? submittedCode;
   bool loginCalled = false;
   bool challengeCancelled = false;
+  bool delayLogin = false;
+  final loginStarted = Completer<void>();
+  final loginCompletion = Completer<NarouLoginResult>();
 
   @override
   void cancelMfaChallenge() => challengeCancelled = true;
@@ -21,6 +26,10 @@ class _MfaAuthService extends NarouAuthService {
     required String password,
   }) async {
     loginCalled = true;
+    if (delayLogin) {
+      loginStarted.complete();
+      return loginCompletion.future;
+    }
     return const NarouLoginResult.mfaRequired();
   }
 
@@ -121,5 +130,35 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
 
     expect(authService.challengeCancelled, isTrue);
+  });
+
+  testWidgets('パスワード送信中に画面を閉じても認証処理をキャンセルする', (tester) async {
+    final authService = _MfaAuthService()..delayLogin = true;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          narouAuthServiceProvider.overrideWithValue(authService),
+        ],
+        child: const MaterialApp(home: LoginPage()),
+      ),
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'ユーザーIDまたはメールアドレス'),
+      'reader@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'パスワード'),
+      'secret-password',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'ログイン'));
+    await tester.pump();
+    await authService.loginStarted.future;
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(authService.challengeCancelled, isTrue);
+
+    authService.loginCompletion.complete(const NarouLoginResult.mfaRequired());
+    await tester.pumpAndSettle();
   });
 }

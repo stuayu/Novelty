@@ -71,6 +71,10 @@ class _MfaLoginAdapter implements HttpClientAdapter {
     this.credentialErrorHtml,
     this.loginFormAction = '/login/login/',
     this.expireSesWithExpires = false,
+    this.challengeStarted,
+    this.releaseChallenge,
+    this.verificationStarted,
+    this.releaseVerification,
   });
 
   final String challengeLocation;
@@ -81,6 +85,10 @@ class _MfaLoginAdapter implements HttpClientAdapter {
   final String? credentialErrorHtml;
   final String loginFormAction;
   final bool expireSesWithExpires;
+  final Completer<void>? challengeStarted;
+  final Completer<void>? releaseChallenge;
+  final Completer<void>? verificationStarted;
+  final Completer<void>? releaseVerification;
   final List<RequestOptions> requests = <RequestOptions>[];
   int verificationAttempts = 0;
 
@@ -113,6 +121,9 @@ class _MfaLoginAdapter implements HttpClientAdapter {
             },
           );
         }
+        final started = verificationStarted;
+        if (started != null && !started.isCompleted) started.complete();
+        await releaseVerification?.future;
         return ResponseBody.fromString(
           '',
           302,
@@ -170,6 +181,9 @@ class _MfaLoginAdapter implements HttpClientAdapter {
         200,
       );
     }
+    final started = challengeStarted;
+    if (started != null && !started.isCompleted) started.complete();
+    await releaseChallenge?.future;
     final challengeHeaders = <String, List<String>>{
       'content-type': ['text/html; charset=utf-8'],
     };
@@ -197,6 +211,7 @@ class _OrderedAuthRepository extends AuthRepository {
   final allowNarouid = Completer<void>();
   final allowUsername = Completer<void>();
   final allowCookies = Completer<void>();
+  int clearCount = 0;
 
   @override
   Future<void> saveNarouid(String narouid) async {
@@ -221,6 +236,12 @@ class _OrderedAuthRepository extends AuthRepository {
     events.add('cookies');
     cookiesStarted.complete();
     await allowCookies.future;
+  }
+
+  @override
+  Future<void> clearAll() async {
+    clearCount++;
+    events.add('clear');
   }
 
   void releaseAll() {
@@ -388,6 +409,101 @@ void main() {
           userl: 'userl-value',
         ),
       ).called(1);
+    });
+
+    test('MFA検証中にチャレンジをキャンセルすると遅れて届いた成功応答を破棄する', () async {
+      final verificationStarted = Completer<void>();
+      final releaseVerification = Completer<void>();
+      final adapter = _MfaLoginAdapter(
+        verificationStarted: verificationStarted,
+        releaseVerification: releaseVerification,
+      );
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final verification = service.verifyMfaCode('123456');
+      await verificationStarted.future;
+      service.cancelMfaChallenge();
+      releaseVerification.complete();
+
+      final result = await verification;
+
+      expect(result.isSuccess, isFalse);
+      verifyNever(mockAuthRepository.saveNarouid(any));
+      verifyNever(
+        mockAuthRepository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
+    });
+
+    test('ログイン中にチャレンジをキャンセルすると遅延応答でMFA状態を再生成しない', () async {
+      final challengeStarted = Completer<void>();
+      final releaseChallenge = Completer<void>();
+      final adapter = _MfaLoginAdapter(
+        challengeStarted: challengeStarted,
+        releaseChallenge: releaseChallenge,
+      );
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final login = service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      await challengeStarted.future;
+      service.cancelMfaChallenge();
+      releaseChallenge.complete();
+
+      final result = await login;
+
+      expect(result.requiresMfa, isFalse);
+      final retry = await service.verifyMfaCode('123456');
+      expect(retry.isSuccess, isFalse);
+      expect(
+        adapter.requests.where(
+          (request) => request.uri.path == '/login/auth_code/verify/',
+        ),
+        isEmpty,
+      );
+    });
+
+    test('ログアウトが進行中のMFA後セッション保存より後に完了する', () async {
+      final repository = _OrderedAuthRepository();
+      final adapter = _MfaLoginAdapter();
+      final service = NarouAuthService(
+        authRepository: repository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final verification = service.verifyMfaCode('123456');
+      await repository.narouidStarted.future;
+      final logout = service.logout();
+      repository.releaseAll();
+
+      final result = await verification;
+      await logout;
+
+      expect(result.isSuccess, isFalse);
+      expect(repository.events, isNot(contains('username')));
+      expect(repository.events, isNot(contains('cookies')));
+      expect(repository.clearCount, greaterThanOrEqualTo(1));
     });
 
     test('古いsession Cookieがあっても失敗コードでは保存せず更新されたCSRFで再試行する', () async {
