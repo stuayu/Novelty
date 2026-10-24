@@ -1137,6 +1137,19 @@ class AppDatabase extends _$AppDatabase {
 
   /// v18 マイグレーション: Hybrid JSON への変換と episodes_search 廃止
   Future<void> _migrateToV18() async {
+    // v17 と記録されていても本文テーブルが欠けた DB を復旧する。
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS episode_contents (
+        source TEXT NOT NULL,
+        work_id TEXT NOT NULL,
+        episode_id INTEGER NOT NULL,
+        content TEXT,
+        fetched_at INTEGER,
+        revised_at TEXT,
+        PRIMARY KEY (source, work_id, episode_id)
+      )
+    ''');
+
     // 1. episode_contents.content を verbose → Hybrid {txt,rb} に変換
     // 11,077件 × 平均13KB なのでメモリに全件載せてバッチ更新する
     final rows = await customSelect(

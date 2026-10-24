@@ -290,6 +290,21 @@ void main() {
     expect(c5.read<String>('content').contains('"txt"'), isTrue);
   });
 
+  test('v17で episode_contents が欠けていても v23 まで移行できること', () async {
+    await createV17Database(dbFile);
+    sqlite3.open(dbFile.path)
+      ..execute('DROP TABLE episode_contents')
+      ..close();
+
+    final db = AppDatabase.test(NativeDatabase(dbFile));
+    addTearDown(db.close);
+
+    final countRow = await db
+        .customSelect('SELECT COUNT(*) AS count FROM episode_contents')
+        .getSingle();
+    expect(countRow.read<int>('count'), 0);
+  });
+
   test('ContentConverter が Hybrid と旧 verbose の両方を読めること', () {
     const converter = ContentConverter();
     // 旧 verbose
