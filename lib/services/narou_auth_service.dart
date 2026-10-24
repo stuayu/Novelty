@@ -191,6 +191,9 @@ class NarouAuthService {
     }
 
     try {
+      final sessionCookiesBeforeVerification = Map<String, String>.of(
+        pending.cookies,
+      );
       final fields = Map<String, String>.of(pending.hiddenFields)
         ..[pending.codeField] = normalizedCode;
       var response = await _dio.post<String>(
@@ -208,6 +211,10 @@ class NarouAuthService {
       }
       _mergeCookies(pending.cookies, response.headers.map['set-cookie']);
       var redirect = _responseRedirect(response);
+      var redirectedToNonLoginPage =
+          redirect != null &&
+          _isNarouUri(redirect) &&
+          !_isNarouLoginUri(redirect);
       for (var redirects = 0; redirect != null && redirects < 5; redirects++) {
         if (!_isNarouUri(redirect)) {
           _pendingMfa = null;
@@ -228,6 +235,9 @@ class NarouAuthService {
         }
         _mergeCookies(pending.cookies, response.headers.map['set-cookie']);
         redirect = _responseRedirect(response);
+        if (redirect != null && _isNarouLoginUri(redirect)) {
+          redirectedToNonLoginPage = false;
+        }
       }
       if (redirect != null) {
         _pendingMfa = null;
@@ -253,9 +263,14 @@ class NarouAuthService {
       }
 
       var username = _extractUsername(response.data);
+      final sessionCookieChanged = _hasUpdatedSessionCookie(
+        sessionCookiesBeforeVerification,
+        pending.cookies,
+      );
       if (response.statusCode != 200 ||
           !_isNarouUri(response.realUri) ||
-          !_hasSessionCookies(pending.cookies)) {
+          !_hasSessionCookies(pending.cookies) ||
+          (!redirectedToNonLoginPage && !sessionCookieChanged)) {
         _pendingMfa = null;
         return const NarouLoginResult.failure(
           '認証コードを確認できませんでした。ログインをやり直してください。',
@@ -514,6 +529,17 @@ class NarouAuthService {
       cookies['ks2']?.isNotEmpty == true &&
       cookies['ses']?.isNotEmpty == true &&
       cookies['userl']?.isNotEmpty == true;
+
+  bool _hasUpdatedSessionCookie(
+    Map<String, String> previous,
+    Map<String, String> current,
+  ) => const <String>['ks2', 'ses', 'userl'].any(
+    (name) =>
+        current[name]?.isNotEmpty == true && current[name] != previous[name],
+  );
+
+  bool _isNarouLoginUri(Uri uri) =>
+      uri.path == '/login' || uri.path.startsWith('/login/');
 
   void _mergeCookies(Map<String, String> cookies, List<String>? headers) {
     if (headers == null) return;

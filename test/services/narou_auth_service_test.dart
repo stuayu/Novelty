@@ -65,6 +65,7 @@ class _MfaLoginAdapter implements HttpClientAdapter {
   _MfaLoginAdapter({
     this.challengeLocation = '/login/auth_code/',
     this.failVerification = false,
+    this.failVerificationWithGenericPage = false,
     this.sessionCookiesOnChallenge = false,
     this.returnRefreshedChallengeOnce = false,
     this.challengeHtml = _defaultMfaChallengeHtml,
@@ -82,6 +83,7 @@ class _MfaLoginAdapter implements HttpClientAdapter {
 
   final String challengeLocation;
   final bool failVerification;
+  final bool failVerificationWithGenericPage;
   final bool sessionCookiesOnChallenge;
   final bool returnRefreshedChallengeOnce;
   final String challengeHtml;
@@ -111,6 +113,12 @@ class _MfaLoginAdapter implements HttpClientAdapter {
           throw DioException(
             requestOptions: options,
             message: 'password=do-not-log-this-password code=123456',
+          );
+        }
+        if (failVerificationWithGenericPage) {
+          return ResponseBody.fromString(
+            '<html><body>認証を確認できませんでした</body></html>',
+            200,
           );
         }
         if (returnRefreshedChallengeOnce && verificationAttempts++ == 0) {
@@ -497,6 +505,36 @@ void main() {
       final adapter = _MfaLoginAdapter(
         redirectAfterVerificationToGenericPage: true,
         bookmarkPageIsLogin: true,
+      );
+      final service = NarouAuthService(
+        authRepository: repository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('123456');
+
+      expect(result.isSuccess, isFalse);
+      verifyNever(repository.saveNarouid(any));
+      verifyNever(
+        repository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
+    });
+
+    test('MFAコードの失敗後はチャレンジ前のセッションCookieだけでログインしない', () async {
+      final repository = MockAuthRepository();
+      final adapter = _MfaLoginAdapter(
+        sessionCookiesOnChallenge: true,
+        failVerificationWithGenericPage: true,
       );
       final service = NarouAuthService(
         authRepository: repository,
