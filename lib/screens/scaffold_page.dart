@@ -14,23 +14,69 @@ class ScaffoldPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    const items = <BottomNavigationBarItem>[
-      BottomNavigationBarItem(icon: Icon(Icons.book), label: 'ライブラリ'),
-      BottomNavigationBarItem(icon: Icon(Icons.explore), label: '見つける'),
-      BottomNavigationBarItem(icon: Icon(Icons.history), label: '履歴'),
-      BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: 'もっと'),
-    ];
+    final selectedIndex = _calculateSelectedIndex(context);
+    final isWide = MediaQuery.sizeOf(context).width >= 700;
 
     return Scaffold(
-      body: child,
-      bottomNavigationBar: BottomNavigationBar(
-        items: items,
-        currentIndex: _calculateSelectedIndex(context),
-        selectedItemColor: Theme.of(context).colorScheme.primary,
-        unselectedItemColor: Colors.grey,
-        onTap: (idx) => _onItemTapped(idx, context),
-        type: BottomNavigationBarType.fixed,
-      ),
+      body: isWide
+          ? Row(
+              children: [
+                NavigationRail(
+                  selectedIndex: selectedIndex,
+                  labelType: NavigationRailLabelType.all,
+                  onDestinationSelected: (index) =>
+                      _onItemTapped(index, context),
+                  destinations: const [
+                    NavigationRailDestination(
+                      icon: Icon(Icons.book),
+                      label: Text('ライブラリ'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.explore),
+                      label: Text('見つける'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.history),
+                      label: Text('履歴'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.more_horiz),
+                      label: Text('もっと'),
+                    ),
+                  ],
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: child),
+              ],
+            )
+          : child,
+      bottomNavigationBar: isWide
+          ? null
+          : BottomNavigationBar(
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.book),
+                  label: 'ライブラリ',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.explore),
+                  label: '見つける',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.history),
+                  label: '履歴',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.more_horiz),
+                  label: 'もっと',
+                ),
+              ],
+              currentIndex: selectedIndex,
+              selectedItemColor: Theme.of(context).colorScheme.primary,
+              unselectedItemColor: Colors.grey,
+              onTap: (idx) => _onItemTapped(idx, context),
+              type: BottomNavigationBarType.fixed,
+            ),
     );
   }
 
