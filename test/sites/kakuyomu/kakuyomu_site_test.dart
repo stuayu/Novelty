@@ -306,6 +306,22 @@ void main() {
           greaterThanOrEqualTo(const Duration(milliseconds: 250)),
         );
       });
+
+      test('並列waitでも予約したリクエスト間隔を維持する', () async {
+        const interval = Duration(milliseconds: 300);
+        final limiter = KakuyomuRateLimiter(interval: interval);
+        final stopwatch = Stopwatch()..start();
+
+        await Future.wait(
+          List<Future<void>>.generate(3, (_) => limiter.wait()),
+        );
+
+        stopwatch.stop();
+        expect(
+          stopwatch.elapsed,
+          greaterThanOrEqualTo(const Duration(milliseconds: 500)),
+        );
+      });
     });
 
     group('searchNovels', () {

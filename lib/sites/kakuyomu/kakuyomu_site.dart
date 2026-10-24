@@ -25,20 +25,25 @@ class KakuyomuRateLimiter {
   final Duration interval;
 
   final Stopwatch _stopwatch = Stopwatch();
+  Future<void> _waitQueue = Future<void>.value();
 
   /// 直前のリクエストから [interval] 以上経過するまで待機する。
-  Future<void> wait() async {
-    if (_stopwatch.isRunning) {
-      final elapsed = _stopwatch.elapsed;
-      if (elapsed < interval) {
-        await Future<void>.delayed(interval - elapsed);
+  Future<void> wait() {
+    final queuedWait = _waitQueue.then((_) async {
+      if (_stopwatch.isRunning) {
+        final elapsed = _stopwatch.elapsed;
+        if (elapsed < interval) {
+          await Future<void>.delayed(interval - elapsed);
+        }
+        _stopwatch
+          ..reset()
+          ..start();
+      } else {
+        _stopwatch.start();
       }
-      _stopwatch
-        ..reset()
-        ..start();
-    } else {
-      _stopwatch.start();
-    }
+    });
+    _waitQueue = queuedWait;
+    return queuedWait;
   }
 }
 
