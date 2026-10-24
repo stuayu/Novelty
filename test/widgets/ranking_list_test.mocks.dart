@@ -98,13 +98,25 @@ class MockApiService extends _i1.Mock implements _i5.ApiService {
           as _i6.Future<_i2.NovelInfo>);
 
   @override
-  _i6.Future<_i3.Episode> fetchEpisode(String? ncode, int? episode) =>
+  _i6.Future<_i3.Episode> fetchEpisode(
+    String? ncode,
+    int? episode, {
+    _i2.NovelInfo? novelInfo,
+  }) =>
       (super.noSuchMethod(
-            Invocation.method(#fetchEpisode, [ncode, episode]),
+            Invocation.method(
+              #fetchEpisode,
+              [ncode, episode],
+              {#novelInfo: novelInfo},
+            ),
             returnValue: _i6.Future<_i3.Episode>.value(
               _FakeEpisode_1(
                 this,
-                Invocation.method(#fetchEpisode, [ncode, episode]),
+                Invocation.method(
+                  #fetchEpisode,
+                  [ncode, episode],
+                  {#novelInfo: novelInfo},
+                ),
               ),
             ),
           )
