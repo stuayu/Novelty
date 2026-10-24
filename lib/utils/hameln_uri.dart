@@ -18,6 +18,18 @@ bool isHamelnRobotsDisallowedUri(Uri uri) {
 bool isAllowedHamelnNavigationUri(Uri? uri) =>
     uri != null && isTrustedHamelnUri(uri) && !isHamelnRobotsDisallowedUri(uri);
 
+/// ハーメルンWebViewのサブフレーム遷移を制限する。
+bool isAllowedHamelnSubframeNavigationUri(Uri? uri) {
+  if (uri == null) return false;
+  if (uri.scheme == 'about' &&
+      uri.host.isEmpty &&
+      <String>{'blank', 'srcdoc'}.contains(uri.path)) {
+    return true;
+  }
+  if (isAllowedHamelnNavigationUri(uri)) return true;
+  return isTrustedHttpsOrigin(uri, host: 'challenges.cloudflare.com');
+}
+
 /// ハーメルンの作品URLを組み立てる。
 String buildHamelnWorkUrl(String workId) {
   _validateNumericId(workId, '作品ID');

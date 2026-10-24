@@ -41,10 +41,11 @@ Future<String> _fetch(String url) async {
         useShouldOverrideUrlLoading: true,
       ),
       shouldOverrideUrlLoading: (_, action) async {
-        final allowed = isAllowedHamelnNavigationUri(
-          action.request.url?.uriValue,
-        );
-        if (!allowed) blockedNavigation = true;
+        final uri = action.request.url?.uriValue;
+        final allowed = action.isForMainFrame
+            ? isAllowedHamelnNavigationUri(uri)
+            : isAllowedHamelnSubframeNavigationUri(uri);
+        if (!allowed && action.isForMainFrame) blockedNavigation = true;
         return allowed
             ? NavigationActionPolicy.ALLOW
             : NavigationActionPolicy.CANCEL;

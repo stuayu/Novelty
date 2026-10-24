@@ -113,5 +113,31 @@ void main() {
         isFalse,
       );
     });
+
+    test('WebViewはCloudflare challenge用の安全なサブフレームを許可する', () {
+      for (final uri in <Uri>[
+        Uri.parse('about:blank'),
+        Uri.parse('about:srcdoc'),
+        Uri.parse(
+          'https://challenges.cloudflare.com/cdn-cgi/challenge-platform/',
+        ),
+        Uri.parse('https://syosetu.org/novel/328453/'),
+      ]) {
+        expect(isAllowedHamelnSubframeNavigationUri(uri), isTrue);
+      }
+      expect(
+        isAllowedHamelnSubframeNavigationUri(
+          Uri.parse('https://example.com/tracker'),
+        ),
+        isFalse,
+      );
+      expect(
+        isAllowedHamelnSubframeNavigationUri(
+          Uri.parse('https://syosetu.org/?mode=ss_detail3'),
+        ),
+        isFalse,
+      );
+      expect(isAllowedHamelnSubframeNavigationUri(null), isFalse);
+    });
   });
 }
