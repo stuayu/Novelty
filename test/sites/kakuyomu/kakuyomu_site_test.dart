@@ -94,6 +94,15 @@ const String _firstEpisodeId = '16818023211929635009';
 String _fixture(String name) =>
     File('test/fixtures/kakuyomu/$name').readAsStringSync();
 
+String _tocWithHref(String href) =>
+    '''
+<ol><li class="widget-toc-episode">
+  <a class="widget-toc-episode-episodeTitle" href="$href">
+    <span class="widget-toc-episode-titleLabel">話</span>
+  </a>
+</li></ol>
+''';
+
 KakuyomuSite _createSite(_FixtureAdapter adapter) {
   final dio = Dio()..httpClientAdapter = adapter;
   return KakuyomuSite(
@@ -167,6 +176,42 @@ void main() {
         );
         expect(first.update, '2024年1月15日');
       });
+
+      test('相対hrefをサイトのoriginから解決する', () async {
+        final adapter = _FixtureAdapter(<String, String>{
+          '/works/$_workId': _fixture('work_page.html'),
+          '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar':
+              _tocWithHref('works/$_workId/episodes/$_firstEpisodeId'),
+        });
+        final site = _createSite(adapter);
+
+        final episodes = await site.fetchToc(_workId);
+
+        expect(
+          episodes.single.url,
+          'https://kakuyomu.jp/works/$_workId/episodes/$_firstEpisodeId',
+        );
+      });
+
+      test('外部originや不正な目次hrefを拒否する', () async {
+        for (final href in <String>[
+          'https://evil.example/works/$_workId/episodes/1',
+          'http://kakuyomu.jp/works/$_workId/episodes/1',
+          'https://kakuyomu.jp:444/works/$_workId/episodes/1',
+          'https://user@kakuyomu.jp/works/$_workId/episodes/1',
+          'http://[invalid',
+        ]) {
+          final adapter = _FixtureAdapter(<String, String>{
+            '/works/$_workId': _fixture('work_page.html'),
+            '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar':
+                _tocWithHref(href),
+          });
+          final site = _createSite(adapter);
+
+          await expectLater(site.fetchToc(_workId), throwsStateError);
+          expect(adapter.requestedPaths, hasLength(2));
+        }
+      });
     });
 
     group('fetchEpisode', () {
@@ -210,6 +255,25 @@ void main() {
     });
 
     group('アクセス方針', () {
+      test('カクヨム以外・userinfo付き・HTTPS以外・非443のURLを取得しない', () async {
+        for (final url in <String>[
+          'https://evil.example/works/$_workId/episodes/1',
+          'http://kakuyomu.jp/works/$_workId/episodes/1',
+          'https://kakuyomu.jp:444/works/$_workId/episodes/1',
+          'https://user@kakuyomu.jp/works/$_workId/episodes/1',
+          'https://kakuyomu.jp:bad/works/$_workId/episodes/1',
+        ]) {
+          final adapter = _FixtureAdapter(<String, String>{});
+          final site = _createSite(adapter);
+
+          await expectLater(
+            site.fetchEpisode(_workId, 1, url: url),
+            throwsStateError,
+          );
+          expect(adapter.requestedPaths, isEmpty);
+        }
+      });
+
       test('robots.txtで禁止された/readページは取得しない', () async {
         final adapter = _FixtureAdapter(<String, String>{});
         final site = _createSite(adapter);
@@ -434,6 +498,30 @@ void main() {
         await expectLater(site.fetchRanking('daily'), throwsStateError);
 
         expect(redirectAdapter.requestedUris, hasLength(1));
+      });
+
+      test('許可origin外・HTTP・別port・userinfo付きへのリダイレクトを拒否する', () async {
+        for (final redirectTo in <String>[
+          'https://evil.example/rankings/all/daily',
+          'http://kakuyomu.jp/rankings/all/daily',
+          'https://kakuyomu.jp:444/rankings/all/daily',
+          'https://user@kakuyomu.jp/rankings/all/daily',
+        ]) {
+          final redirectAdapter = _RedirectAdapter(
+            redirectFrom:
+                'https://kakuyomu.jp/rankings/all/daily?work_variation=long',
+            redirectTo: redirectTo,
+            targetHtml: _fixture('ranking_page.html'),
+          );
+          final dio = Dio()..httpClientAdapter = redirectAdapter;
+          final site = KakuyomuSite(
+            dio: dio,
+            rateLimiter: KakuyomuRateLimiter(interval: Duration.zero),
+          );
+
+          await expectLater(site.fetchRanking('daily'), throwsStateError);
+          expect(redirectAdapter.requestedUris, hasLength(1));
+        }
       });
 
       test('ランキングページのrankedWorksから作品一覧をパースできる', () async {

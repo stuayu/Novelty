@@ -262,14 +262,29 @@ class KakuyomuSite implements NovelSite {
     }
   }
 
+  /// KakuyomuのHTTPS origin（標準443番ポート）だけを許可する。
+  Uri _resolveAllowedUri(String reference, {Uri? baseUri}) {
+    final base = baseUri ?? Uri.parse(source.baseUrl);
+    late final Uri uri;
+    try {
+      uri = base.resolve(reference.trim());
+    } on FormatException {
+      throw StateError('不正なカクヨムURLです');
+    }
+    if (uri.scheme != 'https' ||
+        uri.host != 'kakuyomu.jp' ||
+        uri.port != 443 ||
+        uri.userInfo.isNotEmpty) {
+      throw StateError('許可されていないカクヨムURLです');
+    }
+    _assertAllowed(uri.path);
+    return uri;
+  }
+
   /// HTTP GET を実行し、HTML文字列を返す。
   Future<String> _fetch(String pathOrUrl) async {
-    var uri = Uri.parse(pathOrUrl);
-    // 相対パスはカクヨムのベースURLに解決する
-    final url = uri.hasScheme ? pathOrUrl : '${source.baseUrl}$pathOrUrl';
-    uri = Uri.parse(url);
+    var uri = _resolveAllowedUri(pathOrUrl);
     for (var redirectCount = 0; redirectCount <= 5; redirectCount++) {
-      _assertAllowed(uri.path);
       await _rateLimiter.wait();
       final response = await _dio.get<String>(
         uri.toString(),
@@ -286,14 +301,7 @@ class KakuyomuSite implements NovelSite {
         if (location == null || redirectCount == 5) {
           throw KakuyomuHttpException(statusCode, uri.toString());
         }
-        final nextUri = uri.resolve(location);
-        if (nextUri.scheme != 'https' ||
-            nextUri.host != uri.host ||
-            nextUri.host != 'kakuyomu.jp') {
-          throw StateError('許可されていないリダイレクト先です: $nextUri');
-        }
-        _assertAllowed(nextUri.path);
-        uri = nextUri;
+        uri = _resolveAllowedUri(location, baseUri: uri);
         continue;
       }
       if (statusCode != 200) {
@@ -488,15 +496,11 @@ class KakuyomuSite implements NovelSite {
     );
   }
 
-  /// 相対URLを絶対URLに変換する。絶対URLの場合はそのまま返す。
+  /// 目次hrefを解決し、許可originと取得可能なパスを検証する。
   String? _toAbsoluteUrl(String? href) {
-    if (href == null) {
+    if (href == null || href.trim().isEmpty) {
       return null;
     }
-    final uri = Uri.parse(href);
-    if (uri.hasScheme) {
-      return href;
-    }
-    return '${source.baseUrl}$href';
+    return _resolveAllowedUri(href).toString();
   }
 }
