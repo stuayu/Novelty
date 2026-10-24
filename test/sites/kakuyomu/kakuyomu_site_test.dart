@@ -9,15 +9,18 @@ import 'package:novelty/sites/novel_source.dart';
 
 /// パスごとにフィクスチャを返すHTTPアダプタ。
 class _FixtureAdapter implements HttpClientAdapter {
-  _FixtureAdapter(this._fixtures);
+  _FixtureAdapter(this._fixtures, {this.statusCode = 200});
 
   /// key: パス（例: `/works/123`）、value: HTML文字列
   final Map<String, String> _fixtures;
+  final int statusCode;
 
   final List<String> requestedPaths = <String>[];
 
   /// リクエストされた完全なURI（クエリ含む）の一覧。
   final List<String> requestedUris = <String>[];
+  final List<Duration?> connectTimeouts = <Duration?>[];
+  final List<Duration?> receiveTimeouts = <Duration?>[];
 
   @override
   Future<ResponseBody> fetch(
@@ -26,6 +29,8 @@ class _FixtureAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     final uri = Uri.parse(options.path);
+    connectTimeouts.add(options.connectTimeout);
+    receiveTimeouts.add(options.receiveTimeout);
     requestedPaths.add(uri.path);
     requestedUris.add(options.path);
     final html = _fixtures[uri.path];
@@ -34,7 +39,7 @@ class _FixtureAdapter implements HttpClientAdapter {
     }
     return ResponseBody.fromString(
       html,
-      200,
+      statusCode,
       headers: <String, List<String>>{
         Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
       },
@@ -255,6 +260,34 @@ void main() {
     });
 
     group('アクセス方針', () {
+      test('403と429は自動再試行しない', () async {
+        for (final statusCode in <int>[403, 429]) {
+          final adapter = _FixtureAdapter(
+            <String, String>{'/search': _fixture('search_page.html')},
+            statusCode: statusCode,
+          );
+          final site = _createSite(adapter);
+
+          await expectLater(
+            site.searchNovels(const NovelSearchQuery(word: 'test')),
+            throwsA(isA<DioException>()),
+          );
+          expect(adapter.requestedPaths, hasLength(1));
+        }
+      });
+
+      test('HTTPリクエストに明示的なconnect/receive timeoutを渡す', () async {
+        final adapter = _FixtureAdapter(<String, String>{
+          '/search': _fixture('search_page.html'),
+        });
+        final site = _createSite(adapter);
+
+        await site.searchNovels(const NovelSearchQuery(word: 'test'));
+
+        expect(adapter.connectTimeouts.single, const Duration(seconds: 10));
+        expect(adapter.receiveTimeouts.single, const Duration(seconds: 30));
+      });
+
       test('カクヨム以外・userinfo付き・HTTPS以外・非443のURLを取得しない', () async {
         for (final url in <String>[
           'https://evil.example/works/$_workId/episodes/1',

@@ -76,8 +76,18 @@ class KakuyomuSite implements NovelSite {
   ///
   /// [dio] と [rateLimiter] はテスト時に注入できる。
   KakuyomuSite({Dio? dio, KakuyomuRateLimiter? rateLimiter})
-    : _dio = dio ?? Dio(),
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              connectTimeout: _connectTimeout,
+              receiveTimeout: _receiveTimeout,
+            ),
+          ),
       _rateLimiter = rateLimiter ?? KakuyomuRateLimiter();
+
+  static const Duration _connectTimeout = Duration(seconds: 10);
+  static const Duration _receiveTimeout = Duration(seconds: 30);
 
   final Dio _dio;
   final KakuyomuRateLimiter _rateLimiter;
@@ -295,6 +305,8 @@ class KakuyomuSite implements NovelSite {
         uri.toString(),
         options: Options(
           headers: <String, String>{'User-Agent': _userAgent},
+          connectTimeout: _connectTimeout,
+          receiveTimeout: _receiveTimeout,
           responseType: ResponseType.plain,
           followRedirects: false,
           validateStatus: (status) => status != null && status < 400,
