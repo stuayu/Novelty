@@ -226,7 +226,10 @@ class KakuyomuSite implements NovelSite {
     final episodeUrl = url ?? await _resolveEpisodeUrl(workId, index);
     final allowedUri = _resolveAllowedEpisodeUri(episodeUrl, workId);
     final validatedEpisodeUrl = allowedUri.toString();
-    final html = await _fetch(validatedEpisodeUrl);
+    final html = await _fetch(
+      validatedEpisodeUrl,
+      episodeWorkId: workId,
+    );
     return _parseEpisode(html, workId, index, validatedEpisodeUrl);
   }
 
@@ -323,8 +326,12 @@ class KakuyomuSite implements NovelSite {
   }
 
   /// 作品ID配下のエピソード本文URLだけを許可する。
-  Uri _resolveAllowedEpisodeUri(String reference, String workId) {
-    final uri = _resolveAllowedUri(reference);
+  Uri _resolveAllowedEpisodeUri(
+    String reference,
+    String workId, {
+    Uri? baseUri,
+  }) {
+    final uri = _resolveAllowedUri(reference, baseUri: baseUri);
     final segments = uri.pathSegments;
     if (segments.length != 4 ||
         segments[0] != 'works' ||
@@ -337,8 +344,10 @@ class KakuyomuSite implements NovelSite {
   }
 
   /// HTTP GET を実行し、HTML文字列を返す。
-  Future<String> _fetch(String pathOrUrl) async {
-    var uri = _resolveAllowedUri(pathOrUrl);
+  Future<String> _fetch(String pathOrUrl, {String? episodeWorkId}) async {
+    var uri = episodeWorkId == null
+        ? _resolveAllowedUri(pathOrUrl)
+        : _resolveAllowedEpisodeUri(pathOrUrl, episodeWorkId);
     for (var redirectCount = 0; redirectCount <= 5; redirectCount++) {
       await _rateLimiter.wait();
       final response = await _dio.get<String>(
@@ -361,7 +370,13 @@ class KakuyomuSite implements NovelSite {
         if (redirectCount == 5) {
           throw KakuyomuRedirectException(uri.toString());
         }
-        uri = _resolveAllowedUri(location, baseUri: uri);
+        uri = episodeWorkId == null
+            ? _resolveAllowedUri(location, baseUri: uri)
+            : _resolveAllowedEpisodeUri(
+                location,
+                episodeWorkId,
+                baseUri: uri,
+              );
         continue;
       }
       if (statusCode != 200) {

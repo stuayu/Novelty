@@ -266,6 +266,54 @@ void main() {
         expect(episode.subtitle, '破滅と回帰');
         expect(episode.body, isNotNull);
       });
+
+      test('本文redirect先が作品のepisode path外なら追加リクエストしない', () async {
+        for (final redirectPath in <String>[
+          '/users/someone',
+          '/works/another-work/episodes/123',
+          '/works/$_workId/episodes/$_firstEpisodeId/read/',
+          '/works/$_workId/episodes/$_firstEpisodeId/',
+        ]) {
+          const initialUrl =
+              'https://kakuyomu.jp/works/$_workId/episodes/$_firstEpisodeId';
+          final redirectAdapter = _RedirectAdapter(
+            redirectFrom: initialUrl,
+            redirectTo: 'https://kakuyomu.jp$redirectPath',
+            targetHtml: _fixture('episode_page.html'),
+          );
+          final site = KakuyomuSite(
+            dio: Dio()..httpClientAdapter = redirectAdapter,
+            rateLimiter: KakuyomuRateLimiter(interval: Duration.zero),
+          );
+
+          await expectLater(
+            site.fetchEpisode(_workId, 1, url: initialUrl),
+            throwsA(isA<KakuyomuUrlException>()),
+          );
+          expect(redirectAdapter.requestedUris, hasLength(1));
+        }
+      });
+
+      test('同一作品のepisode pathへの本文redirectは追従する', () async {
+        const initialUrl =
+            'https://kakuyomu.jp/works/$_workId/episodes/$_firstEpisodeId';
+        const redirectedEpisodeId = '16818023211929635010';
+        final redirectAdapter = _RedirectAdapter(
+          redirectFrom: initialUrl,
+          redirectTo:
+              'https://kakuyomu.jp/works/$_workId/episodes/$redirectedEpisodeId',
+          targetHtml: _fixture('episode_page.html'),
+        );
+        final site = KakuyomuSite(
+          dio: Dio()..httpClientAdapter = redirectAdapter,
+          rateLimiter: KakuyomuRateLimiter(interval: Duration.zero),
+        );
+
+        final episode = await site.fetchEpisode(_workId, 1, url: initialUrl);
+
+        expect(episode.body, contains('<p id="p1">'));
+        expect(redirectAdapter.requestedUris, hasLength(2));
+      });
     });
 
     group('アクセス方針', () {
