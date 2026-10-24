@@ -516,37 +516,78 @@ class HamelnSite implements NovelSite, RankingCacheControl {
   }
 
   Future<String> _fetchHtml(String url) async {
-    final uri = Uri.parse(url);
-    _assertAllowed(uri);
-    final response = await _dio.get<String>(
-      url,
-      options: Options(
-        responseType: ResponseType.plain,
-        headers: _cookieHeader == null
-            ? null
-            : <String, String>{'Cookie': _cookieHeader!},
-        followRedirects: _cookieHeader == null,
-        validateStatus: (_) => true,
-      ),
-    );
-    if (response.statusCode == 403 ||
-        (_cookieHeader != null &&
-            response.statusCode != null &&
-            response.statusCode! >= 300 &&
-            response.statusCode! < 400)) {
-      return _fetchHtmlWithWebView(url);
+    var current = Uri.parse(url);
+    final visited = <Uri>{};
+    for (var redirects = 0; redirects <= 5; redirects++) {
+      _assertAllowed(current);
+      if (!visited.add(current)) {
+        throw StateError('ハーメルンのリダイレクトがループしました: $url');
+      }
+
+      final response = await _dio.get<String>(
+        current.toString(),
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: _cookieHeader == null
+              ? null
+              : <String, String>{'Cookie': _cookieHeader!},
+          followRedirects: false,
+          validateStatus: (_) => true,
+        ),
+      );
+      if (response.statusCode == 403) return _fetchHtmlWithWebView(url);
+      if (response.realUri != current) {
+        _assertAllowed(response.realUri);
+        if (_cookieHeader != null &&
+            !_hasSameOrigin(current, response.realUri)) {
+          return _fetchHtmlWithWebView(url);
+        }
+      }
+
+      final statusCode = response.statusCode ?? 0;
+      if (statusCode >= 300 && statusCode < 400) {
+        final location = response.headers.value('location');
+        if (location == null || location.isEmpty) {
+          throw HamelnHttpException(statusCode, url);
+        }
+        final target = response.realUri.resolve(location);
+        if (!_isTrustedHamelnOrigin(target)) {
+          if (_cookieHeader != null) return _fetchHtmlWithWebView(url);
+          throw StateError('ハーメルン公式HTTPS URLではありません: $target');
+        }
+        // robots.txtで禁止されたパスはWebViewにも渡さない。
+        _assertAllowed(target);
+        if (_cookieHeader != null &&
+            !_hasSameOrigin(response.realUri, target)) {
+          return _fetchHtmlWithWebView(url);
+        }
+        if (redirects == 5) {
+          throw HamelnHttpException(statusCode, url);
+        }
+        current = target;
+        continue;
+      }
+      if (statusCode != 200) {
+        throw HamelnHttpException(statusCode, url);
+      }
+
+      final html = response.data ?? '';
+      // Cloudflareは200でチャレンジページを返すこともある。
+      // 403と同じくWebViewでの解決を試みる。
+      if (_isCloudflareChallenge(html)) {
+        return _fetchHtmlWithWebView(url);
+      }
+      return _validateHtml(url, html);
     }
-    if (response.statusCode != 200) {
-      throw HamelnHttpException(response.statusCode ?? -1, url);
-    }
-    final html = response.data ?? '';
-    // Cloudflareは200でチャレンジページを返すこともある。
-    // 403と同じくWebViewでの解決を試みる。
-    if (_isCloudflareChallenge(html)) {
-      return _fetchHtmlWithWebView(url);
-    }
-    return _validateHtml(url, html);
+    throw StateError('ハーメルンのリダイレクト回数が上限を超えました: $url');
   }
+
+  bool _hasSameOrigin(Uri first, Uri second) =>
+      first.scheme.toLowerCase() == second.scheme.toLowerCase() &&
+      first.host.toLowerCase() == second.host.toLowerCase() &&
+      first.port == second.port &&
+      first.userInfo.isEmpty &&
+      second.userInfo.isEmpty;
 
   /// WebViewでCloudflareチャレンジを解決してHTMLを取得する。
   Future<String> _fetchHtmlWithWebView(String url) async {
@@ -596,9 +637,12 @@ class HamelnSite implements NovelSite, RankingCacheControl {
   /// CloudflareのJavaScriptチャレンジページか判定する。
   bool _isCloudflareChallenge(String html) => isHamelnChallengeHtml(html);
 
+  bool _isTrustedHamelnOrigin(Uri uri) =>
+      isTrustedHttpsOrigin(uri, host: 'syosetu.org') ||
+      isTrustedHttpsOrigin(uri, host: 'h.syosetu.org');
+
   void _assertAllowed(Uri uri) {
-    if (!isTrustedHttpsOrigin(uri, host: 'syosetu.org') &&
-        !isTrustedHttpsOrigin(uri, host: 'h.syosetu.org')) {
+    if (!_isTrustedHamelnOrigin(uri)) {
       throw StateError('ハーメルン公式HTTPS URLではありません: $uri');
     }
     final mode = uri.queryParameters['mode'];

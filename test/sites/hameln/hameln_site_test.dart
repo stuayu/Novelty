@@ -16,10 +16,12 @@ class _FixtureAdapter implements HttpClientAdapter {
   _FixtureAdapter(
     this.fixtures, {
     this.statusCodes = const <String, int>{},
+    this.locations = const <String, String>{},
   });
 
   final Map<String, String> fixtures;
   final Map<String, int> statusCodes;
+  final Map<String, String> locations;
   final List<RequestOptions> requests = <RequestOptions>[];
 
   @override
@@ -34,12 +36,15 @@ class _FixtureAdapter implements HttpClientAdapter {
     if (body == null) {
       return ResponseBody.fromString('not found', 404);
     }
+    final headers = <String, List<String>>{
+      Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
+    };
+    final location = locations[uri.toString()] ?? locations[uri.path];
+    if (location != null) headers['location'] = <String>[location];
     return ResponseBody.fromString(
       body,
       statusCodes[uri.toString()] ?? statusCodes[uri.path] ?? 200,
-      headers: <String, List<String>>{
-        Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
-      },
+      headers: headers,
     );
   }
 
@@ -62,12 +67,14 @@ HamelnSite _createSite(
   _FixtureAdapter adapter, {
   RequestRateLimiter? rateLimiter,
   HamelnHtmlFetcher? htmlFetcher,
+  HamelnCookieHeaderFetcher? cookieHeaderFetcher,
 }) {
   final dio = Dio()..httpClientAdapter = adapter;
   return HamelnSite(
     dio: dio,
     rateLimiter: rateLimiter ?? RequestRateLimiter(interval: Duration.zero),
     htmlFetcher: htmlFetcher,
+    cookieHeaderFetcher: cookieHeaderFetcher,
   );
 }
 
@@ -156,6 +163,88 @@ void main() {
         await expectLater(
           _createSite(adapter).fetchNovelInfo('999999999'),
           throwsA(isA<HamelnWorkNotFoundException>()),
+        );
+      });
+
+      test('Cookie付きの同一origin redirectをWebViewへ回さず追跡する', () async {
+        const bootstrapUrl = 'https://syosetu.org/novel/999999999/';
+        const redirectedUrl = 'https://syosetu.org/novel/328453/';
+        const canonicalUrl = '$redirectedUrl?canonical=1';
+        final adapter = _FixtureAdapter(
+          <String, String>{
+            bootstrapUrl: 'Forbidden',
+            redirectedUrl: 'redirect',
+            canonicalUrl: _fixture('serial.html'),
+          },
+          statusCodes: const <String, int>{
+            bootstrapUrl: 403,
+            redirectedUrl: 302,
+          },
+          locations: const <String, String>{
+            redirectedUrl: '/novel/328453/?canonical=1',
+          },
+        );
+        var webViewCalls = 0;
+        final site = _createSite(
+          adapter,
+          htmlFetcher: (_) async {
+            webViewCalls++;
+            return _fixture('serial.html');
+          },
+          cookieHeaderFetcher: (_) async => 'session=private',
+        );
+
+        await site.fetchNovelInfo('999999999');
+        final info = await site.fetchNovelInfo('328453');
+
+        expect(info.title, '道化の愉快な仲間たち');
+        expect(webViewCalls, 1);
+        expect(adapter.requests, hasLength(3));
+        expect(adapter.requests[1].headers['Cookie'], 'session=private');
+        expect(adapter.requests[2].uri.queryParameters['canonical'], '1');
+        expect(adapter.requests[2].headers['Cookie'], 'session=private');
+      });
+
+      test('Cookie付きでもrobots.txt禁止先へのredirectをWebViewで取得しない', () async {
+        const bootstrapUrl = 'https://syosetu.org/novel/999999999/';
+        const workUrl = 'https://syosetu.org/novel/328453/';
+        final adapter = _FixtureAdapter(
+          <String, String>{
+            bootstrapUrl: 'Forbidden',
+            workUrl: 'redirect',
+          },
+          statusCodes: const <String, int>{
+            bootstrapUrl: 403,
+            workUrl: 302,
+          },
+          locations: const <String, String>{
+            workUrl: '/novel/328453/?mode=ss_detail3',
+          },
+        );
+        var webViewCalls = 0;
+        final site = _createSite(
+          adapter,
+          htmlFetcher: (_) async {
+            webViewCalls++;
+            return _fixture('serial.html');
+          },
+          cookieHeaderFetcher: (_) async => 'session=private',
+        );
+
+        await site.fetchNovelInfo('999999999');
+
+        await expectLater(
+          site.fetchNovelInfo('328453'),
+          throwsStateError,
+        );
+
+        expect(webViewCalls, 1);
+        expect(adapter.requests, hasLength(2));
+        expect(
+          adapter.requests.map(
+            (request) => request.uri.queryParameters['mode'],
+          ),
+          everyElement(isNull),
         );
       });
     });
