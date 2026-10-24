@@ -21,8 +21,6 @@ void _logRanking(String message) {
   debugPrint('[Novelty][Ranking] $message');
 }
 
-
-
 /// ランキングの状態を管理するクラス
 @immutable
 class RankingState {
@@ -111,7 +109,6 @@ class RankingNotifier extends _$RankingNotifier {
   RankingState build(NovelSource source, String rankingType) {
     // Watch filter state to trigger rebuild when it changes
     ref.watch(rankingFilterStateProvider(source, rankingType));
-
 
     // Initial fetch
     unawaited(Future.microtask(fetchNextPage));
@@ -208,6 +205,9 @@ class RankingNotifier extends _$RankingNotifier {
         );
         return;
       }
+      if (ref.read(rankingFilterStateProvider(source, rankingType)) != filter) {
+        return;
+      }
 
       final fetchedNovels = result.novels;
       _logRanking(
@@ -234,6 +234,9 @@ class RankingNotifier extends _$RankingNotifier {
       pagesFetched++;
     }
 
+    if (ref.read(rankingFilterStateProvider(source, rankingType)) != filter) {
+      return;
+    }
     state = currentState.copyWith(
       novels: [...currentState.novels, ...newNovels],
       isLoading: false,
@@ -254,40 +257,43 @@ class RankingNotifier extends _$RankingNotifier {
       'fetchNextPage(${source.dbId}): ランキング取得 page=${currentState.page} '
       'mounted=${ref.mounted}',
     );
-    final result = await site.fetchRanking(
-      rankingType,
-      page: currentState.page,
-    );
+    var nextPage = currentState.page;
+    var filtered = <NovelInfo>[];
+    var hasMore = true;
+    var pagesFetched = 0;
+    const maxPagesPerFetch = 5;
 
-    // タブ切替等でプロバイダが破棄された場合は中断する
-    if (!ref.mounted) {
+    do {
+      final result = await site.fetchRanking(rankingType, page: nextPage);
+
+      // タブ切替やフィルタ変更後の古い応答は状態へ反映しない。
+      if (!ref.mounted ||
+          ref.read(rankingFilterStateProvider(source, rankingType)) != filter) {
+        return;
+      }
       _logRanking(
-        'fetchNextPage(${source.dbId}): プロバイダ破棄のため中断',
+        'fetchNextPage(${source.dbId}): page=$nextPage '
+        '取得成功 ${result.novels.length}件',
       );
-      return;
-    }
-    _logRanking(
-      'fetchNextPage(${source.dbId}): 取得成功 ${result.novels.length}件',
-    );
 
-    // クライアントサイドでフィルタを適用
-    final filtered = result.novels.where((novel) {
-      if (filter.showOnlyOngoing) {
-        if (novel.end != 1) return false;
-      }
-      if (filter.selectedGenreId != null) {
-        if (novel.genreId != filter.selectedGenreId) return false;
-      }
-      return true;
-    }).toList();
+      filtered = result.novels.where((novel) {
+        if (filter.showOnlyOngoing && novel.end != 1) return false;
+        if (filter.selectedGenreId != null &&
+            novel.genreId != filter.selectedGenreId) {
+          return false;
+        }
+        return true;
+      }).toList();
+      hasMore = result.hasNextPage;
+      nextPage++;
+      pagesFetched++;
+    } while (filtered.isEmpty && hasMore && pagesFetched < maxPagesPerFetch);
 
-    // サーバーが返す hasNextPage で次のページ有無を判定する
-    final hasMore = result.hasNextPage;
     state = currentState.copyWith(
       novels: [...currentState.novels, ...filtered],
       isLoading: false,
       isLoadingMore: false,
-      page: currentState.page + 1,
+      page: nextPage,
       hasMore: hasMore,
       error: const Value<Object?>(null),
     );

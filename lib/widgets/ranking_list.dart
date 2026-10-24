@@ -80,6 +80,51 @@ class RankingList extends HookConsumerWidget {
       return const Center(child: CircularProgressIndicator());
     }
 
+    if (rankingState.novels.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: () async {
+          await ref
+              .read(rankingProvider(source, rankingType).notifier)
+              .refresh();
+        },
+        child: ListView(
+          controller: scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: 240,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('該当する作品がありません'),
+                    if (rankingState.isLoadingMore)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: CircularProgressIndicator(),
+                      )
+                    else if (rankingState.hasMore)
+                      TextButton(
+                        onPressed: () {
+                          unawaited(
+                            ref
+                                .read(
+                                  rankingProvider(source, rankingType).notifier,
+                                )
+                                .fetchNextPage(),
+                          );
+                        },
+                        child: const Text('次のページを読み込む'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return RefreshIndicator(
       onRefresh: () async {
         await ref.read(rankingProvider(source, rankingType).notifier).refresh();

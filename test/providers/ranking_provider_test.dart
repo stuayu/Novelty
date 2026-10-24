@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
+import 'package:novelty/domain/ranking_filter_state.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
@@ -13,6 +15,7 @@ import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/settings_provider.dart';
 import 'package:novelty/utils/value_wrapper.dart';
+import 'package:novelty/widgets/ranking_list.dart';
 
 import 'novel_info_offline_test.mocks.dart';
 
@@ -21,10 +24,13 @@ import 'novel_info_offline_test.mocks.dart';
 /// ランキング以外のメソッドは [NovelSite] のデフォルト実装
 /// （[UnsupportedError]）を使用する。
 class _StubRankingSite extends NovelSite {
-  _StubRankingSite(this._pages);
+  _StubRankingSite(this._pages, {this.onFetch});
 
   /// ページ番号（1始まり）に対応する [RankingPage] の一覧。
   final List<RankingPage> _pages;
+
+  /// 非同期応答の順序を制御するテスト用フック。
+  final Future<RankingPage> Function(int page)? onFetch;
 
   /// fetchRanking が呼ばれた回数。
   int callCount = 0;
@@ -45,10 +51,11 @@ class _StubRankingSite extends NovelSite {
   Future<RankingPage> fetchRanking(
     String rankingType, {
     int page = 1,
-  }) async {
+  }) {
     callCount++;
+    if (onFetch != null) return onFetch!(page);
     final index = (page - 1).clamp(0, _pages.length - 1);
-    return _pages[index];
+    return Future<RankingPage>.value(_pages[index]);
   }
 }
 
@@ -188,11 +195,139 @@ void main() {
       // 例外が投げられていなければ成功（破棄後のstate更新でエラーにならない）
       verify(mockApiService.searchNovels(any)).called(1);
     });
-
-
   });
 
   group('RankingNotifier（カクヨムのサイト実装経路）', () {
+    testWidgets('フィルタ結果が空でも空状態を表示する', (tester) async {
+      final site = _StubRankingSite(const <RankingPage>[
+        RankingPage(novels: <NovelInfo>[], hasNextPage: false),
+      ]);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            novelSiteRegistryProvider.overrideWithValue(
+              <NovelSource, NovelSite>{NovelSource.kakuyomu: site},
+            ),
+            isOfflineModeProvider.overrideWithValue(false),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: RankingList(
+                source: NovelSource.kakuyomu,
+                rankingType: 'daily',
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('該当する作品がありません'), findsOneWidget);
+    });
+
+    test('フィルタ後に空のページを読み飛ばして結果があるページまで取得する', () async {
+      final site = _StubRankingSite(<RankingPage>[
+        const RankingPage(
+          novels: <NovelInfo>[
+            NovelInfo(title: '完結作品', ncode: 'n1', end: 0),
+          ],
+          hasNextPage: true,
+        ),
+        const RankingPage(
+          novels: <NovelInfo>[
+            NovelInfo(title: '連載作品', ncode: 'n2', end: 1),
+          ],
+          hasNextPage: false,
+        ),
+      ]);
+      final container = ProviderContainer(
+        overrides: [
+          novelSiteRegistryProvider.overrideWithValue(
+            <NovelSource, NovelSite>{NovelSource.kakuyomu: site},
+          ),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+      container
+          .read(
+            rankingFilterStateProvider(NovelSource.kakuyomu, 'daily').notifier,
+          )
+          .setShowOnlyOngoing(value: true);
+
+      final subscription = container.listen(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+        (_, _) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final state = container.read(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+      );
+      expect(state.novels.single.title, '連載作品');
+      expect(site.callCount, 2);
+      expect(state.hasMore, isFalse);
+      subscription.close();
+    });
+
+    test('条件変更後に古いランキング応答が新しい結果を上書きしない', () async {
+      final oldResponse = Completer<RankingPage>();
+      final newResponse = Completer<RankingPage>();
+      var fetchCount = 0;
+      final site = _StubRankingSite(
+        const <RankingPage>[],
+        onFetch: (_) =>
+            ++fetchCount == 1 ? oldResponse.future : newResponse.future,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          novelSiteRegistryProvider.overrideWithValue(
+            <NovelSource, NovelSite>{NovelSource.kakuyomu: site},
+          ),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final subscription = container.listen(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+        (_, _) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+      container
+          .read(
+            rankingFilterStateProvider(NovelSource.kakuyomu, 'daily').notifier,
+          )
+          .setShowOnlyOngoing(value: true);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      newResponse.complete(
+        const RankingPage(
+          novels: <NovelInfo>[
+            NovelInfo(title: '新しい結果', ncode: 'n2', end: 1),
+          ],
+          hasNextPage: false,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      oldResponse.complete(
+        const RankingPage(
+          novels: <NovelInfo>[NovelInfo(title: '古い結果', ncode: 'n1')],
+          hasNextPage: false,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final state = container.read(
+        rankingProvider(NovelSource.kakuyomu, 'daily'),
+      );
+      expect(state.novels.single.title, '新しい結果');
+      subscription.close();
+    });
+
     test('hasNextPage=false ならhasMoreがfalseになりそれ以上取得しない', () async {
       final site = _StubRankingSite(<RankingPage>[
         const RankingPage(
