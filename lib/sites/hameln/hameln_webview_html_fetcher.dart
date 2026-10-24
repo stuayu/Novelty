@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:novelty/sites/hameln/hameln_html_fetcher.dart';
+import 'package:novelty/utils/hameln_uri.dart';
 
 const _hamelnBaseUrl = 'https://syosetu.org/';
 const _pollInterval = Duration(milliseconds: 250);
@@ -33,16 +34,37 @@ Future<String> _fetch(String url) async {
   final deadline = DateTime.now().add(_webViewTimeout);
   try {
     final loaded = Completer<void>();
+    var blockedNavigation = false;
     webView = HeadlessInAppWebView(
       initialUrlRequest: URLRequest(url: WebUri(url)),
+      initialSettings: InAppWebViewSettings(
+        useShouldOverrideUrlLoading: true,
+      ),
+      shouldOverrideUrlLoading: (_, action) async {
+        final allowed = isAllowedHamelnNavigationUri(
+          action.request.url?.uriValue,
+        );
+        if (!allowed) blockedNavigation = true;
+        return allowed
+            ? NavigationActionPolicy.ALLOW
+            : NavigationActionPolicy.CANCEL;
+      },
       onLoadStop: (_, _) {
         if (!loaded.isCompleted) loaded.complete();
       },
     );
     await webView.run().timeout(_remaining(deadline));
     await loaded.future.timeout(_remaining(deadline));
+    final finalUrl = await webView.webViewController?.getUrl();
+    if (blockedNavigation ||
+        !isAllowedHamelnNavigationUri(finalUrl?.uriValue)) {
+      throw StateError('WebViewが許可されていない転送先へ移動しました: $url');
+    }
     var polls = 0;
     while (true) {
+      if (blockedNavigation) {
+        throw StateError('WebViewが許可されていない転送先へ移動しました: $url');
+      }
       final controller = webView.webViewController;
       final evaluated = await controller?.evaluateJavascript(
         source: 'document.documentElement.outerHTML',

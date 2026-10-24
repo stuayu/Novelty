@@ -16,7 +16,6 @@ import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/hameln_uri.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
-import 'package:novelty/utils/trusted_uri.dart';
 
 export 'hameln_html_fetcher.dart';
 
@@ -551,8 +550,7 @@ class HamelnSite implements NovelSite, RankingCacheControl {
           throw HamelnHttpException(statusCode, url);
         }
         final target = response.realUri.resolve(location);
-        if (!_isTrustedHamelnOrigin(target)) {
-          if (_cookieHeader != null) return _fetchHtmlWithWebView(url);
+        if (!isTrustedHamelnUri(target)) {
           throw StateError('ハーメルン公式HTTPS URLではありません: $target');
         }
         // robots.txtで禁止されたパスはWebViewにも渡さない。
@@ -637,37 +635,12 @@ class HamelnSite implements NovelSite, RankingCacheControl {
   /// CloudflareのJavaScriptチャレンジページか判定する。
   bool _isCloudflareChallenge(String html) => isHamelnChallengeHtml(html);
 
-  bool _isTrustedHamelnOrigin(Uri uri) =>
-      isTrustedHttpsOrigin(uri, host: 'syosetu.org') ||
-      isTrustedHttpsOrigin(uri, host: 'h.syosetu.org');
-
   void _assertAllowed(Uri uri) {
-    if (!_isTrustedHamelnOrigin(uri)) {
+    if (!isTrustedHamelnUri(uri)) {
       throw StateError('ハーメルン公式HTTPS URLではありません: $uri');
     }
-    final mode = uri.queryParameters['mode'];
-    if (uri.path.startsWith('/conv/pdf/') ||
-        (mode != null && _isRobotsDisallowedMode(mode))) {
+    if (isHamelnRobotsDisallowedUri(uri)) {
       throw StateError('robots.txtにより取得が禁止されています: $uri');
     }
-  }
-
-  bool _isRobotsDisallowedMode(String mode) {
-    if (<String>{
-      'seek_list',
-      'ss_analyze',
-      'ss_detail_like',
-      'rating_input',
-      'ss_config',
-      'review_vote',
-      'recommended_vote',
-      'recommended_redirect',
-      'url_jump',
-    }.contains(mode)) {
-      return true;
-    }
-    return RegExp(
-      '^(?:ss_detail[3-6]|tuho_|siori2_|favo_|message_|correct_)',
-    ).hasMatch(mode);
   }
 }

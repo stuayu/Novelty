@@ -247,6 +247,43 @@ void main() {
           everyElement(isNull),
         );
       });
+
+      test('Cookie付きでも外部origin redirectをWebViewへ渡さない', () async {
+        const bootstrapUrl = 'https://syosetu.org/novel/999999999/';
+        const workUrl = 'https://syosetu.org/novel/328453/';
+        final adapter = _FixtureAdapter(
+          <String, String>{
+            bootstrapUrl: 'Forbidden',
+            workUrl: 'redirect',
+          },
+          statusCodes: const <String, int>{
+            bootstrapUrl: 403,
+            workUrl: 302,
+          },
+          locations: const <String, String>{
+            workUrl: 'https://example.com/novel/328453/',
+          },
+        );
+        var webViewCalls = 0;
+        final site = _createSite(
+          adapter,
+          htmlFetcher: (_) async {
+            webViewCalls++;
+            return _fixture('serial.html');
+          },
+          cookieHeaderFetcher: (_) async => 'session=private',
+        );
+
+        await site.fetchNovelInfo('999999999');
+
+        await expectLater(
+          site.fetchNovelInfo('328453'),
+          throwsStateError,
+        );
+
+        expect(webViewCalls, 1);
+        expect(adapter.requests, hasLength(2));
+      });
     });
 
     group('fetchToc', () {

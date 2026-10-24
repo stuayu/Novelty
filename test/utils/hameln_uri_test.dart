@@ -62,5 +62,56 @@ void main() {
         throwsFormatException,
       );
     });
+
+    test('WebView遷移を公式HTTPS originかつrobots許可URLに限定する', () {
+      expect(
+        isAllowedHamelnNavigationUri(
+          Uri.parse('https://syosetu.org/novel/328453/'),
+        ),
+        isTrue,
+      );
+      expect(
+        isAllowedHamelnNavigationUri(
+          Uri.parse('https://h.syosetu.org/novel/328453/'),
+        ),
+        isTrue,
+      );
+      expect(
+        isAllowedHamelnNavigationUri(
+          Uri.parse('http://syosetu.org/novel/328453/'),
+        ),
+        isFalse,
+      );
+      expect(
+        isAllowedHamelnNavigationUri(
+          Uri.parse('https://example.com/novel/328453/'),
+        ),
+        isFalse,
+      );
+      expect(
+        isAllowedHamelnNavigationUri(
+          Uri.parse('https://syosetu.org/novel/328453/?mode=ss_detail3'),
+        ),
+        isFalse,
+      );
+      expect(isAllowedHamelnNavigationUri(null), isFalse);
+    });
+
+    test('robots.txtで禁止された動作URLを拒否する', () {
+      for (final uri in <Uri>[
+        Uri.parse('https://syosetu.org/conv/pdf/328453/'),
+        Uri.parse('https://syosetu.org/?mode=ss_detail3'),
+        Uri.parse('https://syosetu.org/?mode=seek_list'),
+      ]) {
+        expect(isHamelnRobotsDisallowedUri(uri), isTrue);
+        expect(isAllowedHamelnNavigationUri(uri), isFalse);
+      }
+      expect(
+        isHamelnRobotsDisallowedUri(
+          Uri.parse('https://syosetu.org/novel/328453/'),
+        ),
+        isFalse,
+      );
+    });
   });
 }
