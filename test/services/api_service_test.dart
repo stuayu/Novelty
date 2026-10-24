@@ -11,6 +11,7 @@ class _FakeResponseAdapter implements HttpClientAdapter {
   _FakeResponseAdapter(this._body);
 
   final String _body;
+  final List<Uri> requestedUris = <Uri>[];
 
   @override
   Future<ResponseBody> fetch(
@@ -18,6 +19,7 @@ class _FakeResponseAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
+    requestedUris.add(options.uri);
     final gzipped = const GZipEncoder().encode(utf8.encode(_body));
     return ResponseBody.fromBytes(
       gzipped,
@@ -32,6 +34,35 @@ class _FakeResponseAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+class _TimedHostAdapter implements HttpClientAdapter {
+  _TimedHostAdapter() {
+    _stopwatch.start();
+  }
+
+  final Stopwatch _stopwatch = Stopwatch();
+  final Map<String, List<Duration>> requestTimes = <String, List<Duration>>{};
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final host = options.uri.host;
+    requestTimes.putIfAbsent(host, () => <Duration>[]).add(_stopwatch.elapsed);
+    if (host == 'api.syosetu.com') {
+      final bytes = const GZipEncoder().encode(
+        utf8.encode('[{"allcount":0}]'),
+      );
+      return ResponseBody.fromBytes(bytes, 200);
+    }
+    return ResponseBody.fromString('<html></html>', 200);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 ApiService _createService(String body) {
   final dio = Dio()..httpClientAdapter = _FakeResponseAdapter(body);
   return ApiService(dio: dio);
@@ -39,6 +70,45 @@ ApiService _createService(String body) {
 
 void main() {
   group('ApiService', () {
+    test('一括取得で重複Nコードを1件にまとめる', () async {
+      final adapter = _FakeResponseAdapter(
+        '[{"allcount":1},{"ncode":"n1234ab","title":"作品"}]',
+      );
+      final dio = Dio()..httpClientAdapter = adapter;
+      final service = ApiService(dio: dio);
+
+      final result = await service.fetchMultipleNovelsInfo([
+        'N1234AB',
+        'n1234ab',
+        'N1234AB',
+      ]);
+
+      expect(adapter.requestedUris.single.queryParameters['ncode'], 'n1234ab');
+      expect(result.keys, ['n1234ab']);
+    });
+
+    test('apiとncodeはホストごとに並列リクエストを1秒間隔に制限する', () async {
+      final adapter = _TimedHostAdapter();
+      final dio = Dio()..httpClientAdapter = adapter;
+      final service = ApiService(dio: dio);
+
+      await Future.wait([
+        service.searchNovels(const NovelSearchQuery(word: '作品A')),
+        service.searchNovels(const NovelSearchQuery(word: '作品B')),
+        service.fetchEpisodeList('N1234AB', 1),
+        service.fetchEpisodeList('N5678CD', 1),
+      ]);
+
+      for (final host in <String>['api.syosetu.com', 'ncode.syosetu.com']) {
+        final times = adapter.requestTimes[host]!;
+        expect(times, hasLength(2));
+        expect(
+          times.last - times.first,
+          greaterThanOrEqualTo(const Duration(milliseconds: 900)),
+        );
+      }
+    });
+
     group('fetchBasicNovelInfo レスポンス検証', () {
       test('allcount==0 のみを非公開・削除として扱うこと', () async {
         final service = _createService('[{"allcount":0}]');

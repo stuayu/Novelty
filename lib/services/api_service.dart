@@ -45,6 +45,31 @@ const int allTimeRankingLimit = 500;
 const String userAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
 
+class _SerializedRateLimiter {
+  static const Duration _interval = Duration(seconds: 1);
+
+  final Stopwatch _stopwatch = Stopwatch();
+  Future<void> _waitQueue = Future<void>.value();
+
+  Future<void> wait() {
+    final queuedWait = _waitQueue.then((_) async {
+      if (_stopwatch.isRunning) {
+        final elapsed = _stopwatch.elapsed;
+        if (elapsed < _interval) {
+          await Future<void>.delayed(_interval - elapsed);
+        }
+        _stopwatch
+          ..reset()
+          ..start();
+      } else {
+        _stopwatch.start();
+      }
+    });
+    _waitQueue = queuedWait;
+    return queuedWait;
+  }
+}
+
 @Riverpod(keepAlive: true)
 /// APIサービスのプロバイダー
 ApiService apiService(Ref ref) => ApiService();
@@ -55,8 +80,11 @@ class ApiService {
   ApiService({Dio? dio}) : _dio = dio ?? Dio();
 
   final Dio _dio;
+  final _SerializedRateLimiter _apiRateLimiter = _SerializedRateLimiter();
+  final _SerializedRateLimiter _ncodeRateLimiter = _SerializedRateLimiter();
 
   Future<Response<String>> _fetchWithCache(String url) async {
+    await _ncodeRateLimiter.wait();
     final response = await _dio.get<String>(
       url,
       options: Options(
@@ -147,17 +175,21 @@ class ApiService {
 
     // API allows fetching up to 20 novels at once, so we'll chunk the requests
     const chunkSize = 20;
+    final uniqueNcodes = ncodes
+        .map((ncode) => ncode.toNormalizedNcode())
+        .toSet()
+        .toList();
     final result = <String, NovelInfo>{};
 
-    for (var i = 0; i < ncodes.length; i += chunkSize) {
-      final chunk = ncodes.sublist(
+    for (var i = 0; i < uniqueNcodes.length; i += chunkSize) {
+      final chunk = uniqueNcodes.sublist(
         i,
-        i + chunkSize > ncodes.length ? ncodes.length : i + chunkSize,
+        i + chunkSize > uniqueNcodes.length
+            ? uniqueNcodes.length
+            : i + chunkSize,
       );
 
-      final ncodesParam = chunk
-          .map((ncode) => ncode.toNormalizedNcode())
-          .join('-');
+      final ncodesParam = chunk.join('-');
       final uri = Uri.https('api.syosetu.com', '/novelapi/api', {
         'ncode': ncodesParam,
         'out': 'json',
@@ -421,6 +453,7 @@ class ApiService {
   }
 
   Future<List<dynamic>> _fetchData(String url) async {
+    await _apiRateLimiter.wait();
     final response = await _dio.get<List<int>>(
       url,
       options: Options(
