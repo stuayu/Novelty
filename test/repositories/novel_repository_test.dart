@@ -16,6 +16,35 @@ import 'package:novelty/utils/settings_provider.dart';
 
 import '../providers/novel_info_offline_test.mocks.dart';
 
+class _DownloadApiService extends ApiService {
+  _DownloadApiService(this._novelInfo);
+
+  final NovelInfo _novelInfo;
+  int metadataFetchCount = 0;
+  final List<NovelInfo?> episodeMetadata = <NovelInfo?>[];
+
+  @override
+  Future<NovelInfo> fetchNovelInfo(String ncode) async {
+    metadataFetchCount++;
+    return _novelInfo;
+  }
+
+  @override
+  Future<Episode> fetchEpisode(
+    String ncode,
+    int episode, {
+    NovelInfo? novelInfo,
+  }) async {
+    episodeMetadata.add(novelInfo);
+    return Episode(
+      ncode: ncode,
+      index: episode,
+      subtitle: '第$episode話',
+      body: '<p>本文</p>',
+    );
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -436,6 +465,55 @@ void main() {
       );
       expect(data?.subtitle, '元のサブタイトル');
       expect(data?.content, isEmpty);
+    });
+  });
+
+  group('NovelRepository downloadNovel メタデータ再利用', () {
+    const ncode = 'n1234ab';
+    late db.AppDatabase database;
+    late _DownloadApiService apiService;
+    late ProviderContainer container;
+
+    setUp(() {
+      database = db.AppDatabase.memory();
+      apiService = _DownloadApiService(
+        const NovelInfo(
+          ncode: ncode,
+          title: 'まとめて取得する作品',
+          novelType: 1,
+          episodes: [
+            Episode(index: 1, revised: 'r1'),
+            Episode(index: 2, revised: 'r2'),
+          ],
+        ),
+      );
+      container = ProviderContainer(
+        overrides: [
+          db.appDatabaseProvider.overrideWithValue(database),
+          apiServiceProvider.overrideWithValue(apiService),
+          settingsProvider.overrideWith(FakeSettings.new),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+    });
+
+    tearDown(() async {
+      container.dispose();
+      await database.close();
+    });
+
+    test('取得済みNovelInfoを各エピソードへ渡して再問い合わせを避ける', () async {
+      final repository = container.read(novelRepositoryProvider);
+
+      await repository.downloadNovel(NovelSource.narou, ncode, 2);
+
+      expect(apiService.metadataFetchCount, 1);
+      expect(apiService.episodeMetadata, hasLength(2));
+      expect(apiService.episodeMetadata, everyElement(isNotNull));
+      expect(
+        apiService.episodeMetadata,
+        everyElement(apiService.episodeMetadata.first),
+      );
     });
   });
 

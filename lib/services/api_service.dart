@@ -44,6 +44,8 @@ const int allTimeRankingLimit = 500;
 /// User-Agent 基本的には最新になるようにする
 const String userAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
+const Duration _connectTimeout = Duration(seconds: 10);
+const Duration _receiveTimeout = Duration(seconds: 30);
 
 class _SerializedRateLimiter {
   static const Duration _interval = Duration(seconds: 1);
@@ -77,7 +79,15 @@ ApiService apiService(Ref ref) => ApiService();
 /// APIサービスクラス。
 class ApiService {
   /// [dio] を外部から注入可能にする。テスト時はモックを渡すことができる。
-  ApiService({Dio? dio}) : _dio = dio ?? Dio();
+  ApiService({Dio? dio})
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              connectTimeout: _connectTimeout,
+              receiveTimeout: _receiveTimeout,
+            ),
+          );
 
   final Dio _dio;
   final _SerializedRateLimiter _apiRateLimiter = _SerializedRateLimiter();
@@ -88,6 +98,8 @@ class ApiService {
     final response = await _dio.get<String>(
       url,
       options: Options(
+        connectTimeout: _connectTimeout,
+        receiveTimeout: _receiveTimeout,
         headers: {
           'User-Agent': userAgent,
         },
@@ -376,8 +388,17 @@ class ApiService {
   }
 
   /// 小説のエピソードを取得するメソッド。
-  Future<Episode> fetchEpisode(String ncode, int episode) async {
-    var info = await _fetchNovelInfoFromNarou(ncode);
+  Future<Episode> fetchEpisode(
+    String ncode,
+    int episode, {
+    NovelInfo? novelInfo,
+  }) async {
+    final resolvedInfo =
+        novelInfo != null &&
+            novelInfo.ncode?.toNormalizedNcode() == ncode.toNormalizedNcode()
+        ? novelInfo
+        : await _fetchNovelInfoFromNarou(ncode);
+    var info = resolvedInfo;
 
     // novelTypeがnullの場合、general_all_noを使って判断
     if (info.novelType == null) {
@@ -457,6 +478,8 @@ class ApiService {
     final response = await _dio.get<List<int>>(
       url,
       options: Options(
+        connectTimeout: _connectTimeout,
+        receiveTimeout: _receiveTimeout,
         headers: {
           'User-Agent': userAgent,
         },

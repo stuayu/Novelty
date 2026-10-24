@@ -177,12 +177,14 @@ class NovelRepository {
   Future<Episode> _fetchEpisode(
     NovelSource source,
     String workId,
-    int episode,
-  ) async {
+    int episode, {
+    NovelInfo? novelInfo,
+  }) async {
     if (source == NovelSource.narou) {
       return apiService.fetchEpisode(
         workId,
         episode,
+        novelInfo: novelInfo,
       );
     }
     final site = _sites[source]!;
@@ -246,6 +248,19 @@ class NovelRepository {
     String workId,
     int episode, {
     String? revised,
+  }) => _downloadSingleEpisode(
+    source,
+    workId,
+    episode,
+    revised: revised,
+  );
+
+  Future<bool> _downloadSingleEpisode(
+    NovelSource source,
+    String workId,
+    int episode, {
+    String? revised,
+    NovelInfo? novelInfo,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -262,7 +277,12 @@ class NovelRepository {
 
     try {
       // エピソードをフェッチ (Metadata + Content)
-      final ep = await _fetchEpisode(source, workId, episode);
+      final ep = await _fetchEpisode(
+        source,
+        workId,
+        episode,
+        novelInfo: novelInfo,
+      );
       final content = ep.body != null
           ? _parseEpisodeBody(source, ep.body!)
           : <NovelContentElement>[];
@@ -421,9 +441,10 @@ class NovelRepository {
       // 目次情報を取得して改稿日時Mapを作成
       // これにより、改稿されたエピソードのみを再ダウンロードできる
       final revisedMap = <int, String?>{};
+      NovelInfo? novelInfo;
       try {
-        final info = await _fetchNovelInfo(source, workId);
-        final episodes = info.episodes ?? [];
+        novelInfo = await _fetchNovelInfo(source, workId);
+        final episodes = novelInfo.episodes ?? [];
         for (final ep in episodes) {
           if (ep.index != null) {
             revisedMap[ep.index!] = ep.revised;
@@ -437,11 +458,12 @@ class NovelRepository {
       // 各エピソードをダウンロード
       for (var i = 1; i <= totalEpisodes; i++) {
         final revised = revisedMap[i];
-        final success = await downloadSingleEpisode(
+        final success = await _downloadSingleEpisode(
           source,
           workId,
           i,
           revised: revised,
+          novelInfo: novelInfo,
         );
 
         if (success) {
