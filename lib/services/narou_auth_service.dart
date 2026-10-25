@@ -283,7 +283,9 @@ class NarouAuthService {
       if (response.statusCode != 200 ||
           !_isNarouUri(response.realUri) ||
           !_hasSessionCookies(pending.cookies) ||
-          (!redirectedToBookmarkList && !sessionCookieChanged)) {
+          (!redirectedToBookmarkList &&
+              !sessionCookieChanged &&
+              username == null)) {
         _pendingMfa = null;
         return const NarouLoginResult.failure(
           '認証コードを確認できませんでした。ログインをやり直してください。',

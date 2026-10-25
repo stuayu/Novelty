@@ -259,9 +259,15 @@ class _MfaLoginAdapter implements HttpClientAdapter {
 }
 
 class _TwoStepMfaAdapter implements HttpClientAdapter {
-  _TwoStepMfaAdapter({this.emailOnly = false});
+  _TwoStepMfaAdapter({
+    this.emailOnly = false,
+    this.sessionCookiesOnChallenge = false,
+    this.updateSessionCookiesAfterMfa = true,
+  });
 
   final bool emailOnly;
+  final bool sessionCookiesOnChallenge;
+  final bool updateSessionCookiesAfterMfa;
   final List<RequestOptions> requests = <RequestOptions>[];
 
   static const _challengeId = 'test-challenge';
@@ -280,7 +286,14 @@ class _TwoStepMfaAdapter implements HttpClientAdapter {
         302,
         headers: <String, List<String>>{
           'location': ['/user2stepauth/input/authtoken/$_challengeId/'],
-          'set-cookie': ['challenge=fake; Path=/; Secure'],
+          'set-cookie': <String>[
+            'challenge=fake; Path=/; Secure',
+            if (sessionCookiesOnChallenge) ...<String>[
+              'ks2=pre-mfa-ks2; Path=/; Secure',
+              'ses=pre-mfa-ses; Path=/; HttpOnly; Secure',
+              'userl=pre-mfa-userl; Path=/; HttpOnly; Secure',
+            ],
+          ],
         },
       );
     }
@@ -292,11 +305,12 @@ class _TwoStepMfaAdapter implements HttpClientAdapter {
         302,
         headers: <String, List<String>>{
           'location': ['/login/user2stepauthend/'],
-          'set-cookie': <String>[
-            'ks2=ks2-value; Path=/; Secure',
-            'ses=ses-value; Path=/; HttpOnly; Secure',
-            'userl=userl-value; Path=/; HttpOnly; Secure',
-          ],
+          if (updateSessionCookiesAfterMfa)
+            'set-cookie': <String>[
+              'ks2=ks2-value; Path=/; Secure',
+              'ses=ses-value; Path=/; HttpOnly; Secure',
+              'userl=userl-value; Path=/; HttpOnly; Secure',
+            ],
         },
       );
     }
@@ -777,6 +791,42 @@ void main() {
           ks2: 'ks2-value',
           ses: 'ses-value',
           userl: 'userl-value',
+          rememberSession: true,
+        ),
+      ).called(1);
+    });
+
+    test('MFA後に認証済みユーザーページが確認できればCookie更新なしでもログインする', () async {
+      final adapter = _TwoStepMfaAdapter(
+        sessionCookiesOnChallenge: true,
+        updateSessionCookiesAfterMfa: false,
+      );
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'secret-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('654321');
+
+      expect(result.isSuccess, isTrue, reason: result.error);
+      expect(result.username, 'テスト利用者');
+      expect(
+        adapter.requests.map((request) => request.uri.path),
+        contains('/user/top/'),
+      );
+      verify(
+        mockAuthRepository.saveSession(
+          narouid: 'reader-id',
+          username: 'テスト利用者',
+          ks2: 'pre-mfa-ks2',
+          ses: 'pre-mfa-ses',
+          userl: 'pre-mfa-userl',
           rememberSession: true,
         ),
       ).called(1);
