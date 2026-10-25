@@ -174,11 +174,40 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
 
   @override
   Future<AccountAuthState> getAuthState() async {
-    if (!await _authService.isSessionValid()) {
-      return AccountAuthState.loggedOut(source: source);
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final cookieHeader = await _sessionRepository.buildCookieHeader();
+      if (cookieHeader == null || cookieHeader.isEmpty) {
+        return AccountAuthState.loggedOut(source: source);
+      }
+
+      final validity = await _authService.validateSessionStatus(
+        cookieHeader: cookieHeader,
+      );
+      final displayName = await _sessionRepository.getUsername();
+      final currentCookieHeader = await _sessionRepository.buildCookieHeader();
+      if (currentCookieHeader != cookieHeader) continue;
+
+      if (validity == KakuyomuSessionValidity.invalid) {
+        return AccountAuthState.loggedOut(source: source);
+      }
+      if (validity == KakuyomuSessionValidity.unavailable) {
+        return AccountAuthState.unverified(
+          source: source,
+          displayName: displayName,
+        );
+      }
+
+      return AccountAuthState.loggedIn(
+        source: source,
+        displayName: displayName,
+      );
     }
 
-    return AccountAuthState.loggedIn(
+    final cookieHeader = await _sessionRepository.buildCookieHeader();
+    if (cookieHeader == null || cookieHeader.isEmpty) {
+      return AccountAuthState.loggedOut(source: source);
+    }
+    return AccountAuthState.unverified(
       source: source,
       displayName: await _sessionRepository.getUsername(),
     );

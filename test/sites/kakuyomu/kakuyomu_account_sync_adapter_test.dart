@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/database/database.dart';
@@ -13,6 +15,22 @@ import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
+
+class _FixedStatusAdapter implements HttpClientAdapter {
+  _FixedStatusAdapter(this.statusCode);
+
+  final int statusCode;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString('', statusCode);
+
+  @override
+  void close({bool force = false}) {}
+}
 
 class _FakeSessionRepository extends KakuyomuSessionRepository {
   _FakeSessionRepository(this.cookieHeader);
@@ -40,6 +58,13 @@ class _FakeKakuyomuAuthService extends KakuyomuAuthService {
 
   @override
   Future<bool> isSessionValid() async => sessionValid;
+
+  @override
+  Future<KakuyomuSessionValidity> validateSessionStatus({
+    String? cookieHeader,
+  }) async => sessionValid
+      ? KakuyomuSessionValidity.valid
+      : KakuyomuSessionValidity.invalid;
 
   @override
   Future<void> logout() async => loggedOut = true;
@@ -95,6 +120,26 @@ void main() {
 
       expect(state.isLoggedIn, isFalse);
       expect(await adapter.isLoggedIn(), isFalse);
+    });
+
+    test('一時的なHTTP障害では保存済みセッションを未確認として保持する', () async {
+      final repository = _FakeSessionRepository('session=test');
+      final authService = KakuyomuAuthService(
+        sessionRepository: repository,
+        dio: Dio()..httpClientAdapter = _FixedStatusAdapter(503),
+      );
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: repository,
+        authService: authService,
+        db: db,
+      );
+
+      final state = await adapter.getAuthState();
+
+      expect(state.hasSession, isTrue);
+      expect(state.isVerified, isFalse);
+      expect(state.isLoggedIn, isFalse);
+      expect(repository.cleared, isFalse);
     });
 
     test('logoutはカクヨム認証サービスへ委譲する', () async {

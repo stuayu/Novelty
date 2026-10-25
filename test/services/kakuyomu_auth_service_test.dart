@@ -150,4 +150,82 @@ void main() {
       expect(adapter.requests.single.headers['Cookie'], 'session=test');
     });
   });
+
+  group('KakuyomuAuthService.validateSessionStatus', () {
+    for (final (statusCode, expected) in [
+      (401, KakuyomuSessionValidity.invalid),
+      (403, KakuyomuSessionValidity.unavailable),
+      (429, KakuyomuSessionValidity.unavailable),
+      (503, KakuyomuSessionValidity.unavailable),
+    ]) {
+      test('HTTP $statusCodeを失効と一時障害に分ける', () async {
+        final adapter = _RecordingAdapter(
+          (_) => ResponseBody.fromString('', statusCode),
+        );
+        final service = KakuyomuAuthService(
+          sessionRepository: _FakeSessionRepository('session=test'),
+          dio: Dio()..httpClientAdapter = adapter,
+        );
+
+        expect(await service.validateSessionStatus(), expected);
+      });
+    }
+
+    test('ログインページへのredirectは失効として返す', () async {
+      final adapter = _RecordingAdapter(
+        (_) => ResponseBody.fromString(
+          '',
+          302,
+          headers: <String, List<String>>{
+            'location': ['/auth/login'],
+          },
+        ),
+      );
+      final service = KakuyomuAuthService(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      expect(
+        await service.validateSessionStatus(),
+        KakuyomuSessionValidity.invalid,
+      );
+    });
+
+    test('状態を示すマーカーのない200ページは未確認として返す', () async {
+      final adapter = _RecordingAdapter(
+        (_) => ResponseBody.fromString(
+          '<html><body><h1>一時的なエラーページ</h1></body></html>',
+          200,
+        ),
+      );
+      final service = KakuyomuAuthService(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      expect(
+        await service.validateSessionStatus(),
+        KakuyomuSessionValidity.unavailable,
+      );
+    });
+
+    test('ログイン済み固有マーカーがある200ページは有効として返す', () async {
+      final adapter = _RecordingAdapter(
+        (_) => ResponseBody.fromString(
+          '<html data-is-guest="0"><body></body></html>',
+          200,
+        ),
+      );
+      final service = KakuyomuAuthService(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      expect(
+        await service.validateSessionStatus(),
+        KakuyomuSessionValidity.valid,
+      );
+    });
+  });
 }
