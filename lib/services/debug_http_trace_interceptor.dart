@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:novelty/services/debug_http_trace_policy.dart';
 import 'package:novelty/services/narou_auth_diagnostics.dart';
+import 'package:novelty/sites/novel_source.dart';
 
 /// デバッグビルドのHTTP送受信データをTraceログへ記録する。
 class DebugHttpTraceInterceptor extends Interceptor {
@@ -11,6 +13,7 @@ class DebugHttpTraceInterceptor extends Interceptor {
 
   static const _operationIdKey = 'noveltyHttpTraceOperationId';
   static const _startedAtKey = 'noveltyHttpTraceStartedAt';
+  static const _siteKey = 'noveltyHttpTraceSite';
 
   final AppDiagnosticsLogger _diagnostics;
 
@@ -19,16 +22,24 @@ class DebugHttpTraceInterceptor extends Interceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) {
+    final source = DebugHttpTracePolicy.sourceForUrl(options.uri.toString());
+    if (source == null) {
+      handler.next(options);
+      return;
+    }
+
     final operationId =
         options.extra[_operationIdKey] as String? ??
         _diagnostics.createOperationId();
     options.extra[_operationIdKey] = operationId;
+    options.extra[_siteKey] = source;
     options.extra[_startedAtKey] = DateTime.now()
         .toUtc()
         .millisecondsSinceEpoch;
 
     _diagnostics.recordTrace(operationId, 'http.request.trace', {
       'method': options.method,
+      'site': source.dbId,
       'requestUrl': options.uri.toString(),
       'requestHeaders': _jsonSafe(options.headers),
       'requestData': _traceData(options.data),
@@ -44,9 +55,17 @@ class DebugHttpTraceInterceptor extends Interceptor {
     ResponseInterceptorHandler handler,
   ) {
     final request = response.requestOptions;
+    final source = request.extra[_siteKey];
+    if (source is! NovelSource ||
+        DebugHttpTracePolicy.sourceForUrl(response.realUri.toString()) !=
+            source) {
+      handler.next(response);
+      return;
+    }
     final operationId = _operationId(request);
     _diagnostics.recordTrace(operationId, 'http.response.trace', {
       'method': request.method,
+      'site': source.dbId,
       'requestUrl': request.uri.toString(),
       'responseUrl': response.realUri.toString(),
       'statusCode': response.statusCode,
@@ -61,18 +80,28 @@ class DebugHttpTraceInterceptor extends Interceptor {
   void onError(DioException err, ErrorInterceptorHandler handler) {
     final request = err.requestOptions;
     final response = err.response;
+    final source = request.extra[_siteKey];
+    if (source is! NovelSource) {
+      handler.next(err);
+      return;
+    }
+    final trustedResponse =
+        response != null &&
+        DebugHttpTracePolicy.sourceForUrl(response.realUri.toString()) ==
+            source;
     final operationId = _operationId(request);
     _diagnostics.recordTrace(operationId, 'http.error.trace', {
       'method': request.method,
+      'site': source.dbId,
       'requestUrl': request.uri.toString(),
       'requestHeaders': _jsonSafe(request.headers),
       'requestData': _traceData(request.data),
-      'responseUrl': response?.realUri.toString(),
-      'statusCode': response?.statusCode,
-      'responseHeaders': response == null
+      'responseUrl': trustedResponse ? response.realUri.toString() : null,
+      'statusCode': trustedResponse ? response.statusCode : null,
+      'responseHeaders': !trustedResponse
           ? null
           : _jsonSafe(response.headers.map),
-      'responseData': response == null ? null : _traceData(response.data),
+      'responseData': !trustedResponse ? null : _traceData(response.data),
       'errorType': err.type.name,
       'error': err.toString(),
       'stackTrace': err.stackTrace.toString(),

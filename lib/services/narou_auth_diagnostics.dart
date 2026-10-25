@@ -21,7 +21,9 @@ const _captureSensitiveTraceFromEnvironment = bool.fromEnvironment(
 /// アプリ全体の構造化診断ログを出力する。
 ///
 /// 通常の診断ログでは認証情報や応答本文を伏せる。生の通信データは
-/// デバッグビルドでTraceを明示的に有効にした場合だけ別ファイルへ出力する。
+/// デバッグビルドで既定有効のTraceへ別ファイル出力する。無効化する場合は
+/// `--dart-define=NAROU_AUTH_TRACE_SENSITIVE=false` を指定する。
+/// リリースビルドでは常に無効になる。
 class AppDiagnosticsLogger {
   /// 診断ログを初期化する。
   AppDiagnosticsLogger({

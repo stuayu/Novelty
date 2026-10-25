@@ -34,8 +34,7 @@ class _EstarLoginPageState extends ConsumerState<EstarLoginPage> {
     super.initState();
     _webViewHttpTrace = DebugWebViewHttpTrace(
       diagnostics: ref.read(appDiagnosticsLoggerProvider),
-      site: 'estar',
-      trustedHosts: const <String>['estar.jp'],
+      source: NovelSource.estar,
     );
     if (isEstarWebViewSupported) {
       unawaited(_prepareSession());
@@ -127,10 +126,18 @@ class _EstarLoginPageState extends ConsumerState<EstarLoginPage> {
                     initialUrlRequest: URLRequest(
                       url: WebUri(_estarLoginUrl),
                     ),
-                    initialSettings: InAppWebViewSettings(),
+                    initialSettings: InAppWebViewSettings(
+                      useOnNavigationResponse: true,
+                    ),
                     initialUserScripts: _webViewHttpTrace.initialUserScripts,
                     onWebViewCreated: _webViewHttpTrace.registerHandler,
+                    onNavigationResponse: (_, response) async =>
+                        _webViewHttpTrace.recordNavigationResponse(response),
                     onLoadStop: (controller, url) async {
+                      await _webViewHttpTrace.recordRenderedDocument(
+                        controller,
+                        url,
+                      );
                       await _tryCompleteLogin(url);
                     },
                     onUpdateVisitedHistory:

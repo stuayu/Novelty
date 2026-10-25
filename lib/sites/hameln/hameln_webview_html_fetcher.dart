@@ -5,6 +5,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:novelty/services/debug_webview_http_trace.dart';
 import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/hameln/hameln_html_fetcher.dart';
+import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/hameln_uri.dart';
 
 const _hamelnBaseUrl = 'https://syosetu.org/';
@@ -35,8 +36,7 @@ Future<String> _fetch(String url) async {
   HeadlessInAppWebView? webView;
   final webViewTrace = DebugWebViewHttpTrace(
     diagnostics: appDiagnosticsLogger,
-    site: 'hameln',
-    trustedHosts: const <String>['syosetu.org'],
+    source: NovelSource.hameln,
   );
   final deadline = DateTime.now().add(_webViewTimeout);
   try {
@@ -46,9 +46,12 @@ Future<String> _fetch(String url) async {
       initialUrlRequest: URLRequest(url: WebUri(url)),
       initialSettings: InAppWebViewSettings(
         useShouldOverrideUrlLoading: true,
+        useOnNavigationResponse: true,
       ),
       initialUserScripts: webViewTrace.initialUserScripts,
       onWebViewCreated: webViewTrace.registerHandler,
+      onNavigationResponse: (_, response) async =>
+          webViewTrace.recordNavigationResponse(response),
       shouldOverrideUrlLoading: (_, action) async {
         final uri = action.request.url?.uriValue;
         final allowed = action.isForMainFrame
@@ -59,7 +62,8 @@ Future<String> _fetch(String url) async {
             ? NavigationActionPolicy.ALLOW
             : NavigationActionPolicy.CANCEL;
       },
-      onLoadStop: (_, _) {
+      onLoadStop: (controller, url) async {
+        await webViewTrace.recordRenderedDocument(controller, url);
         if (!loaded.isCompleted) loaded.complete();
       },
     );
@@ -82,6 +86,9 @@ Future<String> _fetch(String url) async {
       final html = evaluated is String ? evaluated : evaluated?.toString();
       polls++;
       if (html != null && html.isNotEmpty && !isHamelnChallengeHtml(html)) {
+        if (controller != null) {
+          await webViewTrace.recordRenderedDocument(controller, finalUrl);
+        }
         debugPrint('[HamelnWebView] $url を取得 (${html.length}文字, $polls回目)');
         return html;
       }

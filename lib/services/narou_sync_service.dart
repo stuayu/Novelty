@@ -10,6 +10,7 @@ import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/api_service.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/services/http_diagnostic_fields.dart';
 import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/services/narou_auth_service.dart';
 import 'package:novelty/sites/novel_site.dart';
@@ -325,17 +326,11 @@ class NarouSyncService {
   }
 
   Map<String, Object?> _safeSyncDiagnosticFields(Object error) {
+    if (error is DioException) return dioExceptionDiagnosticFields(error);
+
     final fields = <String, Object?>{
       'errorType': error.runtimeType.toString(),
     };
-    if (error is DioException) {
-      final uri = error.requestOptions.uri;
-      fields
-        ..['dioType'] = error.type.name
-        ..['httpStatusCode'] = error.response?.statusCode
-        ..['requestMethod'] = error.requestOptions.method
-        ..['requestRoute'] = '${uri.host}${uri.path}';
-    }
     return fields;
   }
 

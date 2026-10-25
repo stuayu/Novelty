@@ -7,6 +7,7 @@ import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/services/debug_webview_http_trace.dart';
 import 'package:novelty/services/kakuyomu_auth_service.dart';
 import 'package:novelty/services/kakuyomu_login_check_queue.dart';
+import 'package:novelty/services/kakuyomu_login_error_message.dart';
 import 'package:novelty/services/kakuyomu_web_cookie_service.dart';
 import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -42,8 +43,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
     _webViewHttpTrace = DebugWebViewHttpTrace(
       diagnostics: diagnostics,
       operationId: _loginOperationId,
-      site: 'kakuyomu',
-      trustedHosts: const <String>['kakuyomu.jp'],
+      source: NovelSource.kakuyomu,
     );
     if (isKakuyomuWebViewSupported) {
       unawaited(_prepareSession());
@@ -152,15 +152,32 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
 
       Navigator.of(context).pop(true);
       return true;
-    } on Exception {
-      diagnostics.record(_loginOperationId, 'kakuyomu.login.check.failed', {
-        'attempt': attempt,
-        'pagePath': currentPath,
-      });
-      if (!mounted) return false;
-      setState(() {
-        _errorMessage = 'ログイン状態を確認できませんでした。もう一度お試しください。';
-      });
+    } on Exception catch (error, stackTrace) {
+      final keychainErrorMessage = kakuyomuLoginErrorMessage(error);
+      diagnostics
+        ..record(_loginOperationId, 'kakuyomu.login.check.failed', {
+          'attempt': attempt,
+          'pagePath': currentPath,
+          'errorType': error.runtimeType.toString(),
+        })
+        ..recordTrace(
+          _loginOperationId,
+          'kakuyomu.login.check.failed.trace',
+          {
+            'attempt': attempt,
+            'pagePath': currentPath,
+            'error': error.toString(),
+            'stackTrace': stackTrace.toString(),
+          },
+        );
+      if (mounted &&
+          (keychainErrorMessage != null ||
+              _shouldShowLoginCheckError(currentPath))) {
+        setState(() {
+          _errorMessage =
+              keychainErrorMessage ?? 'ログイン状態を確認できませんでした。もう一度お試しください。';
+        });
+      }
       return false;
     } finally {
       if (mounted && !_isCompleted) {
@@ -215,10 +232,18 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
                     initialUrlRequest: URLRequest(
                       url: WebUri(_kakuyomuLoginUrl),
                     ),
-                    initialSettings: InAppWebViewSettings(),
+                    initialSettings: InAppWebViewSettings(
+                      useOnNavigationResponse: true,
+                    ),
                     initialUserScripts: _webViewHttpTrace.initialUserScripts,
                     onWebViewCreated: _webViewHttpTrace.registerHandler,
+                    onNavigationResponse: (_, response) async =>
+                        _webViewHttpTrace.recordNavigationResponse(response),
                     onLoadStop: (controller, url) async {
+                      await _webViewHttpTrace.recordRenderedDocument(
+                        controller,
+                        url,
+                      );
                       await _tryCompleteLogin(url, trigger: 'loadStop');
                     },
                     onUpdateVisitedHistory:

@@ -3,18 +3,18 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:novelty/services/debug_http_trace_policy.dart';
 import 'package:novelty/services/narou_auth_diagnostics.dart';
+import 'package:novelty/sites/novel_source.dart';
 
-/// デバッグビルドのWebView内fetch通信をTraceログへ記録する。
+/// デバッグビルドのWebView内fetch/XHR通信をTraceログへ記録する。
 class DebugWebViewHttpTrace {
   /// 診断ロガーと記録対象サイトを指定する。
   DebugWebViewHttpTrace({
     required AppDiagnosticsLogger diagnostics,
-    required this.site,
-    required Iterable<String> trustedHosts,
+    required this.source,
     String? operationId,
   }) : _diagnostics = diagnostics,
-       _trustedHosts = trustedHosts.map((host) => host.toLowerCase()).toSet(),
        _operationId = operationId ?? diagnostics.createOperationId();
 
   /// JavaScriptからTraceデータを受け取るハンドラ名。
@@ -23,9 +23,8 @@ class DebugWebViewHttpTrace {
 
   final AppDiagnosticsLogger _diagnostics;
 
-  /// Traceログに付けるサイト識別子。
-  final String site;
-  final Set<String> _trustedHosts;
+  /// Traceログに付けるサイト識別子と公式URL。
+  final NovelSource source;
   final String _operationId;
 
   /// 診断ログの初期化設定。
@@ -54,6 +53,61 @@ class DebugWebViewHttpTrace {
     );
   }
 
+  /// WebViewのページ遷移応答から、HTTPメタデータをTraceに記録する。
+  NavigationResponseAction recordNavigationResponse(
+    NavigationResponse navigationResponse,
+  ) {
+    final response = navigationResponse.response;
+    final url = response?.url?.toString();
+    if (_enabled &&
+        navigationResponse.isForMainFrame &&
+        url != null &&
+        _isTrustedUrl(url)) {
+      recordJavaScriptEvent(<String, Object?>{
+        'phase': 'navigationResponse',
+        'url': url,
+        'statusCode': response?.statusCode,
+        'responseHeaders': response?.headers,
+        'mimeType': response?.mimeType,
+        'expectedContentLength': response?.expectedContentLength,
+        'isForMainFrame': navigationResponse.isForMainFrame,
+      });
+    }
+    return NavigationResponseAction.ALLOW;
+  }
+
+  /// 読込完了後の描画済みHTMLをTraceに記録する。
+  Future<void> recordRenderedDocument(
+    InAppWebViewController controller,
+    WebUri? url,
+  ) async {
+    if (!_enabled || url == null || !_isTrustedUrl(url.toString())) return;
+
+    try {
+      final encoded = await controller.evaluateJavascript(
+        source:
+            'JSON.stringify({title: document.title, '
+            'html: document.documentElement?.outerHTML ?? "", '
+            'isForMainFrame: window === window.top})',
+      );
+      final Object? snapshot = switch (encoded) {
+        final String value => jsonDecode(value),
+        final Map<Object?, Object?> value => value,
+        _ => null,
+      };
+      if (snapshot is! Map<Object?, Object?>) return;
+      recordJavaScriptEvent(<String, Object?>{
+        'phase': 'document',
+        'url': url.toString(),
+        'title': snapshot['title'],
+        'responseData': snapshot['html'],
+        'isForMainFrame': snapshot['isForMainFrame'],
+      });
+    } on Object {
+      // WebViewのページ遷移をログ取得の失敗で止めない。
+    }
+  }
+
   /// WebView内の通信イベントを検証し、Traceログへ記録する。
   void recordJavaScriptEvent(Object? event) {
     if (!_enabled || event is! Map) return;
@@ -68,16 +122,19 @@ class DebugWebViewHttpTrace {
       'request' => 'http.webview.request.trace',
       'response' => 'http.webview.response.trace',
       'error' => 'http.webview.error.trace',
+      'navigationResponse' => 'http.webview.navigation.response.trace',
+      'document' => 'http.webview.document.trace',
       _ => null,
     };
     if (eventName == null) return;
 
     _diagnostics.recordTrace(_operationId, eventName, <String, Object?>{
-      'site': site,
+      'site': source.dbId,
       'requestId': fields['requestId'],
       'method': fields['method'],
       'requestUrl': url,
       if (phase == 'request') ...<String, Object?>{
+        'requestKind': fields['requestKind'],
         'requestHeaders': _jsonSafe(fields['requestHeaders']),
         'requestData': _jsonSafe(fields['requestData']),
         'requestDataTruncated': fields['requestDataTruncated'] == true,
@@ -92,18 +149,44 @@ class DebugWebViewHttpTrace {
         'durationMs': fields['durationMs'],
       },
       if (phase == 'error') ...<String, Object?>{
+        'responseUrl': fields['responseUrl'] ?? url,
+        'statusCode': fields['statusCode'],
+        'statusText': fields['statusText'],
+        'responseHeaders': _jsonSafe(fields['responseHeaders']),
+        'responseData': _jsonSafe(fields['responseData']),
+        'responseDataTruncated': fields['responseDataTruncated'] == true,
         'error': fields['error'],
         'durationMs': fields['durationMs'],
+      },
+      if (phase == 'navigationResponse') ...<String, Object?>{
+        'responseUrl': url,
+        'statusCode': fields['statusCode'],
+        'responseHeaders': _jsonSafe(fields['responseHeaders']),
+        'mimeType': fields['mimeType'],
+        'expectedContentLength': fields['expectedContentLength'],
+        'isForMainFrame': fields['isForMainFrame'] == true,
+        'responseBodyAvailable': false,
+      },
+      if (phase == 'document') ...<String, Object?>{
+        'title': fields['title'],
+        'responseData': _capText(fields['responseData']).value,
+        'responseDataTruncated': _capText(fields['responseData']).truncated,
+        'isForMainFrame': fields['isForMainFrame'] == true,
       },
     });
   }
 
   bool _isTrustedUrl(String rawUrl) {
-    final uri = Uri.tryParse(rawUrl);
-    if (uri == null || !uri.hasAuthority || uri.scheme != 'https') return false;
-    final host = uri.host.toLowerCase();
-    return _trustedHosts.any(
-      (trustedHost) => host == trustedHost || host.endsWith('.$trustedHost'),
+    return DebugHttpTracePolicy.isTrustedUrl(rawUrl, source);
+  }
+
+  _CappedTraceValue _capText(Object? value) {
+    if (value is! String || value.length <= _maxBodyCharacters) {
+      return _CappedTraceValue(value: value, truncated: false);
+    }
+    return _CappedTraceValue(
+      value: value.substring(0, _maxBodyCharacters),
+      truncated: true,
     );
   }
 
@@ -122,10 +205,10 @@ class DebugWebViewHttpTrace {
   }
 
   String get _fetchTraceScript {
-    final hosts = jsonEncode(_trustedHosts.toList());
+    final hosts = jsonEncode(DebugHttpTracePolicy.hostsFor(source).toList());
     return '''
 (() => {
-  if (window.__noveltyFetchTraceInstalled) return;
+  if (window.__noveltyHttpTraceInstalled) return;
   const trustedHosts = $hosts;
   const maxBodyCharacters = $_maxBodyCharacters;
   let requestSequence = 0;
@@ -147,6 +230,29 @@ class DebugWebViewHttpTrace {
       }
     } catch (_) {}
   };
+  const captureFormSubmission = () => {
+    document.addEventListener('submit', (event) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      const method = String(form.method || 'GET').toUpperCase();
+      const action = new URL(form.action || window.location.href, window.location.href);
+      if (!isTrusted(action.href)) return;
+      const entries = Array.from(new FormData(form).entries()).map(([name, value]) =>
+        [name, typeof value === 'string' ? value : {
+          filename: value.name, type: value.type, size: value.size
+        }]);
+      if (method === 'GET') {
+        entries.forEach(([name, value]) => {
+          if (typeof value === 'string') action.searchParams.append(name, value);
+        });
+      }
+      const requestData = capBody(entries);
+      emit({phase: 'request', requestId: 'form-' + (++requestSequence),
+        requestKind: 'html-form', method, url: action.href,
+        requestHeaders: {}, requestData: requestData.value,
+        requestDataTruncated: requestData.truncated});
+    }, true);
+  };
   const headersToObject = (headers) => {
     try {
       const result = {};
@@ -156,11 +262,8 @@ class DebugWebViewHttpTrace {
       return {};
     }
   };
-  const bodyToValue = async (body, request) => {
+  const bodyToTraceValue = (body) => {
     try {
-      if (body == null && request instanceof Request && request.method !== 'GET' && request.method !== 'HEAD') {
-        body = await request.clone().text();
-      }
       if (body == null || typeof body === 'string') return body;
       if (body instanceof URLSearchParams) return body.toString();
       if (body instanceof FormData) {
@@ -174,15 +277,103 @@ class DebugWebViewHttpTrace {
       return '[unavailable]';
     }
   };
+  const bodyToValue = async (body, request) => {
+    try {
+      if (body == null && request instanceof Request && request.method !== 'GET' && request.method !== 'HEAD') {
+        body = await request.clone().text();
+      }
+      return bodyToTraceValue(body);
+    } catch (_) {
+      return '[unavailable]';
+    }
+  };
   const capBody = (value) => {
-    if (typeof value !== 'string' || value.length <= maxBodyCharacters) {
+    const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+    if (serialized == null || serialized.length <= maxBodyCharacters) {
       return {value, truncated: false};
     }
-    return {value: value.slice(0, maxBodyCharacters), truncated: true};
+    return {value: serialized.slice(0, maxBodyCharacters), truncated: true};
+  };
+  const installXhrTrace = () => {
+    const OriginalXhr = window.XMLHttpRequest;
+    if (typeof OriginalXhr !== 'function') return;
+    const requestState = new WeakMap();
+    const originalOpen = OriginalXhr.prototype.open;
+    OriginalXhr.prototype.open = function(requestMethod, requestUrl) {
+      requestState.set(this, {
+        method: String(requestMethod || 'GET').toUpperCase(),
+        url: new URL(String(requestUrl), window.location.href).href,
+        requestHeaders: {},
+      });
+      return originalOpen.apply(this, arguments);
+    };
+    const originalSetRequestHeader = OriginalXhr.prototype.setRequestHeader;
+    OriginalXhr.prototype.setRequestHeader = function(name, value) {
+      const state = requestState.get(this);
+      if (state) state.requestHeaders[String(name)] = String(value);
+      return originalSetRequestHeader.apply(this, arguments);
+    };
+    const originalSend = OriginalXhr.prototype.send;
+    OriginalXhr.prototype.send = function(body) {
+      const state = requestState.get(this);
+      if (!state || !isTrusted(state.url)) {
+        return originalSend.apply(this, arguments);
+      }
+      const {method, url, requestHeaders} = state;
+      const requestId = 'xhr-' + (++requestSequence);
+      const startedAt = Date.now();
+      const requestData = capBody(bodyToTraceValue(body));
+      emit({phase: 'request', requestId, method, url,
+        requestHeaders: {...requestHeaders}, requestData: requestData.value,
+        requestDataTruncated: requestData.truncated});
+      this.addEventListener('loadend', () => {
+        let responseData = null;
+        try {
+          if (this.responseType === '' || this.responseType === 'text') {
+            responseData = this.responseText;
+          } else if (this.responseType === 'json') {
+            responseData = JSON.stringify(this.response);
+          } else if (this.responseType === 'document' && this.responseXML) {
+            responseData = this.responseXML.documentElement.outerHTML;
+          } else {
+            responseData = {binary: true, responseType: this.responseType};
+          }
+        } catch (_) {
+          responseData = '[unavailable]';
+        }
+        const responseBody = capBody(responseData);
+        const responseHeaders = {};
+        try {
+          this.getAllResponseHeaders().trim().split(/\\r?\\n/).forEach((line) => {
+            const separator = line.indexOf(':');
+            if (separator > 0) responseHeaders[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
+          });
+        } catch (_) {}
+        const responseEvent = {requestId, method, url, responseUrl: this.responseURL || url,
+          statusCode: this.status, statusText: this.statusText, responseHeaders,
+          responseData: responseBody.value, responseDataTruncated: responseBody.truncated,
+          durationMs: Date.now() - startedAt};
+        if (this.status === 0) {
+          emit({phase: 'error', ...responseEvent, error: this.statusText || 'network-error'});
+        } else {
+          emit({phase: 'response', ...responseEvent});
+        }
+      }, {once: true});
+      try {
+        return originalSend.apply(this, arguments);
+      } catch (error) {
+        emit({phase: 'error', requestId, method, url, error: String(error),
+          durationMs: Date.now() - startedAt});
+        throw error;
+      }
+    };
   };
   const install = () => {
-    if (window.__noveltyFetchTraceInstalled || typeof window.fetch !== 'function') return;
-    window.__noveltyFetchTraceInstalled = true;
+    if (window.__noveltyHttpTraceInstalled) return;
+    window.__noveltyHttpTraceInstalled = true;
+    installXhrTrace();
+    captureFormSubmission();
+    if (typeof window.fetch !== 'function') return;
     const originalFetch = window.fetch;
     window.fetch = async function(input, init) {
       const request = input instanceof Request ? input : null;
@@ -224,8 +415,9 @@ class DebugWebViewHttpTrace {
         });
         return response;
       } catch (error) {
-        void requestTrace.then(() => emit({phase: 'error', requestId, method, url: requestUrl,
-          error: String(error), durationMs: Date.now() - startedAt}));
+        void requestTrace.then(() => emit({phase: 'error', requestId, method,
+          url: requestUrl, error: String(error),
+          durationMs: Date.now() - startedAt}));
         throw error;
       }
     };
@@ -238,4 +430,11 @@ class DebugWebViewHttpTrace {
 })();
 ''';
   }
+}
+
+class _CappedTraceValue {
+  const _CappedTraceValue({required this.value, required this.truncated});
+
+  final Object? value;
+  final bool truncated;
 }

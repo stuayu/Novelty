@@ -52,7 +52,7 @@ void main() {
     addTearDown(dio.close);
 
     await dio.post<String>(
-      'https://example.test/login',
+      'https://kakuyomu.jp/login',
       data: <String, String>{'password': 'request-payload'},
       options: Options(
         responseType: ResponseType.plain,
@@ -77,7 +77,8 @@ void main() {
     final requestHeaders = request['requestHeaders'] as Map<String, dynamic>;
     final requestData = request['requestData'] as Map<String, dynamic>;
 
-    expect(request['requestUrl'], 'https://example.test/login');
+    expect(request['requestUrl'], 'https://kakuyomu.jp/login');
+    expect(request['site'], 'kakuyomu');
     expect(requestHeaders['Cookie'], 'session=cookie-payload');
     expect(requestData['password'], 'request-payload');
     expect(response['statusCode'], 200);
@@ -104,7 +105,7 @@ void main() {
 
     await expectLater(
       dio.get<String>(
-        'https://example.test/library',
+        'https://syosetu.com/library',
         options: Options(responseType: ResponseType.plain),
       ),
       throwsA(isA<DioException>()),
@@ -122,5 +123,29 @@ void main() {
     expect(entry['event'], 'http.error.trace');
     expect(entry['statusCode'], 403);
     expect(entry['responseData'], 'forbidden-response');
+  });
+
+  test('Noveltyの対象サイト以外のHTTP Traceは出力しない', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'novelty-debug-http-external-trace-test-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final diagnostics = AppDiagnosticsLogger(
+      enabled: true,
+      directoryResolver: () async => directory,
+      consoleSink: (_) {},
+    );
+    final dio = createNoveltyDio(diagnostics: diagnostics, maxRetries: 0)
+      ..httpClientAdapter = _ResponseAdapter(statusCode: 200, body: 'ok');
+    addTearDown(dio.close);
+
+    await dio.get<String>(
+      'https://external.example.test/private',
+      options: Options(responseType: ResponseType.plain),
+    );
+    await diagnostics.flush();
+
+    final tracePath = await diagnostics.traceLogFilePath();
+    expect(File(tracePath!).existsSync(), isFalse);
   });
 }

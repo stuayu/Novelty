@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/router/router.dart';
+import 'package:novelty/services/http_diagnostic_fields.dart';
 import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/account_sync_registry.dart';
@@ -354,12 +355,7 @@ Map<String, Object?> _syncErrorDiagnosticFields(Object error) {
   if (error is SiteDiagnosticException) {
     fields.addAll(error.safeDiagnosticFields);
   } else if (error is DioException) {
-    final uri = error.requestOptions.uri;
-    fields
-      ..['dioType'] = error.type.name
-      ..['httpStatusCode'] = error.response?.statusCode
-      ..['requestMethod'] = error.requestOptions.method
-      ..['requestRoute'] = '${uri.host}${uri.path}';
+    fields.addAll(dioExceptionDiagnosticFields(error));
   } else if (error is StateError) {
     final status = RegExp(
       r'\bHTTP\s+(\d{3})\b',

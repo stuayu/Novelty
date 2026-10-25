@@ -34,8 +34,7 @@ class _HamelnLoginPageState extends ConsumerState<HamelnLoginPage> {
     super.initState();
     _webViewHttpTrace = DebugWebViewHttpTrace(
       diagnostics: ref.read(appDiagnosticsLoggerProvider),
-      site: 'hameln',
-      trustedHosts: const <String>['syosetu.org'],
+      source: NovelSource.hameln,
     );
     if (isHamelnWebViewSupported) {
       unawaited(_prepareSession());
@@ -121,10 +120,18 @@ class _HamelnLoginPageState extends ConsumerState<HamelnLoginPage> {
                     initialUrlRequest: URLRequest(
                       url: WebUri(_hamelnLoginUrl),
                     ),
-                    initialSettings: InAppWebViewSettings(),
+                    initialSettings: InAppWebViewSettings(
+                      useOnNavigationResponse: true,
+                    ),
                     initialUserScripts: _webViewHttpTrace.initialUserScripts,
                     onWebViewCreated: _webViewHttpTrace.registerHandler,
+                    onNavigationResponse: (_, response) async =>
+                        _webViewHttpTrace.recordNavigationResponse(response),
                     onLoadStop: (controller, url) async {
+                      await _webViewHttpTrace.recordRenderedDocument(
+                        controller,
+                        url,
+                      );
                       await _tryCompleteLogin();
                     },
                     onUpdateVisitedHistory:
