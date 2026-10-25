@@ -230,7 +230,13 @@ void main() {
 
       await expectLater(
         adapter.pullLibrary(),
-        throwsA(isA<KakuyomuSessionExpiredException>()),
+        throwsA(
+          isA<KakuyomuSessionExpiredException>().having(
+            (error) => error.clearSessionOnCatch,
+            'clearSessionOnCatch',
+            isFalse,
+          ),
+        ),
       );
       expect(await db.getLibraryNovels(), isEmpty);
     });

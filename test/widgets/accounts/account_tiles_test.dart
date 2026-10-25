@@ -230,7 +230,7 @@ void main() {
     expect(find.text('ログイン'), findsOneWidget);
   });
 
-  testWidgets('共通のセッション失効処理はログアウトして再ログインを促す', (tester) async {
+  testWidgets('カクヨム同期の失効応答では保存セッションを自動削除しない', (tester) async {
     final adapter = _FakeAccountSyncAdapter(
       source: NovelSource.kakuyomu,
       syncError: const KakuyomuSessionExpiredException(),
@@ -252,9 +252,9 @@ void main() {
     await tester.tap(find.text('フォロー作品・閲覧履歴を同期'));
     await tester.pumpAndSettle();
 
-    expect(adapter.logoutCount, 1);
+    expect(adapter.logoutCount, 0);
     expect(find.text('カクヨムのログイン期限が切れました。再ログインしてください'), findsOneWidget);
-    expect(find.text('ログイン'), findsOneWidget);
+    expect(find.text('ログイン済み'), findsOneWidget);
   });
 
   testWidgets('比較付きで処理済みの失効応答では現在のセッションを消さない', (tester) async {
