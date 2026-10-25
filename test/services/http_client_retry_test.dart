@@ -77,10 +77,9 @@ void main() {
     });
   }
 
-  test('429は再試行上限を超えても解除後にGETを再開する', () async {
+  test('429は再試行上限内で解除後にGETを再開する', () async {
     final delays = <Duration>[];
     final adapter = _StatusSequenceAdapter(<ResponseBody>[
-      ResponseBody.fromString('', 429),
       ResponseBody.fromString('', 429),
       ResponseBody.fromString('', 429),
       ResponseBody.fromString('ok', 200),
@@ -95,13 +94,46 @@ void main() {
     );
 
     expect(response.data, 'ok');
-    expect(adapter.requestCount, 4);
+    expect(adapter.requestCount, 3);
     expect(
       delays,
       <Duration>[
         const Duration(seconds: 1),
         const Duration(seconds: 2),
-        const Duration(seconds: 4),
+      ],
+    );
+  });
+
+  test('429が続く場合はGETも最大再試行回数で停止する', () async {
+    final delays = <Duration>[];
+    final adapter = _StatusSequenceAdapter(<ResponseBody>[
+      ResponseBody.fromString('', 429),
+      ResponseBody.fromString('', 429),
+      ResponseBody.fromString('', 429),
+      ResponseBody.fromString('再試行上限を超えている', 200),
+    ]);
+    final dio = createNoveltyDio(
+      maxRetries: 2,
+      retryDelay: (duration) async => delays.add(duration),
+    )..httpClientAdapter = adapter;
+
+    await expectLater(
+      dio.get<String>('https://example.test/persistently-rate-limited'),
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.response?.statusCode,
+          'statusCode',
+          429,
+        ),
+      ),
+    );
+
+    expect(adapter.requestCount, 3);
+    expect(
+      delays,
+      <Duration>[
+        const Duration(seconds: 1),
+        const Duration(seconds: 2),
       ],
     );
   });

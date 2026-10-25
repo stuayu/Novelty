@@ -204,7 +204,8 @@ class _RetryBackoffInterceptor extends Interceptor {
         (options.method.toUpperCase() == 'GET' &&
             options.extra['noveltyRetrySafe'] != false);
     return retrySafe &&
-        (statusCode == 429 || (statusCode == 503 && retryCount < _maxRetries));
+        retryCount < _maxRetries &&
+        (statusCode == 429 || statusCode == 503);
   }
 
   Future<Response<dynamic>> _retry(
