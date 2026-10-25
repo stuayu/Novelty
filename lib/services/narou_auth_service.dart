@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:html/dom.dart';
@@ -5,6 +7,7 @@ import 'package:html/parser.dart' as parser;
 import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/http_cookie.dart';
 import 'package:novelty/utils/narou_uri_utils.dart';
@@ -40,6 +43,7 @@ NarouAuthService narouAuthService(Ref ref) {
   return NarouAuthService(
     authRepository: ref.watch(authRepositoryProvider),
     rateLimiter: ref.watch(siteRateLimiterProvider(NovelSource.narou)),
+    diagnostics: narouAuthDiagnosticsLogger,
   );
 }
 
@@ -55,20 +59,220 @@ class NarouAuthService {
     required this.authRepository,
     Dio? dio,
     RequestRateLimiter? rateLimiter,
+    NarouAuthDiagnosticsLogger? diagnostics,
   }) : _dio =
            dio ??
            createNoveltyDio(
              rateLimiter: rateLimiter,
-           );
+           ),
+       _diagnostics = diagnostics ?? NarouAuthDiagnosticsLogger(enabled: false);
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
 
   /// HTTPクライアント。レート制限とタイムアウトは共通ファクトリで設定する。
   final Dio _dio;
+  final NarouAuthDiagnosticsLogger _diagnostics;
   _PendingNarouMfa? _pendingMfa;
   int _authOperationGeneration = 0;
+  int _httpRequestSequence = 0;
   Future<void> _sessionMutationQueue = Future<void>.value();
+
+  /// 開発用の診断ログが有効かどうか。
+  bool get diagnosticsEnabled => _diagnostics.enabled;
+
+  /// 認証処理に関連する診断イベントを記録する。
+  void recordDiagnosticEvent(
+    String operationId,
+    String event, [
+    Map<String, Object?> fields = const <String, Object?>{},
+  ]) => _log(operationId, event, fields);
+
+  /// 認証後の補助処理を相関させる操作IDを生成する。
+  String createDiagnosticOperationId() => _diagnostics.createOperationId();
+
+  /// 診断ログファイルへの書き込みを完了してパスを返す。
+  Future<String?> diagnosticsLogFilePath() async {
+    await _diagnostics.flush();
+    return _diagnostics.logFilePath();
+  }
+
+  void _log(
+    String operationId,
+    String event, [
+    Map<String, Object?> fields = const <String, Object?>{},
+  ]) {
+    _diagnostics.record(operationId, event, fields);
+  }
+
+  Future<Response<String>> _sendDiagnosticRequest({
+    required String operationId,
+    required String method,
+    required Uri requestUri,
+    required Future<Response<String>> Function() send,
+    Map<String, String>? cookies,
+    Iterable<String>? fieldNames,
+  }) async {
+    final requestSequence = ++_httpRequestSequence;
+    final route = _diagnosticRoute(requestUri);
+    final stopwatch = Stopwatch()..start();
+    _log(operationId, 'http.request', <String, Object?>{
+      'sequence': requestSequence,
+      'method': method,
+      'route': route,
+      'trustedOrigin': _isNarouUri(requestUri),
+      if (cookies != null) ..._diagnosticCookieMetadata(cookies),
+      if (fieldNames != null)
+        'formFieldNames': _safeDiagnosticNames(fieldNames),
+    });
+    try {
+      final response = await send();
+      stopwatch.stop();
+      final redirect = _responseRedirect(response);
+      _log(operationId, 'http.response', <String, Object?>{
+        'sequence': requestSequence,
+        'method': method,
+        'requestRoute': route,
+        'responseRoute': _diagnosticRoute(response.realUri),
+        'trustedOrigin': _isNarouUri(response.realUri),
+        'status': response.statusCode,
+        'durationMs': stopwatch.elapsedMilliseconds,
+        'responseBytes': _responseBytes(response.data),
+        'contentType': _diagnosticContentType(
+          response.headers.value('content-type'),
+        ),
+        'setCookieNames': _cookieNamesFromHeaders(
+          response.headers.map['set-cookie'],
+        ),
+        'redirectRoute': redirect == null ? null : _diagnosticRoute(redirect),
+        'redirectTrusted': redirect == null ? null : _isNarouUri(redirect),
+      });
+      return response;
+    } on DioException catch (error) {
+      stopwatch.stop();
+      final errorResponse = error.response;
+      final redirect = errorResponse == null
+          ? null
+          : _responseRedirect(errorResponse);
+      _log(operationId, 'http.error', <String, Object?>{
+        'sequence': requestSequence,
+        'method': method,
+        'requestRoute': route,
+        'errorType': error.type.name,
+        'status': errorResponse?.statusCode,
+        'responseRoute': errorResponse == null
+            ? null
+            : _diagnosticRoute(errorResponse.realUri),
+        'durationMs': stopwatch.elapsedMilliseconds,
+        'responseBytes': errorResponse == null
+            ? null
+            : _responseBytes(errorResponse.data),
+        'contentType': errorResponse == null
+            ? null
+            : _diagnosticContentType(
+                errorResponse.headers.value('content-type'),
+              ),
+        'redirectRoute': redirect == null ? null : _diagnosticRoute(redirect),
+        'redirectTrusted': redirect == null ? null : _isNarouUri(redirect),
+      });
+      rethrow;
+    } on Object catch (error) {
+      stopwatch.stop();
+      _log(operationId, 'http.error', <String, Object?>{
+        'sequence': requestSequence,
+        'method': method,
+        'requestRoute': route,
+        'errorType': error.runtimeType.toString(),
+        'durationMs': stopwatch.elapsedMilliseconds,
+      });
+      rethrow;
+    }
+  }
+
+  String _diagnosticRoute(Uri uri) {
+    if (!_isNarouUri(uri)) return 'external-or-untrusted';
+    final path = uri.path;
+    if (path == Uri.parse(_loginInputUrl).path) return 'login-input';
+    if (path == Uri.parse(_loginUrl).path) return 'login-submit';
+    if (path == '/login/auth_code/verify/') return 'legacy-mfa-submit';
+    if (path == '/login/user2stepauthend/') return 'mfa-complete';
+    if (_isNarouUserTopUri(uri)) return 'user-top';
+    if (_isNarouBookmarkListUri(uri)) return 'bookmark-list';
+    if (path.startsWith('/user2stepauth/input/')) return 'mfa-choice';
+    if (path.startsWith('/user2stepauth/totpinput/')) return 'mfa-totp-page';
+    if (path.startsWith('/user2stepauth/emailinput/')) {
+      return 'mfa-email-page';
+    }
+    if (path.startsWith('/user2stepauth/totpauth/')) {
+      return 'mfa-totp-submit';
+    }
+    if (path.startsWith('/user2stepauth/emailauth/')) {
+      return 'mfa-email-submit';
+    }
+    if (path.startsWith('/user2stepauth/sendemail/')) {
+      return 'mfa-email-send';
+    }
+    if (path.startsWith('/login/')) return 'login-other';
+    return 'narou-other';
+  }
+
+  Map<String, Object?> _diagnosticCookieMetadata(
+    Map<String, String> cookies,
+  ) => <String, Object?>{
+    'cookieNames': _safeDiagnosticNames(cookies.keys),
+    'cookieCount': cookies.length,
+    'requiredSessionCookies': _sessionCookiePresence(cookies),
+  };
+
+  Map<String, bool> _sessionCookiePresence(Map<String, String> cookies) =>
+      <String, bool>{
+        for (final name in const <String>['ks2', 'ses', 'userl'])
+          name: cookies[name]?.isNotEmpty == true,
+      };
+
+  List<String> _safeDiagnosticNames(Iterable<String> names) =>
+      names
+          .map((name) => name.trim())
+          .where((name) => RegExp(r'^[A-Za-z0-9_-]{1,48}$').hasMatch(name))
+          .toSet()
+          .toList()
+        ..sort();
+
+  List<String> _cookieNamesFromHeaders(List<String>? headers) {
+    if (headers == null) return const <String>[];
+    return _safeDiagnosticNames(
+      headers.map((header) {
+        final pair = header.split(';').first.split('=');
+        return pair.isEmpty ? '' : pair.first;
+      }),
+    );
+  }
+
+  int _responseBytes(Object? body) => switch (body) {
+    final String value => utf8.encode(value).length,
+    final List<int> value => value.length,
+    null => 0,
+    _ => 0,
+  };
+
+  String _diagnosticContentType(String? contentType) {
+    final normalized = contentType?.toLowerCase() ?? '';
+    if (normalized.contains('html')) return 'html';
+    if (normalized.contains('json')) return 'json';
+    if (normalized.startsWith('text/')) return 'text';
+    return normalized.isEmpty ? 'missing' : 'other';
+  }
+
+  String _diagnosticCodeFieldClass(String name) {
+    final normalized = name.toLowerCase();
+    if (normalized.contains('totp') || normalized.contains('otp')) {
+      return 'totp';
+    }
+    if (normalized.contains('email') || normalized.contains('mail')) {
+      return 'email';
+    }
+    return 'other';
+  }
 
   /// ログインPOSTリクエストを送信し、セッションCookieを取得・保存する。
   ///
@@ -79,21 +283,66 @@ class NarouAuthService {
     required String password,
     bool rememberSession = true,
   }) async {
-    cancelMfaChallenge();
+    final operationId = _diagnostics.createOperationId();
+    _log(operationId, 'login.started', <String, Object?>{
+      'rememberSession': rememberSession,
+      'requiredMfa': true,
+    });
+    _discardMfaChallenge(reason: 'superseded-by-new-login');
     final generation = _authOperationGeneration;
     try {
-      final formResponse = await _dio.get<String>(
-        _loginInputUrl,
-        options: _htmlOptions(),
+      final formResponse = await _sendDiagnosticRequest(
+        operationId: operationId,
+        method: 'GET',
+        requestUri: Uri.parse(_loginInputUrl),
+        send: () => _dio.get<String>(
+          _loginInputUrl,
+          options: _htmlOptions(),
+        ),
       );
-      if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
-      final loginForm = _findForm(parser.parse(formResponse.data ?? ''), [
+      if (!_isCurrentAuthOperation(generation)) {
+        _log(operationId, 'login.cancelled', <String, Object?>{
+          'stage': 'login-form-response',
+        });
+        return _cancelledLoginResult;
+      }
+      final loginDocument = parser.parse(formResponse.data ?? '');
+      final loginForm = _findForm(loginDocument, [
         'narouid',
         'pass',
       ]);
       if (loginForm == null) {
+        _log(operationId, 'login.form.parse', <String, Object?>{
+          'result': 'missing',
+          'formCount': loginDocument.querySelectorAll('form').length,
+          'narouIdFieldPresent':
+              loginDocument.querySelector('input[name="narouid"]') != null,
+          'passwordFieldPresent':
+              loginDocument.querySelector('input[name="pass"]') != null,
+        });
+        _log(operationId, 'login.result', <String, Object?>{
+          'outcome': 'failure',
+          'reason': 'login-form-missing',
+        });
         return const NarouLoginResult.failure('ログイン画面の認証情報を取得できませんでした');
       }
+
+      final prevalidatedLoginAction = _formAction(
+        loginForm,
+        formResponse.realUri,
+        fallback: Uri.parse(_loginUrl),
+      );
+      _log(operationId, 'login.form.parse', <String, Object?>{
+        'result': 'found',
+        'formCount': loginDocument.querySelectorAll('form').length,
+        'actionRoute': _diagnosticRoute(prevalidatedLoginAction),
+        'hiddenFieldNames': _safeDiagnosticNames(
+          _hiddenFields(loginForm).keys,
+        ),
+        'persistentLoginFieldNames': _safeDiagnosticNames(
+          _persistentLoginFields(loginForm, rememberSession).keys,
+        ),
+      });
 
       final cookies = <String, String>{};
       mergeSetCookieHeaders(cookies, formResponse.headers.map['set-cookie']);
@@ -107,20 +356,41 @@ class NarouAuthService {
         fallback: Uri.parse(_loginUrl),
       );
       if (!_isNarouLoginAction(loginAction)) {
+        _log(operationId, 'login.form.rejected', <String, Object?>{
+          'reason': 'untrusted-action',
+          'actionRoute': _diagnosticRoute(loginAction),
+          'trustedAction': _isNarouUri(loginAction),
+        });
+        _log(operationId, 'login.result', <String, Object?>{
+          'outcome': 'failure',
+          'reason': 'untrusted-login-action',
+        });
         return const NarouLoginResult.failure('ログイン先を安全に確認できませんでした');
       }
 
-      final response = await _dio.post<String>(
-        loginAction.toString(),
-        data: loginFields,
-        options: _htmlOptions(
-          headers: {
-            'Referer': _loginInputUrl,
-            ...?_cookieHeaderMap(cookies),
-          },
+      final response = await _sendDiagnosticRequest(
+        operationId: operationId,
+        method: 'POST',
+        requestUri: loginAction,
+        cookies: cookies,
+        fieldNames: loginFields.keys,
+        send: () => _dio.post<String>(
+          loginAction.toString(),
+          data: loginFields,
+          options: _htmlOptions(
+            headers: {
+              'Referer': _loginInputUrl,
+              ...?_cookieHeaderMap(cookies),
+            },
+          ),
         ),
       );
-      if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
+      if (!_isCurrentAuthOperation(generation)) {
+        _log(operationId, 'login.cancelled', <String, Object?>{
+          'stage': 'credential-response',
+        });
+        return _cancelledLoginResult;
+      }
       mergeSetCookieHeaders(cookies, response.headers.map['set-cookie']);
       var challengeUri = _responseRedirect(response);
       Response<String>? challengeResponse;
@@ -130,17 +400,40 @@ class NarouAuthService {
         redirects++
       ) {
         if (!_isNarouUri(challengeUri)) {
+          _log(operationId, 'login.redirect.rejected', <String, Object?>{
+            'hop': redirects + 1,
+            'trustedTarget': false,
+            'targetRoute': _diagnosticRoute(challengeUri),
+          });
+          _log(operationId, 'login.result', <String, Object?>{
+            'outcome': 'failure',
+            'reason': 'untrusted-redirect',
+          });
           return const NarouLoginResult.failure('認証先を安全に確認できませんでした');
         }
-        challengeResponse = await _dio.get<String>(
-          challengeUri.toString(),
-          options: _htmlOptions(
-            headers: {
-              ...?_cookieHeaderMap(cookies),
-            },
+        _log(operationId, 'login.redirect.follow', <String, Object?>{
+          'hop': redirects + 1,
+          'targetRoute': _diagnosticRoute(challengeUri),
+          'trustedTarget': true,
+        });
+        challengeResponse = await _sendDiagnosticRequest(
+          operationId: operationId,
+          method: 'GET',
+          requestUri: challengeUri,
+          cookies: cookies,
+          send: () => _dio.get<String>(
+            challengeUri.toString(),
+            options: _htmlOptions(
+              headers: {
+                ...?_cookieHeaderMap(cookies),
+              },
+            ),
           ),
         );
         if (!_isCurrentAuthOperation(generation)) {
+          _log(operationId, 'login.cancelled', <String, Object?>{
+            'stage': 'redirect-response',
+          });
           return _cancelledLoginResult;
         }
         mergeSetCookieHeaders(
@@ -150,6 +443,11 @@ class NarouAuthService {
         challengeUri = _responseRedirect(challengeResponse);
       }
       if (challengeUri != null) {
+        _log(operationId, 'login.result', <String, Object?>{
+          'outcome': 'failure',
+          'reason': 'redirect-limit',
+          'redirectLimit': 5,
+        });
         return const NarouLoginResult.failure('認証画面への転送回数が上限を超えました');
       }
 
@@ -162,17 +460,41 @@ class NarouAuthService {
         narouid,
         rememberSession: rememberSession,
         generation: generation,
+        operationId: operationId,
       );
-      if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
+      if (!_isCurrentAuthOperation(generation)) {
+        _log(operationId, 'login.cancelled', <String, Object?>{
+          'stage': 'challenge-resolution',
+        });
+        return _cancelledLoginResult;
+      }
       if (pending == null) {
+        _log(operationId, 'login.result', <String, Object?>{
+          'outcome': 'failure',
+          'reason': 'mfa-challenge-not-found',
+        });
         return const NarouLoginResult.failure(
           'ログインに失敗しました。ID・パスワードと二段階認証の表示を確認してください。',
         );
       }
       _pendingMfa = pending;
-      return const NarouLoginResult.mfaRequired();
+      _log(operationId, 'login.result', <String, Object?>{
+        'outcome': 'mfa-required',
+        'challengeType': pending.usedEmail ? 'email' : 'totp-or-email',
+        'codeFieldClass': _diagnosticCodeFieldClass(pending.codeField),
+        ..._diagnosticCookieMetadata(pending.cookies),
+      });
+      return NarouLoginResult.mfaRequired(
+        diagnosticsOperationId: operationId,
+      );
     } on DioException catch (e) {
       if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
+      _log(operationId, 'login.result', <String, Object?>{
+        'outcome': 'failure',
+        'reason': 'network-error',
+        'errorType': e.type.name,
+        'status': e.response?.statusCode,
+      });
       debugPrint(
         '[NarouAuth] login: 通信失敗 '
         'type=${e.type} status=${e.response?.statusCode}',
@@ -180,6 +502,11 @@ class NarouAuthService {
       return const NarouLoginResult.failure('ログイン通信に失敗しました');
     } on Object catch (e) {
       if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
+      _log(operationId, 'login.result', <String, Object?>{
+        'outcome': 'failure',
+        'reason': 'processing-error',
+        'errorType': e.runtimeType.toString(),
+      });
       debugPrint('[NarouAuth] login: 処理失敗 type=${e.runtimeType}');
       return const NarouLoginResult.failure('ログイン処理に失敗しました');
     }
@@ -190,10 +517,18 @@ class NarouAuthService {
     final pending = _pendingMfa;
     final generation = _authOperationGeneration;
     if (pending == null) {
+      final operationId = _diagnostics.createOperationId();
+      _log(operationId, 'mfa.verify.rejected', <String, Object?>{
+        'reason': 'no-pending-challenge',
+      });
       return const NarouLoginResult.failure('認証コードを確認できません。最初からログインしてください。');
     }
+    final operationId = pending.operationId;
     final normalizedCode = code.trim();
     if (!RegExp(r'^\d{1,32}$').hasMatch(normalizedCode)) {
+      _log(operationId, 'mfa.verify.rejected', <String, Object?>{
+        'reason': 'invalid-code-format',
+      });
       return const NarouLoginResult.failure(
         '認証コードを半角数字で入力してください。',
         canRetryMfa: true,
@@ -201,22 +536,37 @@ class NarouAuthService {
     }
 
     try {
+      _log(operationId, 'mfa.verify.started', <String, Object?>{
+        'challengeType': pending.usedEmail ? 'email' : 'totp-or-email',
+        'codeFormatValid': true,
+        ..._diagnosticCookieMetadata(pending.cookies),
+      });
       final sessionCookiesBeforeVerification = Map<String, String>.of(
         pending.cookies,
       );
       final fields = Map<String, String>.of(pending.hiddenFields)
         ..[pending.codeField] = normalizedCode;
-      var response = await _dio.post<String>(
-        pending.action.toString(),
-        data: fields,
-        options: _htmlOptions(
-          headers: {
-            'Referer': pending.pageUri.toString(),
-            ...?_cookieHeaderMap(pending.cookies),
-          },
+      var response = await _sendDiagnosticRequest(
+        operationId: operationId,
+        method: 'POST',
+        requestUri: pending.action,
+        cookies: pending.cookies,
+        fieldNames: fields.keys,
+        send: () => _dio.post<String>(
+          pending.action.toString(),
+          data: fields,
+          options: _htmlOptions(
+            headers: {
+              'Referer': pending.pageUri.toString(),
+              ...?_cookieHeaderMap(pending.cookies),
+            },
+          ),
         ),
       );
       if (!_isCurrentMfaChallenge(generation, pending)) {
+        _log(operationId, 'mfa.verify.cancelled', <String, Object?>{
+          'stage': 'code-response',
+        });
         return _cancelledLoginResult;
       }
       mergeSetCookieHeaders(
@@ -226,22 +576,43 @@ class NarouAuthService {
       var redirect = _responseRedirect(response);
       var redirectedToBookmarkList =
           redirect != null && _isNarouBookmarkListUri(redirect);
+      var redirectHops = 0;
       for (var redirects = 0; redirect != null && redirects < 5; redirects++) {
+        redirectHops = redirects + 1;
         if (!_isNarouUri(redirect)) {
+          _log(operationId, 'mfa.redirect.rejected', <String, Object?>{
+            'hop': redirectHops,
+            'targetRoute': _diagnosticRoute(redirect),
+            'trustedTarget': false,
+          });
           _pendingMfa = null;
           return const NarouLoginResult.failure(
             '認証先を安全に確認できませんでした。ログインをやり直してください。',
           );
         }
-        response = await _dio.get<String>(
-          redirect.toString(),
-          options: _htmlOptions(
-            headers: {
-              ...?_cookieHeaderMap(pending.cookies),
-            },
+        _log(operationId, 'mfa.redirect.follow', <String, Object?>{
+          'hop': redirectHops,
+          'targetRoute': _diagnosticRoute(redirect),
+          'trustedTarget': true,
+        });
+        response = await _sendDiagnosticRequest(
+          operationId: operationId,
+          method: 'GET',
+          requestUri: redirect,
+          cookies: pending.cookies,
+          send: () => _dio.get<String>(
+            redirect.toString(),
+            options: _htmlOptions(
+              headers: {
+                ...?_cookieHeaderMap(pending.cookies),
+              },
+            ),
           ),
         );
         if (!_isCurrentMfaChallenge(generation, pending)) {
+          _log(operationId, 'mfa.verify.cancelled', <String, Object?>{
+            'stage': 'redirect-response',
+          });
           return _cancelledLoginResult;
         }
         mergeSetCookieHeaders(
@@ -254,6 +625,12 @@ class NarouAuthService {
         }
       }
       if (redirect != null) {
+        _log(operationId, 'auth.decision', <String, Object?>{
+          'accepted': false,
+          'reason': 'redirect-limit',
+          'redirectHops': redirectHops,
+          'redirectLimit': 5,
+        });
         _pendingMfa = null;
         return const NarouLoginResult.failure(
           '認証画面への転送回数が上限を超えました。ログインをやり直してください。',
@@ -267,8 +644,12 @@ class NarouAuthService {
         pending.narouid,
         usedEmail: pending.usedEmail,
         rememberSession: pending.rememberSession,
+        operationId: operationId,
       );
       if (!_isCurrentMfaChallenge(generation, pending)) {
+        _log(operationId, 'mfa.verify.cancelled', <String, Object?>{
+          'stage': 'final-page-parse',
+        });
         return _cancelledLoginResult;
       }
       final hasSessionCookies = _hasSessionCookies(pending.cookies);
@@ -279,12 +660,17 @@ class NarouAuthService {
       final responseUsername = _extractUsername(response.data);
       if (refreshedChallenge != null) {
         _pendingMfa = refreshedChallenge;
+        _log(operationId, 'mfa.verify.result', <String, Object?>{
+          'outcome': 'retryable-failure',
+          'reason': 'challenge-refreshed',
+        });
         return const NarouLoginResult.failure(
           '認証コードを確認できませんでした。コードを確認して再入力してください。',
           canRetryMfa: true,
         );
       }
 
+      final responseTrusted = _isNarouUri(response.realUri);
       final isAuthenticatedUserPage =
           _isNarouUserTopUri(response.realUri) && responseUsername != null;
       final isAuthenticatedBookmarkPage =
@@ -296,11 +682,46 @@ class NarouAuthService {
       }
       final hasMfaSuccessSignal =
           redirectedToBookmarkList || sessionCookieChanged || username != null;
+      final decisionReason = response.statusCode != 200
+          ? 'unexpected-status'
+          : !responseTrusted
+          ? 'untrusted-origin'
+          : !hasSessionCookies
+          ? 'required-session-cookies-missing'
+          : !hasMfaSuccessSignal
+          ? 'mfa-success-signal-missing'
+          : 'accepted';
+      _log(operationId, 'mfa.final-page', <String, Object?>{
+        'route': _diagnosticRoute(response.realUri),
+        'status': response.statusCode,
+        'responseBytes': _responseBytes(response.data),
+        'usernameMarkerPresent': responseUsername != null,
+        'loginFormPresent': _isNarouLoginPageHtml(response.data),
+        'authenticatedBookmarkMarker': isAuthenticatedBookmarkPage,
+        'redirectedToBookmarkList': redirectedToBookmarkList,
+        'redirectHops': redirectHops,
+        'sessionCookieChanged': sessionCookieChanged,
+        ..._diagnosticCookieMetadata(pending.cookies),
+      });
+      _log(operationId, 'auth.decision', <String, Object?>{
+        'accepted': decisionReason == 'accepted',
+        'reason': decisionReason,
+        'httpStatusOkay': response.statusCode == 200,
+        'trustedOrigin': responseTrusted,
+        'requiredSessionCookiesPresent': hasSessionCookies,
+        'sessionCookieChanged': sessionCookieChanged,
+        'redirectedToBookmarkList': redirectedToBookmarkList,
+        'recognizedAuthenticatedPage': username != null,
+      });
       if (response.statusCode != 200 ||
-          !_isNarouUri(response.realUri) ||
+          !responseTrusted ||
           !hasSessionCookies ||
           !hasMfaSuccessSignal) {
         _pendingMfa = null;
+        _log(operationId, 'mfa.verify.result', <String, Object?>{
+          'outcome': 'failure',
+          'reason': decisionReason,
+        });
         return const NarouLoginResult.failure(
           '認証コードを確認できませんでした。ログインをやり直してください。',
         );
@@ -314,12 +735,21 @@ class NarouAuthService {
           try {
             bookmarkHtml = await _fetchAuthenticatedBookmarkList(
               pending.cookies,
+              operationId: operationId,
             );
           } on DioException catch (error) {
             if (!_isCurrentMfaChallenge(generation, pending)) {
               return _cancelledLoginResult;
             }
             _pendingMfa = null;
+            _log(
+              operationId,
+              'bookmark.session-check.failed',
+              <String, Object?>{
+                'errorType': error.type.name,
+                'status': error.response?.statusCode,
+              },
+            );
             debugPrint(
               '[NarouAuth] MFA後のセッション確認失敗 '
               'type=${error.type} status=${error.response?.statusCode}',
@@ -335,22 +765,39 @@ class NarouAuthService {
 
         if (bookmarkHtml == null) {
           _pendingMfa = null;
+          _log(operationId, 'bookmark.session-check.result', <String, Object?>{
+            'authenticated': false,
+            'reason': 'authenticated-bookmark-marker-missing',
+          });
           return const NarouLoginResult.failure(
             '認証後のセッションを確認できませんでした。ログインをやり直してください。',
           );
         }
         username = _extractUsername(bookmarkHtml) ?? pending.narouid;
+        _log(operationId, 'bookmark.session-check.result', <String, Object?>{
+          'authenticated': true,
+          'usernameMarkerPresent': _extractUsername(bookmarkHtml) != null,
+          'bookmarkMarkerPresent':
+              parser.parse(bookmarkHtml).querySelector('.p-up-bookmark-item') !=
+              null,
+        });
       }
 
       _pendingMfa = null;
-      return _finishLogin(
+      final result = await _finishLogin(
         pending.cookies,
         pending.narouid,
         username,
         generation: generation,
         shouldSuggestAuthenticatorApp: pending.usedEmail,
         rememberSession: pending.rememberSession,
+        operationId: operationId,
       );
+      _log(operationId, 'mfa.verify.result', <String, Object?>{
+        'outcome': result.isSuccess ? 'success' : 'failure',
+        'reason': result.isSuccess ? 'authenticated' : 'session-save-failed',
+      });
+      return result;
     } on DioException catch (e) {
       if (!_isCurrentMfaChallenge(generation, pending)) {
         return _cancelledLoginResult;
@@ -359,11 +806,23 @@ class NarouAuthService {
       if (_isExpiredMfaStatusCode(statusCode)) {
         pending.cookies.clear();
         _pendingMfa = null;
+        _log(operationId, 'mfa.verify.result', <String, Object?>{
+          'outcome': 'expired',
+          'reason': 'terminal-http-status',
+          'status': statusCode,
+          'errorType': e.type.name,
+        });
         debugPrint('[NarouAuth] MFAチャレンジ失効 status=$statusCode');
         return const NarouLoginResult.failure(
           '二段階認証の期限が切れました。IDとパスワードを入力してログインし直してください。',
         );
       }
+      _log(operationId, 'mfa.verify.result', <String, Object?>{
+        'outcome': 'retryable-failure',
+        'reason': 'network-error',
+        'errorType': e.type.name,
+        'status': statusCode,
+      });
       debugPrint(
         '[NarouAuth] MFA通信失敗 type=${e.type} status=${e.response?.statusCode}',
       );
@@ -375,6 +834,11 @@ class NarouAuthService {
       if (!_isCurrentMfaChallenge(generation, pending)) {
         return _cancelledLoginResult;
       }
+      _log(operationId, 'mfa.verify.result', <String, Object?>{
+        'outcome': 'retryable-failure',
+        'reason': 'processing-error',
+        'errorType': e.runtimeType.toString(),
+      });
       debugPrint('[NarouAuth] MFA処理失敗 type=${e.runtimeType}');
       return const NarouLoginResult.failure(
         '認証コードの処理に失敗しました',
@@ -440,6 +904,16 @@ class NarouAuthService {
 
   /// 保留中のMFAチャレンジと仮Cookieを破棄する。
   void cancelMfaChallenge() {
+    _discardMfaChallenge(reason: 'user-cancelled');
+  }
+
+  void _discardMfaChallenge({required String reason}) {
+    final operationId = _pendingMfa?.operationId;
+    if (operationId != null) {
+      _log(operationId, 'mfa.challenge.discarded', <String, Object?>{
+        'reason': reason,
+      });
+    }
     _authOperationGeneration++;
     _pendingMfa?.cookies.clear();
     _pendingMfa = null;
@@ -457,41 +931,59 @@ class NarouAuthService {
     String narouid,
     String username, {
     required int generation,
+    required String operationId,
     bool shouldSuggestAuthenticatorApp = false,
     bool rememberSession = true,
   }) async {
+    _log(operationId, 'session.persist.started', <String, Object?>{
+      'rememberSession': rememberSession,
+      ..._diagnosticCookieMetadata(cookies),
+    });
     var cancelled = false;
     var cleanedAfterCancellation = false;
-    await _serializeSessionMutation(() async {
-      if (!_isCurrentAuthOperation(generation)) {
-        cancelled = true;
-        return;
-      }
+    try {
+      await _serializeSessionMutation(() async {
+        if (!_isCurrentAuthOperation(generation)) {
+          cancelled = true;
+          return;
+        }
 
-      await authRepository.saveSession(
-        narouid: narouid,
-        username: username,
-        ks2: cookies['ks2']!,
-        ses: cookies['ses']!,
-        userl: cookies['userl']!,
-        rememberSession: rememberSession,
-      );
-      if (!_isCurrentAuthOperation(generation)) {
-        cancelled = true;
-        cleanedAfterCancellation = true;
-        await authRepository.clearAll();
-      }
-    });
+        await authRepository.saveSession(
+          narouid: narouid,
+          username: username,
+          ks2: cookies['ks2']!,
+          ses: cookies['ses']!,
+          userl: cookies['userl']!,
+          rememberSession: rememberSession,
+        );
+        if (!_isCurrentAuthOperation(generation)) {
+          cancelled = true;
+          cleanedAfterCancellation = true;
+          await authRepository.clearAll();
+        }
+      });
+    } on Object catch (error) {
+      _log(operationId, 'session.persist.failed', <String, Object?>{
+        'errorType': error.runtimeType.toString(),
+      });
+      rethrow;
+    }
 
     if (cancelled || !_isCurrentAuthOperation(generation)) {
       if (!cleanedAfterCancellation) {
         await _serializeSessionMutation(authRepository.clearAll);
       }
+      _log(operationId, 'session.persist.cancelled');
       return _cancelledLoginResult;
     }
+    _log(operationId, 'session.persisted', <String, Object?>{
+      'rememberSession': rememberSession,
+      'requiredSessionCookiesPresent': _hasSessionCookies(cookies),
+    });
     return NarouLoginResult.success(
       username: username,
       shouldSuggestAuthenticatorApp: shouldSuggestAuthenticatorApp,
+      diagnosticsOperationId: operationId,
     );
   }
 
@@ -545,11 +1037,18 @@ class NarouAuthService {
       document.querySelector('form[action*="/login/login/"]') != null;
 
   Future<String?> _fetchAuthenticatedBookmarkList(
-    Map<String, String> cookies,
-  ) async {
-    final response = await _dio.get<String>(
-      _bookmarkListUrl,
-      options: _htmlOptions(headers: {...?_cookieHeaderMap(cookies)}),
+    Map<String, String> cookies, {
+    required String operationId,
+  }) async {
+    final response = await _sendDiagnosticRequest(
+      operationId: operationId,
+      method: 'GET',
+      requestUri: Uri.parse(_bookmarkListUrl),
+      cookies: cookies,
+      send: () => _dio.get<String>(
+        _bookmarkListUrl,
+        options: _htmlOptions(headers: {...?_cookieHeaderMap(cookies)}),
+      ),
     );
     if (response.statusCode != 200 ||
         !_isNarouBookmarkListUri(response.realUri)) {
@@ -571,7 +1070,7 @@ class NarouAuthService {
     responseType: ResponseType.plain,
   );
 
-  Uri? _responseRedirect(Response<String> response) {
+  Uri? _responseRedirect(Response<dynamic> response) {
     final location = response.headers.value('location');
     if (location == null) return null;
     return response.realUri.resolve(location);
@@ -639,10 +1138,22 @@ class NarouAuthService {
     Uri pageUri,
     Map<String, String> cookies,
     String narouid, {
+    required String operationId,
     bool usedEmail = false,
     bool rememberSession = true,
   }) {
-    if (!_isNarouUri(pageUri)) return null;
+    _log(operationId, 'mfa.challenge.parse.started', <String, Object?>{
+      'pageRoute': _diagnosticRoute(pageUri),
+      'trustedPage': _isNarouUri(pageUri),
+      'responseBytes': _responseBytes(html),
+    });
+    if (!_isNarouUri(pageUri)) {
+      _log(operationId, 'mfa.challenge.parsed', <String, Object?>{
+        'result': 'rejected',
+        'reason': 'untrusted-page',
+      });
+      return null;
+    }
     final document = parser.parse(html);
     final pageText = document.body?.text.toLowerCase() ?? '';
     final hasCodePrompt =
@@ -650,7 +1161,14 @@ class NarouAuthService {
         pageText.contains('二段階認証') ||
         pageText.contains('2段階認証') ||
         pageText.contains('ワンタイム');
-    if (!hasCodePrompt) return null;
+    if (!hasCodePrompt) {
+      _log(operationId, 'mfa.challenge.parsed', <String, Object?>{
+        'result': 'missing',
+        'reason': 'code-prompt-missing',
+        'formCount': document.querySelectorAll('form').length,
+      });
+      return null;
+    }
 
     final forms = document.querySelectorAll('form');
     Element? form;
@@ -660,12 +1178,32 @@ class NarouAuthService {
         break;
       }
     }
-    if (form == null) return null;
+    if (form == null) {
+      _log(operationId, 'mfa.challenge.parsed', <String, Object?>{
+        'result': 'missing',
+        'reason': 'code-form-missing',
+        'formCount': forms.length,
+      });
+      return null;
+    }
     final codeInput = _codeInput(form)!;
     final codeField = codeInput.attributes['name'];
-    if (codeField == null || codeField.isEmpty) return null;
+    if (codeField == null || codeField.isEmpty) {
+      _log(operationId, 'mfa.challenge.parsed', <String, Object?>{
+        'result': 'rejected',
+        'reason': 'code-field-name-missing',
+      });
+      return null;
+    }
     final action = _formAction(form, pageUri, fallback: pageUri);
-    if (!_isNarouMfaAction(action)) return null;
+    if (!_isNarouMfaAction(action)) {
+      _log(operationId, 'mfa.challenge.parsed', <String, Object?>{
+        'result': 'rejected',
+        'reason': 'untrusted-action',
+        'actionRoute': _diagnosticRoute(action),
+      });
+      return null;
+    }
     final hasTotpOption = document.querySelectorAll('a[href]').any((anchor) {
       final href = anchor.attributes['href'];
       return href != null && _isNarouTotpPage(pageUri.resolve(href));
@@ -684,6 +1222,16 @@ class NarouAuthService {
     final emailIsOnlyOption = emailCodeChallenge && !hasTotpOption;
     final shouldSuggestAuthenticatorApp =
         !isTotpChallenge && (usedEmail || emailIsOnlyOption);
+    _log(operationId, 'mfa.challenge.parsed', <String, Object?>{
+      'result': 'found',
+      'pageRoute': _diagnosticRoute(pageUri),
+      'actionRoute': _diagnosticRoute(action),
+      'codeFieldClass': _diagnosticCodeFieldClass(codeField),
+      'hiddenFieldNames': _safeDiagnosticNames(_hiddenFields(form).keys),
+      'hasTotpOption': hasTotpOption,
+      'challengeType': isTotpChallenge ? 'totp' : 'email-or-other',
+      'shouldSuggestAuthenticatorApp': shouldSuggestAuthenticatorApp,
+    });
     return _PendingNarouMfa(
       action: action,
       pageUri: pageUri,
@@ -693,6 +1241,7 @@ class NarouAuthService {
       narouid: narouid,
       usedEmail: shouldSuggestAuthenticatorApp,
       rememberSession: rememberSession,
+      operationId: operationId,
     );
   }
 
@@ -703,14 +1252,22 @@ class NarouAuthService {
     String narouid, {
     required bool rememberSession,
     required int generation,
+    required String operationId,
   }) async {
-    if (!_isNarouUri(pageUri)) return null;
+    if (!_isNarouUri(pageUri)) {
+      _log(operationId, 'mfa.challenge.resolve.rejected', <String, Object?>{
+        'reason': 'untrusted-page',
+        'pageRoute': _diagnosticRoute(pageUri),
+      });
+      return null;
+    }
     final directChallenge = _parseMfaChallenge(
       html,
       pageUri,
       cookies,
       narouid,
       rememberSession: rememberSession,
+      operationId: operationId,
     );
     if (directChallenge != null) return directChallenge;
 
@@ -733,6 +1290,7 @@ class NarouAuthService {
         usedEmail: false,
         rememberSession: rememberSession,
         generation: generation,
+        operationId: operationId,
       );
     }
 
@@ -743,22 +1301,40 @@ class NarouAuthService {
         continue;
       }
       final fields = _emailChoiceFields(form);
-      if (fields == null) return null;
-      final response = await _dio.post<String>(
-        action.toString(),
-        data: fields,
-        options: _htmlOptions(
-          headers: {
-            'Referer': pageUri.toString(),
-            ...?_cookieHeaderMap(cookies),
-          },
+      if (fields == null) {
+        _log(operationId, 'mfa.email-choice.rejected', <String, Object?>{
+          'reason': 'choice-fields-missing',
+        });
+        return null;
+      }
+      final response = await _sendDiagnosticRequest(
+        operationId: operationId,
+        method: 'POST',
+        requestUri: action,
+        cookies: cookies,
+        fieldNames: fields.keys,
+        send: () => _dio.post<String>(
+          action.toString(),
+          data: fields,
+          options: _htmlOptions(
+            headers: {
+              'Referer': pageUri.toString(),
+              ...?_cookieHeaderMap(cookies),
+            },
+          ),
         ),
       );
       if (!_isCurrentAuthOperation(generation)) return null;
       mergeSetCookieHeaders(cookies, response.headers.map['set-cookie']);
       final redirect = _responseRedirect(response);
       if (redirect != null) {
-        if (!_isNarouUri(redirect)) return null;
+        if (!_isNarouUri(redirect)) {
+          _log(operationId, 'mfa.email-choice.rejected', <String, Object?>{
+            'reason': 'untrusted-redirect',
+            'targetRoute': _diagnosticRoute(redirect),
+          });
+          return null;
+        }
         return _fetchMfaCodePage(
           redirect,
           cookies,
@@ -766,6 +1342,7 @@ class NarouAuthService {
           usedEmail: true,
           rememberSession: rememberSession,
           generation: generation,
+          operationId: operationId,
         );
       }
       return _parseMfaChallenge(
@@ -775,6 +1352,7 @@ class NarouAuthService {
         narouid,
         usedEmail: true,
         rememberSession: rememberSession,
+        operationId: operationId,
       );
     }
     return null;
@@ -787,16 +1365,35 @@ class NarouAuthService {
     required bool usedEmail,
     required bool rememberSession,
     required int generation,
+    required String operationId,
   }) async {
     var current = startUri;
     for (var redirects = 0; redirects <= 5; redirects++) {
-      if (!_isNarouUri(current)) return null;
-      final response = await _dio.get<String>(
-        current.toString(),
-        options: _htmlOptions(headers: {...?_cookieHeaderMap(cookies)}),
+      if (!_isNarouUri(current)) {
+        _log(operationId, 'mfa.code-page.rejected', <String, Object?>{
+          'reason': 'untrusted-target',
+          'route': _diagnosticRoute(current),
+        });
+        return null;
+      }
+      final response = await _sendDiagnosticRequest(
+        operationId: operationId,
+        method: 'GET',
+        requestUri: current,
+        cookies: cookies,
+        send: () => _dio.get<String>(
+          current.toString(),
+          options: _htmlOptions(headers: {...?_cookieHeaderMap(cookies)}),
+        ),
       );
       if (!_isCurrentAuthOperation(generation)) return null;
-      if (!_isNarouUri(response.realUri)) return null;
+      if (!_isNarouUri(response.realUri)) {
+        _log(operationId, 'mfa.code-page.rejected', <String, Object?>{
+          'reason': 'untrusted-response',
+          'route': _diagnosticRoute(response.realUri),
+        });
+        return null;
+      }
       mergeSetCookieHeaders(cookies, response.headers.map['set-cookie']);
       final redirect = _responseRedirect(response);
       if (redirect == null) {
@@ -807,9 +1404,19 @@ class NarouAuthService {
           narouid,
           usedEmail: usedEmail,
           rememberSession: rememberSession,
+          operationId: operationId,
         );
       }
-      if (!_isNarouUri(redirect) || redirects == 5) return null;
+      if (!_isNarouUri(redirect) || redirects == 5) {
+        _log(operationId, 'mfa.code-page.rejected', <String, Object?>{
+          'reason': _isNarouUri(redirect)
+              ? 'redirect-limit'
+              : 'untrusted-redirect',
+          'route': _diagnosticRoute(redirect),
+          'redirectHops': redirects + 1,
+        });
+        return null;
+      }
       current = redirect;
     }
     return null;
@@ -930,6 +1537,7 @@ class _PendingNarouMfa {
     required this.hiddenFields,
     required this.cookies,
     required this.narouid,
+    required this.operationId,
     this.usedEmail = false,
     this.rememberSession = true,
   });
@@ -940,6 +1548,7 @@ class _PendingNarouMfa {
   final Map<String, String> hiddenFields;
   final Map<String, String> cookies;
   final String narouid;
+  final String operationId;
   final bool usedEmail;
   final bool rememberSession;
 }
@@ -950,13 +1559,14 @@ class NarouLoginResult {
   const NarouLoginResult.success({
     required this.username,
     this.shouldSuggestAuthenticatorApp = false,
+    this.diagnosticsOperationId,
   }) : isSuccess = true,
        requiresMfa = false,
        canRetryMfa = false,
        error = null;
 
   /// 二段階認証コードの入力待ち。
-  const NarouLoginResult.mfaRequired()
+  const NarouLoginResult.mfaRequired({this.diagnosticsOperationId})
     : isSuccess = false,
       requiresMfa = true,
       canRetryMfa = true,
@@ -971,7 +1581,8 @@ class NarouLoginResult {
   }) : isSuccess = false,
        requiresMfa = false,
        username = null,
-       shouldSuggestAuthenticatorApp = false;
+       shouldSuggestAuthenticatorApp = false,
+       diagnosticsOperationId = null;
 
   /// 成功したか否か。
   final bool isSuccess;
@@ -987,6 +1598,9 @@ class NarouLoginResult {
 
   /// メール認証でログインし、認証アプリの設定案内を表示する必要があるか。
   final bool shouldSuggestAuthenticatorApp;
+
+  /// 認証イベントを相関させる開発用操作ID。
+  final String? diagnosticsOperationId;
 
   /// ログイン失敗時のエラーメッセージ。
   final String? error;

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/services/narou_auth_service.dart';
+import 'package:novelty/utils/clipboard_helper.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// なろうアカウントのログイン画面。
@@ -25,6 +26,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _obscurePassword = true;
   bool _awaitingMfa = false;
   bool _rememberSession = true;
+  bool _showDiagnosticsAction = false;
   late final void Function() _cancelMfaChallenge;
 
   @override
@@ -46,7 +48,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _showDiagnosticsAction = false;
+    });
 
     // 例外が出てもインジケータを必ず解除する。
     // finally が無いとログイン失敗時に進捗表示が回り続ける。
@@ -101,6 +106,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         ),
       );
     } else {
+      final diagnosticsEnabled = ref
+          .read(narouAuthServiceProvider)
+          .diagnosticsEnabled;
+      setState(() => _showDiagnosticsAction = diagnosticsEnabled);
       if (_awaitingMfa && !result.canRetryMfa) {
         _cancelMfaChallenge();
         setState(() => _awaitingMfa = false);
@@ -124,6 +133,24 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       _awaitingMfa = false;
       _mfaCodeController.clear();
     });
+  }
+
+  Future<void> _copyDiagnosticsLogPath() async {
+    final path = await ref
+        .read(narouAuthServiceProvider)
+        .diagnosticsLogFilePath();
+    if (!mounted) return;
+    if (path == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('診断ログのパスを取得できませんでした')),
+      );
+      return;
+    }
+    await copyTextToClipboard(path);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('診断ログのパスをコピーしました')),
+    );
   }
 
   Future<void> _openAuthenticatorSettings() async {
@@ -277,6 +304,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   TextButton(
                     onPressed: _isLoading ? null : _restartLogin,
                     child: const Text('最初からやり直す'),
+                  ),
+                ],
+                if (_showDiagnosticsAction) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    key: const Key('narou-copy-diagnostics-path'),
+                    onPressed: _isLoading ? null : _copyDiagnosticsLogPath,
+                    icon: const Icon(Icons.copy),
+                    label: const Text('診断ログのパスをコピー'),
                   ),
                 ],
                 const SizedBox(height: 16),

@@ -43,7 +43,7 @@ class NarouLogin extends _$NarouLogin {
       );
 
       if (result.isSuccess) {
-        await _afterLogin();
+        await _afterLogin(authService, result);
       }
       return result;
     } on Object {
@@ -57,11 +57,10 @@ class NarouLogin extends _$NarouLogin {
   /// MFAコードを確認し、成功時にセッション同期を開始する。
   Future<NarouLoginResult> verifyMfaCode(String code) async {
     state = const AsyncValue.loading();
+    final authService = ref.read(narouAuthServiceProvider);
     try {
-      final result = await ref
-          .read(narouAuthServiceProvider)
-          .verifyMfaCode(code);
-      if (result.isSuccess) await _afterLogin();
+      final result = await authService.verifyMfaCode(code);
+      if (result.isSuccess) await _afterLogin(authService, result);
       return result;
     } on Object {
       return const NarouLoginResult.failure('認証コードの確認に失敗しました');
@@ -75,13 +74,46 @@ class NarouLogin extends _$NarouLogin {
     ref.read(narouAuthServiceProvider).cancelMfaChallenge();
   }
 
-  Future<void> _afterLogin() async {
+  Future<void> _afterLogin(
+    NarouAuthService authService,
+    NarouLoginResult result,
+  ) async {
     final adapter = ref.read(narouAccountSyncAdapterProvider);
+    final operationId =
+        result.diagnosticsOperationId ??
+        authService.createDiagnosticOperationId();
+    final stopwatch = Stopwatch()..start();
+    authService.recordDiagnosticEvent(
+      operationId,
+      'post-login-sync.started',
+      <String, Object?>{'source': adapter.source.name},
+    );
     try {
       await adapter.pullLibrary();
     } on Object catch (error) {
+      stopwatch.stop();
+      authService.recordDiagnosticEvent(
+        operationId,
+        'post-login-sync.failed',
+        <String, Object?>{
+          'source': adapter.source.name,
+          'durationMs': stopwatch.elapsedMilliseconds,
+          'errorType': error.runtimeType.toString(),
+        },
+      );
       debugPrint(
         '[Novelty][Auth] ログイン後の同期失敗 type=${error.runtimeType}',
+      );
+    }
+    if (stopwatch.isRunning) {
+      stopwatch.stop();
+      authService.recordDiagnosticEvent(
+        operationId,
+        'post-login-sync.completed',
+        <String, Object?>{
+          'source': adapter.source.name,
+          'durationMs': stopwatch.elapsedMilliseconds,
+        },
       );
     }
     ref.invalidate(accountAuthStateProvider(adapter.source));

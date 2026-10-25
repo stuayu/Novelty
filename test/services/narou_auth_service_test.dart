@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -7,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:novelty/repositories/auth_repository.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/services/narou_auth_service.dart';
 
 import 'narou_auth_service_test.mocks.dart';
@@ -847,6 +850,68 @@ void main() {
           rememberSession: true,
         ),
       ).called(1);
+    });
+
+    test('MFA診断ログに通信段階を記録し認証情報を含めない', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'novelty-narou-auth-trace-test-',
+      );
+      final consoleLines = <String>[];
+      final diagnostics = NarouAuthDiagnosticsLogger(
+        enabled: true,
+        directoryResolver: () async => directory,
+        consoleSink: consoleLines.add,
+      );
+      final adapter = _TwoStepMfaAdapter();
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+        diagnostics: diagnostics,
+      );
+
+      try {
+        final firstStep = await service.login(
+          narouid: 'reader-id',
+          password: 'diagnostic-secret-password',
+        );
+        expect(firstStep.requiresMfa, isTrue);
+        final result = await service.verifyMfaCode('654321');
+        await diagnostics.flush();
+
+        expect(result.isSuccess, isTrue);
+        final path = await diagnostics.logFilePath();
+        final logText = await File(path!).readAsString();
+        final allLogText = '$logText\n${consoleLines.join('\n')}';
+        final entries = logText
+            .split('\n')
+            .where((line) => line.isNotEmpty)
+            .map((line) => jsonDecode(line) as Map<String, dynamic>)
+            .toList();
+        expect(
+          entries.map((entry) => entry['operationId']).toSet(),
+          hasLength(1),
+        );
+        expect(logText, contains('login.started'));
+        expect(logText, contains('http.request'));
+        expect(logText, contains('http.response'));
+        expect(logText, contains('mfa.challenge.parsed'));
+        expect(logText, contains('auth.decision'));
+        expect(logText, contains('session.persisted'));
+        expect(logText, contains('user-top'));
+        expect(logText, contains('sessionCookieChanged'));
+        expect(allLogText, isNot(contains('diagnostic-secret-password')));
+        expect(allLogText, isNot(contains('654321')));
+        expect(allLogText, isNot(contains('reader-id')));
+        expect(allLogText, isNot(contains('test-challenge')));
+        expect(allLogText, isNot(contains('csrf-value')));
+        expect(allLogText, isNot(contains('ks2-value')));
+        expect(allLogText, isNot(contains('ses-value')));
+        expect(allLogText, isNot(contains('userl-value')));
+        expect(allLogText, isNot(contains('テスト利用者')));
+        expect(consoleLines, isNotEmpty);
+      } finally {
+        await directory.delete(recursive: true);
+      }
     });
 
     test('TOTP未設定の選択画面ではメールを要求しメールコードを送信できる', () async {

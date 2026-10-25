@@ -7,18 +7,30 @@ import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/screens/login_page.dart';
 import 'package:novelty/services/narou_auth_service.dart';
 
+import '../helpers/clipboard.dart';
+
 class _MfaAuthService extends NarouAuthService {
-  _MfaAuthService({this.retainMfaAfterVerification = false})
-    : super(authRepository: AuthRepository());
+  _MfaAuthService({
+    this.retainMfaAfterVerification = false,
+    this.diagnosticsEnabledForTest = false,
+  }) : super(authRepository: AuthRepository());
 
   String? submittedCode;
   bool loginCalled = false;
   bool? rememberSession;
   bool challengeCancelled = false;
   final bool retainMfaAfterVerification;
+  final bool diagnosticsEnabledForTest;
   bool delayLogin = false;
   final loginStarted = Completer<void>();
   final loginCompletion = Completer<NarouLoginResult>();
+
+  @override
+  bool get diagnosticsEnabled => diagnosticsEnabledForTest;
+
+  @override
+  Future<String?> diagnosticsLogFilePath() async =>
+      diagnosticsEnabledForTest ? '/tmp/narou_auth_diagnostics.jsonl' : null;
 
   @override
   void cancelMfaChallenge() => challengeCancelled = true;
@@ -245,5 +257,40 @@ void main() {
 
     authService.loginCompletion.complete(const NarouLoginResult.mfaRequired());
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('失敗時に診断ログのパスをコピーできる', (tester) async {
+    final clipboard = installClipboardMock(tester);
+    addTearDown(clipboard.dispose);
+    final authService = _MfaAuthService(diagnosticsEnabledForTest: true);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          narouAuthServiceProvider.overrideWithValue(authService),
+        ],
+        child: const MaterialApp(home: LoginPage()),
+      ),
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'ユーザーIDまたはメールアドレス'),
+      'reader@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'パスワード'),
+      'secret-password',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'ログイン'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('narou-mfa-code')), '123456');
+    await tester.tap(find.widgetWithText(FilledButton, '認証コードを確認'));
+    await tester.pumpAndSettle();
+
+    final copyButton = find.byKey(const Key('narou-copy-diagnostics-path'));
+    expect(copyButton, findsOneWidget);
+    await tester.tap(copyButton);
+    await tester.pumpAndSettle();
+
+    clipboard.expectCopiedText('/tmp/narou_auth_diagnostics.jsonl');
   });
 }
