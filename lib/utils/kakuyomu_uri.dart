@@ -8,8 +8,7 @@ bool isTrustedKakuyomuUri(Uri uri) {
   return isTrustedHttpsOrigin(uri, host: 'kakuyomu.jp');
 }
 
-/// ログイン確認エラーを表示してよい、ログイン後のサイト画面か判定する。
-bool shouldShowKakuyomuLoginCheckError(String pagePath) {
+bool _isKakuyomuLoginCompletionPath(String pagePath) {
   if (pagePath == 'unknown' || pagePath == 'external') return false;
 
   const nonCompletionPaths = <String>[
@@ -24,11 +23,15 @@ bool shouldShowKakuyomuLoginCheckError(String pagePath) {
   return !nonCompletionPaths.any(pagePath.startsWith);
 }
 
-/// ログイン送信後かつログイン完了先へ遷移した場合に確認を開始する。
-bool shouldCheckKakuyomuLoginAfterNavigation({
+/// ログイン送信後に失敗した場合だけ、確認エラーを画面に表示する。
+bool shouldShowKakuyomuLoginCheckError({
   required bool loginAttempted,
   required String pagePath,
-}) => loginAttempted && shouldShowKakuyomuLoginCheckError(pagePath);
+}) => loginAttempted && _isKakuyomuLoginCompletionPath(pagePath);
+
+/// ログイン後の画面へ遷移したら、Cookieを検証して既存セッションも取り込む。
+bool shouldCheckKakuyomuLoginAfterNavigation(String pagePath) =>
+    _isKakuyomuLoginCompletionPath(pagePath);
 
 /// 認証に失敗してログインフォームへ戻った場合、送信フラグを消す。
 bool shouldResetKakuyomuLoginAttempt(String pagePath) =>

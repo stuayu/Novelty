@@ -3,43 +3,63 @@ import 'package:novelty/utils/kakuyomu_uri.dart';
 
 void main() {
   group('shouldShowKakuyomuLoginCheckError', () {
-    test('ログイン完了先ではログイン確認エラーを表示する', () {
-      expect(shouldShowKakuyomuLoginCheckError('/'), isTrue);
-      expect(shouldShowKakuyomuLoginCheckError('/works/123'), isTrue);
+    test('ログイン送信後の完了先ではログイン確認エラーを表示する', () {
+      expect(
+        shouldShowKakuyomuLoginCheckError(
+          loginAttempted: true,
+          pagePath: '/',
+        ),
+        isTrue,
+      );
+      expect(
+        shouldShowKakuyomuLoginCheckError(
+          loginAttempted: true,
+          pagePath: '/works/123',
+        ),
+        isTrue,
+      );
     });
 
     test('認証・登録・パスワード再設定の画面ではエラーを表示しない', () {
-      expect(shouldShowKakuyomuLoginCheckError('/auth/login'), isFalse);
-      expect(shouldShowKakuyomuLoginCheckError('/signup'), isFalse);
-      expect(shouldShowKakuyomuLoginCheckError('/users/sign_up'), isFalse);
-      expect(shouldShowKakuyomuLoginCheckError('/password/reset'), isFalse);
+      for (final path in [
+        '/auth/login',
+        '/signup',
+        '/users/sign_up',
+        '/password/reset',
+      ]) {
+        expect(
+          shouldShowKakuyomuLoginCheckError(
+            loginAttempted: true,
+            pagePath: path,
+          ),
+          isFalse,
+        );
+      }
     });
-  });
 
-  group('shouldCheckKakuyomuLoginAfterNavigation', () {
-    test('ログイン送信前はトップページへ移動しても確認しない', () {
+    test('未ログイン状態でトップへ進んでも確認エラーを表示しない', () {
       expect(
-        shouldCheckKakuyomuLoginAfterNavigation(
+        shouldShowKakuyomuLoginCheckError(
           loginAttempted: false,
           pagePath: '/',
         ),
         isFalse,
       );
     });
+  });
 
-    test('ログイン送信後にログイン完了先へ進んだ場合だけ確認する', () {
+  group('shouldCheckKakuyomuLoginAfterNavigation', () {
+    test('トップへの遷移は送信状態に関わらずセッション確認する', () {
       expect(
-        shouldCheckKakuyomuLoginAfterNavigation(
-          loginAttempted: true,
-          pagePath: '/works/123',
-        ),
+        shouldCheckKakuyomuLoginAfterNavigation('/'),
         isTrue,
       );
       expect(
-        shouldCheckKakuyomuLoginAfterNavigation(
-          loginAttempted: true,
-          pagePath: '/signup',
-        ),
+        shouldCheckKakuyomuLoginAfterNavigation('/works/123'),
+        isTrue,
+      );
+      expect(
+        shouldCheckKakuyomuLoginAfterNavigation('/signup'),
         isFalse,
       );
     });

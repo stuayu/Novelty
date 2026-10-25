@@ -102,10 +102,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
       'loginAttempted': loginAttempted,
       'loginAttemptReset': resetLoginAttempt,
     });
-    if (!shouldCheckKakuyomuLoginAfterNavigation(
-      loginAttempted: loginAttempted,
-      pagePath: currentPath,
-    )) {
+    if (!shouldCheckKakuyomuLoginAfterNavigation(currentPath)) {
       return Future<void>.value();
     }
     return _loginCheckQueue.request(
@@ -152,7 +149,11 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
         },
       );
       if (cookies.isEmpty) {
-        if (mounted && shouldShowKakuyomuLoginCheckError(currentPath)) {
+        if (mounted &&
+            shouldShowKakuyomuLoginCheckError(
+              loginAttempted: _loginAttempted,
+              pagePath: currentPath,
+            )) {
           setState(() {
             _errorMessage = 'カクヨムのログインCookieを取得できませんでした。';
           });
@@ -171,7 +172,11 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
         },
       );
       if (sessionStatus != KakuyomuSessionValidity.valid) {
-        if (mounted && shouldShowKakuyomuLoginCheckError(currentPath)) {
+        if (mounted &&
+            shouldShowKakuyomuLoginCheckError(
+              loginAttempted: _loginAttempted,
+              pagePath: currentPath,
+            )) {
           setState(() {
             _errorMessage = sessionStatus == KakuyomuSessionValidity.unavailable
                 ? 'カクヨムのログイン状態を確認できませんでした。通信状態を確認してください。'
@@ -207,7 +212,10 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
         );
       if (mounted &&
           (keychainErrorMessage != null ||
-              shouldShowKakuyomuLoginCheckError(currentPath))) {
+              shouldShowKakuyomuLoginCheckError(
+                loginAttempted: _loginAttempted,
+                pagePath: currentPath,
+              ))) {
         setState(() {
           _errorMessage =
               keychainErrorMessage ?? 'ログイン状態を確認できませんでした。もう一度お試しください。';
