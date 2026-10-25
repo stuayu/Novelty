@@ -12,29 +12,47 @@ typedef AuthDiagnosticsDirectoryResolver = Future<Directory> Function();
 /// 診断ログをコンソールへ出力する関数。
 typedef AuthDiagnosticsConsoleSink = void Function(String line);
 
+const _captureSensitiveTraceFromEnvironment = bool.fromEnvironment(
+  'NAROU_AUTH_TRACE_SENSITIVE',
+);
+
 /// なろう認証の構造化診断ログを出力する。
 ///
-/// 記録する値は呼び出し側で選別し、認証情報や応答本文を渡さない。
+/// 通常の診断ログでは認証情報や応答本文を伏せる。生の通信データは
+/// デバッグビルドでTraceを明示的に有効にした場合だけ別ファイルへ出力する。
 class NarouAuthDiagnosticsLogger {
   /// 診断ログを初期化する。
   NarouAuthDiagnosticsLogger({
     bool? enabled,
+    bool captureSensitiveTrace = _captureSensitiveTraceFromEnvironment,
     AuthDiagnosticsDirectoryResolver? directoryResolver,
     AuthDiagnosticsConsoleSink? consoleSink,
     this.maxBytes = 512 * 1024,
+    this.maxTraceBytes = 5 * 1024 * 1024,
   }) : assert(maxBytes > 0, 'maxBytesは1以上である必要があります'),
+       assert(maxTraceBytes > 0, 'maxTraceBytesは1以上である必要があります'),
        enabled = enabled ?? kDebugMode,
+       captureSensitiveTrace = kDebugMode && captureSensitiveTrace,
        _directoryResolver = directoryResolver ?? getApplicationSupportDirectory,
        _consoleSink = consoleSink ?? _debugConsoleSink;
 
   /// 診断ログファイル名。
   static const fileName = 'narou_auth_diagnostics.jsonl';
 
+  /// Traceレベルの完全な通信ログ名。
+  static const traceFileName = 'narou_auth_trace.jsonl';
+
   /// 出力上限。超過時は直前のログを1世代だけ保持する。
   final int maxBytes;
 
+  /// Traceログの出力上限。
+  final int maxTraceBytes;
+
   /// ログ出力が有効かどうか。
   final bool enabled;
+
+  /// 認証情報を含むTraceログが有効かどうか。
+  final bool captureSensitiveTrace;
 
   final AuthDiagnosticsDirectoryResolver _directoryResolver;
   final AuthDiagnosticsConsoleSink _consoleSink;
@@ -66,14 +84,27 @@ class NarouAuthDiagnosticsLogger {
     };
     final line = jsonEncode(entry);
     _consoleSink('[NarouAuthDiagnostics] $line');
-    _writeQueue = _writeQueue.then((_) => _append(line)).catchError((
-      Object error,
-    ) {
-      _consoleSink(
-        '[NarouAuthDiagnostics] fileWriteFailed '
-        'type=${error.runtimeType}',
-      );
-    });
+    _enqueue(line, fileName: fileName, maxBytes: maxBytes);
+  }
+
+  /// 秘密を含む詳細Traceをローカルの開発ログへ記録する。
+  void recordTrace(
+    String operationId,
+    String event, [
+    Map<String, Object?> fields = const <String, Object?>{},
+  ]) {
+    if (!enabled || !captureSensitiveTrace) return;
+
+    final entry = <String, Object?>{
+      ...fields,
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
+      'operationId': operationId,
+      'level': 'TRACE',
+      'event': event,
+    };
+    final line = jsonEncode(entry);
+    _consoleSink('[NarouAuthDiagnostics][TRACE] $line');
+    _enqueue(line, fileName: traceFileName, maxBytes: maxTraceBytes);
   }
 
   /// それまでにキューへ追加された書き込みを完了する。
@@ -81,16 +112,45 @@ class NarouAuthDiagnosticsLogger {
 
   /// ログファイルのパスを返す。
   Future<String?> logFilePath() async {
+    return _filePath(fileName, enabled: enabled);
+  }
+
+  /// 完全なTraceログファイルのパスを返す。
+  Future<String?> traceLogFilePath() async => _filePath(
+    traceFileName,
+    enabled: enabled && captureSensitiveTrace,
+  );
+
+  Future<String?> _filePath(String name, {required bool enabled}) async {
     if (!enabled) return null;
     try {
       final directory = await _directoryResolver();
-      return p.join(directory.path, fileName);
+      return p.join(directory.path, name);
     } on Object {
       return null;
     }
   }
 
-  Future<void> _append(String line) async {
+  void _enqueue(
+    String line, {
+    required String fileName,
+    required int maxBytes,
+  }) {
+    _writeQueue = _writeQueue
+        .then((_) => _append(line, fileName: fileName, maxBytes: maxBytes))
+        .catchError((Object error) {
+          _consoleSink(
+            '[NarouAuthDiagnostics] fileWriteFailed '
+            'type=${error.runtimeType}',
+          );
+        });
+  }
+
+  Future<void> _append(
+    String line, {
+    required String fileName,
+    required int maxBytes,
+  }) async {
     final directory = await _directoryResolver();
     await directory.create(recursive: true);
     final file = File(p.join(directory.path, fileName));

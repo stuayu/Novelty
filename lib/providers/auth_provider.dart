@@ -46,7 +46,16 @@ class NarouLogin extends _$NarouLogin {
         await _afterLogin(authService, result);
       }
       return result;
-    } on Object {
+    } on Object catch (error, stackTrace) {
+      authService.recordDiagnosticTrace(
+        authService.createDiagnosticOperationId(),
+        'login.provider.error',
+        <String, Object?>{
+          'stage': 'credential-login',
+          'error': error.toString(),
+          'stackTrace': stackTrace.toString(),
+        },
+      );
       return const NarouLoginResult.failure('ログイン処理に失敗しました');
     } finally {
       // 例外の有無にかかわらずローディングを解除する。
@@ -62,7 +71,16 @@ class NarouLogin extends _$NarouLogin {
       final result = await authService.verifyMfaCode(code);
       if (result.isSuccess) await _afterLogin(authService, result);
       return result;
-    } on Object {
+    } on Object catch (error, stackTrace) {
+      authService.recordDiagnosticTrace(
+        authService.createDiagnosticOperationId(),
+        'login.provider.error',
+        <String, Object?>{
+          'stage': 'mfa-verification',
+          'error': error.toString(),
+          'stackTrace': stackTrace.toString(),
+        },
+      );
       return const NarouLoginResult.failure('認証コードの確認に失敗しました');
     } finally {
       state = const AsyncValue.data(null);
@@ -90,17 +108,27 @@ class NarouLogin extends _$NarouLogin {
     );
     try {
       await adapter.pullLibrary();
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
       stopwatch.stop();
-      authService.recordDiagnosticEvent(
-        operationId,
-        'post-login-sync.failed',
-        <String, Object?>{
-          'source': adapter.source.name,
-          'durationMs': stopwatch.elapsedMilliseconds,
-          'errorType': error.runtimeType.toString(),
-        },
-      );
+      authService
+        ..recordDiagnosticEvent(
+          operationId,
+          'post-login-sync.failed',
+          <String, Object?>{
+            'source': adapter.source.name,
+            'durationMs': stopwatch.elapsedMilliseconds,
+            'errorType': error.runtimeType.toString(),
+          },
+        )
+        ..recordDiagnosticTrace(
+          operationId,
+          'post-login-sync.error',
+          <String, Object?>{
+            'source': adapter.source.name,
+            'error': error.toString(),
+            'stackTrace': stackTrace.toString(),
+          },
+        );
       debugPrint(
         '[Novelty][Auth] ログイン後の同期失敗 type=${error.runtimeType}',
       );

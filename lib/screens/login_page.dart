@@ -26,7 +26,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _obscurePassword = true;
   bool _awaitingMfa = false;
   bool _rememberSession = true;
-  bool _showDiagnosticsAction = false;
+  late final NarouAuthService _authService;
   late final void Function() _cancelMfaChallenge;
 
   @override
@@ -35,6 +35,16 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     _cancelMfaChallenge = ref
         .read(narouLoginProvider.notifier)
         .cancelMfaChallenge;
+    _authService = ref.read(narouAuthServiceProvider);
+    final operationId = _authService.createDiagnosticOperationId();
+    _authService.recordDiagnosticEvent(
+      operationId,
+      'login-screen.opened',
+      <String, Object?>{
+        'diagnosticsEnabled': _authService.diagnosticsEnabled,
+        'traceEnabled': _authService.diagnosticsTraceEnabled,
+      },
+    );
   }
 
   @override
@@ -48,10 +58,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _isLoading = true;
-      _showDiagnosticsAction = false;
-    });
+    setState(() => _isLoading = true);
 
     // 例外が出てもインジケータを必ず解除する。
     // finally が無いとログイン失敗時に進捗表示が回り続ける。
@@ -65,7 +72,16 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               password: _passwordController.text,
               rememberSession: _rememberSession,
             );
-    } on Object {
+    } on Object catch (error, stackTrace) {
+      _authService.recordDiagnosticTrace(
+        _authService.createDiagnosticOperationId(),
+        'login.ui.error',
+        <String, Object?>{
+          'error': error.toString(),
+          'stackTrace': stackTrace.toString(),
+          'awaitingMfa': _awaitingMfa,
+        },
+      );
       result = const NarouLoginResult.failure('ログイン処理に失敗しました');
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -106,10 +122,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         ),
       );
     } else {
-      final diagnosticsEnabled = ref
-          .read(narouAuthServiceProvider)
-          .diagnosticsEnabled;
-      setState(() => _showDiagnosticsAction = diagnosticsEnabled);
       if (_awaitingMfa && !result.canRetryMfa) {
         _cancelMfaChallenge();
         setState(() => _awaitingMfa = false);
@@ -172,6 +184,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   Widget build(BuildContext context) {
     ref.watch(narouLoginProvider);
+    final authService = ref.watch(narouAuthServiceProvider);
     final sessionStorageNotice = _rememberSession
         ? 'ログインIDとセッション情報はSecure Storageに保存されます。'
         : 'ログインIDとセッション情報はアプリを閉じるまで保持し、終了時に破棄します。';
@@ -306,13 +319,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     child: const Text('最初からやり直す'),
                   ),
                 ],
-                if (_showDiagnosticsAction) ...[
+                if (authService.diagnosticsEnabled) ...[
                   const SizedBox(height: 8),
                   TextButton.icon(
                     key: const Key('narou-copy-diagnostics-path'),
                     onPressed: _isLoading ? null : _copyDiagnosticsLogPath,
                     icon: const Icon(Icons.copy),
-                    label: const Text('診断ログのパスをコピー'),
+                    label: Text(
+                      authService.diagnosticsTraceEnabled
+                          ? 'Traceログのパスをコピー'
+                          : '診断ログのパスをコピー',
+                    ),
                   ),
                 ],
                 const SizedBox(height: 16),

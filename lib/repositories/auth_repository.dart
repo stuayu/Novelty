@@ -9,7 +9,12 @@ const _cookieKs2Key = 'narou_cookie_ks2';
 const _cookieSesKey = 'narou_cookie_ses';
 const _cookieUserlKey = 'narou_cookie_userl';
 const _usernameKey = 'narou_username';
-const _narouSessionCookieNames = <String>{'ks2', 'ses', 'userl'};
+const _requiredNarouSessionCookieNames = <String>{'ks2', 'ses'};
+const _optionalNarouSessionCookieNames = <String>{'userl'};
+const _narouSessionCookieNames = <String>{
+  ..._requiredNarouSessionCookieNames,
+  ..._optionalNarouSessionCookieNames,
+};
 
 @Riverpod(keepAlive: true)
 /// 認証リポジトリのプロバイダー。
@@ -19,7 +24,7 @@ AuthRepository authRepository(Ref ref) => AuthRepository();
 ///
 /// 保存するデータ：
 /// - ログインID (narouid)
-/// - セッションCookie (ks2, ses, userl)
+/// - セッションCookie (ks2, ses。userlは返された場合だけ保存)
 /// - ユーザー名
 class AuthRepository {
   /// Secure Storageを指定できる認証情報リポジトリを作成する。
@@ -43,7 +48,7 @@ class AuthRepository {
     required String username,
     required String ks2,
     required String ses,
-    required String userl,
+    required String? userl,
     required bool rememberSession,
   }) => _serializeSessionCommit(
     () => _serializeSessionOperation(() async {
@@ -120,26 +125,30 @@ class AuthRepository {
     required String username,
     required String ks2,
     required String ses,
-    required String userl,
+    required String? userl,
   }) async {
     await _clearPersistedValues();
     _volatileSession = _VolatileSession(
       narouid: narouid,
       username: username,
-      sessionCookies: {'ks2': ks2, 'ses': ses, 'userl': userl},
+      sessionCookies: {
+        'ks2': ks2,
+        'ses': ses,
+        if (userl?.isNotEmpty == true) 'userl': userl!,
+      },
     );
   }
 
   /// セッションCookieをまとめて保存する。
   ///
-  /// なろうの認証に必要な3つのCookieを保存する：
+  /// なろうの認証に必要なCookieを保存する：
   /// - `ks2`: 永続セッションCookie (1年間有効)
   /// - `ses`: セッションCookie (HttpOnly)
-  /// - `userl`: ユーザー識別Cookie (HttpOnly)
+  /// - `userl`: 返された場合に保存するユーザー識別Cookie (HttpOnly)
   Future<void> saveSessionCookies({
     required String ks2,
     required String ses,
-    required String userl,
+    required String? userl,
   }) => _serializeSessionCommit(
     () => _serializeSessionOperation(() async {
       _sessionGeneration++;
@@ -150,12 +159,16 @@ class AuthRepository {
   Future<void> _saveSessionCookies({
     required String ks2,
     required String ses,
-    required String userl,
+    required String? userl,
   }) async {
     final volatileSession = _volatileSession;
     if (volatileSession != null) {
       _volatileSession = volatileSession.copyWith(
-        sessionCookies: {'ks2': ks2, 'ses': ses, 'userl': userl},
+        sessionCookies: {
+          'ks2': ks2,
+          'ses': ses,
+          if (userl?.isNotEmpty == true) 'userl': userl!,
+        },
       );
       return;
     }
@@ -164,12 +177,16 @@ class AuthRepository {
     // 他のキーが消える。必ず直列に書き込むこと。
     await _storage.write(key: _cookieKs2Key, value: ks2);
     await _storage.write(key: _cookieSesKey, value: ses);
-    await _storage.write(key: _cookieUserlKey, value: userl);
+    if (userl?.isNotEmpty == true) {
+      await _storage.write(key: _cookieUserlKey, value: userl);
+    } else {
+      await _storage.delete(key: _cookieUserlKey);
+    }
   }
 
   /// 保存済みのセッションCookieをすべて取得する。
   ///
-  /// いずれかのCookieが未保存の場合は`null`を返す。
+  /// 必須Cookieが未保存の場合は`null`を返す。
   Future<Map<String, String>?> getSessionCookies() =>
       _serializeSessionOperation(_getSessionCookies);
 
@@ -181,8 +198,12 @@ class AuthRepository {
     final ks2 = await _storage.read(key: _cookieKs2Key);
     final ses = await _storage.read(key: _cookieSesKey);
     final userl = await _storage.read(key: _cookieUserlKey);
-    if (ks2 == null || ses == null || userl == null) return null;
-    return {'ks2': ks2, 'ses': ses, 'userl': userl};
+    if (ks2?.isNotEmpty != true || ses?.isNotEmpty != true) return null;
+    return {
+      'ks2': ks2!,
+      'ses': ses!,
+      if (userl?.isNotEmpty == true) 'userl': userl!,
+    };
   }
 
   /// 認証状態の表示に使うアカウント情報とCookieを一貫して取得する。
@@ -272,7 +293,7 @@ class AuthRepository {
       sessionHeaders,
       allowedNames: _narouSessionCookieNames,
     );
-    if (_narouSessionCookieNames.any(
+    if (_requiredNarouSessionCookieNames.any(
       (name) => updated[name]?.isNotEmpty != true,
     )) {
       await _clearAll();
@@ -284,7 +305,7 @@ class AuthRepository {
       await _saveSessionCookies(
         ks2: updated['ks2']!,
         ses: updated['ses']!,
-        userl: updated['userl']!,
+        userl: updated['userl'],
       );
     }
   }
@@ -369,12 +390,10 @@ class AuthRepository {
     return _buildCookieHeader(cookies);
   }
 
-  String _buildCookieHeader(Map<String, String> cookies) {
-    final ks2 = cookies['ks2'];
-    final ses = cookies['ses'];
-    final userl = cookies['userl'];
-    return 'ks2=$ks2; ses=$ses; userl=$userl';
-  }
+  String _buildCookieHeader(Map<String, String> cookies) => [
+    for (final name in const <String>['ks2', 'ses', 'userl'])
+      if (cookies[name]?.isNotEmpty == true) '$name=${cookies[name]}',
+  ].join('; ');
 }
 
 /// 認証済みアカウントの一貫した読み取り結果。

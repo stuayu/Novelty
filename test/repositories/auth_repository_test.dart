@@ -114,6 +114,79 @@ void main() {
       expect(await restartedRepository.getNarouid(), isNull);
     });
 
+    test('userlがないセッションはks2とsesだけを使って保存・送信する', () async {
+      await repository.saveSession(
+        narouid: 'reader-id',
+        username: '読者',
+        ks2: 'ks2-token',
+        ses: 'ses-token',
+        userl: null,
+        rememberSession: true,
+      );
+
+      expect(await repository.getSessionCookies(), {
+        'ks2': 'ks2-token',
+        'ses': 'ses-token',
+      });
+      expect(await repository.hasSessionCookies(), isTrue);
+      expect(
+        await repository.buildCookieHeader(),
+        'ks2=ks2-token; ses=ses-token',
+      );
+    });
+
+    test('userlが期限切れになってもks2とsesがあればセッションを維持する', () async {
+      await repository.saveSession(
+        narouid: 'reader-id',
+        username: '読者',
+        ks2: 'ks2-token',
+        ses: 'ses-token',
+        userl: 'userl-token',
+        rememberSession: true,
+      );
+
+      await repository.updateSessionCookieHeaders([
+        'userl=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+      ]);
+
+      expect(await repository.getSessionCookies(), {
+        'ks2': 'ks2-token',
+        'ses': 'ses-token',
+      });
+      expect(
+        await repository.buildCookieHeader(),
+        'ks2=ks2-token; ses=ses-token',
+      );
+    });
+
+    test('新しいセッションでuserlが省略された場合に古いuserlを削除する', () async {
+      await repository.saveSession(
+        narouid: 'old-reader',
+        username: '旧利用者',
+        ks2: 'old-ks2',
+        ses: 'old-ses',
+        userl: 'old-userl',
+        rememberSession: true,
+      );
+      await repository.saveSession(
+        narouid: 'new-reader',
+        username: '新利用者',
+        ks2: 'new-ks2',
+        ses: 'new-ses',
+        userl: null,
+        rememberSession: true,
+      );
+
+      expect(await repository.getSessionCookies(), {
+        'ks2': 'new-ks2',
+        'ses': 'new-ses',
+      });
+      expect(
+        await repository.buildCookieHeader(),
+        'ks2=new-ks2; ses=new-ses',
+      );
+    });
+
     test('一時セッション中のCookie更新を永続領域へ書き込まない', () async {
       await repository.saveSession(
         narouid: 'reader-id',

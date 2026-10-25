@@ -81,6 +81,9 @@ class NarouAuthService {
   /// 開発用の診断ログが有効かどうか。
   bool get diagnosticsEnabled => _diagnostics.enabled;
 
+  /// 開発用の認証値を含むTraceログが有効かどうか。
+  bool get diagnosticsTraceEnabled => _diagnostics.captureSensitiveTrace;
+
   /// 認証処理に関連する診断イベントを記録する。
   void recordDiagnosticEvent(
     String operationId,
@@ -88,13 +91,22 @@ class NarouAuthService {
     Map<String, Object?> fields = const <String, Object?>{},
   ]) => _log(operationId, event, fields);
 
+  /// 秘密値を含む開発用Traceイベントを記録する。
+  void recordDiagnosticTrace(
+    String operationId,
+    String event, [
+    Map<String, Object?> fields = const <String, Object?>{},
+  ]) => _diagnostics.recordTrace(operationId, event, fields);
+
   /// 認証後の補助処理を相関させる操作IDを生成する。
   String createDiagnosticOperationId() => _diagnostics.createOperationId();
 
   /// 診断ログファイルへの書き込みを完了してパスを返す。
   Future<String?> diagnosticsLogFilePath() async {
     await _diagnostics.flush();
-    return _diagnostics.logFilePath();
+    return diagnosticsTraceEnabled
+        ? _diagnostics.traceLogFilePath()
+        : _diagnostics.logFilePath();
   }
 
   void _log(
@@ -102,7 +114,9 @@ class NarouAuthService {
     String event, [
     Map<String, Object?> fields = const <String, Object?>{},
   ]) {
-    _diagnostics.record(operationId, event, fields);
+    _diagnostics
+      ..record(operationId, event, fields)
+      ..recordTrace(operationId, event, fields);
   }
 
   Future<Response<String>> _sendDiagnosticRequest({
@@ -112,6 +126,8 @@ class NarouAuthService {
     required Future<Response<String>> Function() send,
     Map<String, String>? cookies,
     Iterable<String>? fieldNames,
+    Map<String, Object?>? traceRequestHeaders,
+    Object? traceRequestData,
   }) async {
     final requestSequence = ++_httpRequestSequence;
     final route = _diagnosticRoute(requestUri);
@@ -124,6 +140,15 @@ class NarouAuthService {
       if (cookies != null) ..._diagnosticCookieMetadata(cookies),
       if (fieldNames != null)
         'formFieldNames': _safeDiagnosticNames(fieldNames),
+    });
+    _diagnostics.recordTrace(operationId, 'http.request.started', {
+      'sequence': requestSequence,
+      'method': method,
+      'requestUri': requestUri.toString(),
+      'cookieValues': ?cookies,
+      'requestHeaders': ?traceRequestHeaders,
+      'requestData': ?_traceValue(traceRequestData),
+      if (fieldNames != null) 'formFieldNames': fieldNames.toList(),
     });
     try {
       final response = await send();
@@ -146,6 +171,16 @@ class NarouAuthService {
         ),
         'redirectRoute': redirect == null ? null : _diagnosticRoute(redirect),
         'redirectTrusted': redirect == null ? null : _isNarouUri(redirect),
+      });
+      _diagnostics.recordTrace(operationId, 'http.response.trace', {
+        'sequence': requestSequence,
+        'method': method,
+        'request': _traceRequestOptions(response.requestOptions),
+        'responseUri': response.realUri.toString(),
+        'responseStatus': response.statusCode,
+        'responseHeaders': _traceValue(response.headers.map),
+        'responseBody': _traceValue(response.data),
+        'durationMs': stopwatch.elapsedMilliseconds,
       });
       return response;
     } on DioException catch (error) {
@@ -175,8 +210,24 @@ class NarouAuthService {
         'redirectRoute': redirect == null ? null : _diagnosticRoute(redirect),
         'redirectTrusted': redirect == null ? null : _isNarouUri(redirect),
       });
+      _diagnostics.recordTrace(operationId, 'http.error.trace', {
+        'sequence': requestSequence,
+        'method': method,
+        'request': _traceRequestOptions(error.requestOptions),
+        'responseUri': errorResponse?.realUri.toString(),
+        'responseStatus': errorResponse?.statusCode,
+        'responseHeaders': errorResponse == null
+            ? null
+            : _traceValue(errorResponse.headers.map),
+        'responseBody': errorResponse == null
+            ? null
+            : _traceValue(errorResponse.data),
+        'error': error.toString(),
+        'stackTrace': error.stackTrace.toString(),
+        'durationMs': stopwatch.elapsedMilliseconds,
+      });
       rethrow;
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
       stopwatch.stop();
       _log(operationId, 'http.error', <String, Object?>{
         'sequence': requestSequence,
@@ -185,8 +236,63 @@ class NarouAuthService {
         'errorType': error.runtimeType.toString(),
         'durationMs': stopwatch.elapsedMilliseconds,
       });
+      _diagnostics.recordTrace(operationId, 'http.error.trace', {
+        'sequence': requestSequence,
+        'method': method,
+        'requestUri': requestUri.toString(),
+        'cookieValues': ?cookies,
+        'requestHeaders': ?traceRequestHeaders,
+        'requestData': ?_traceValue(traceRequestData),
+        'error': error.toString(),
+        'stackTrace': stackTrace.toString(),
+        'durationMs': stopwatch.elapsedMilliseconds,
+      });
       rethrow;
     }
+  }
+
+  Map<String, Object?> _traceRequestOptions(RequestOptions options) =>
+      <String, Object?>{
+        'uri': options.uri.toString(),
+        'method': options.method,
+        'headers': _traceValue(options.headers),
+        'data': _traceValue(options.data),
+        'contentType': options.contentType,
+        'responseType': options.responseType.name,
+        'followRedirects': options.followRedirects,
+        'maxRedirects': options.maxRedirects,
+        'sendTimeoutMs': options.sendTimeout?.inMilliseconds,
+        'receiveTimeoutMs': options.receiveTimeout?.inMilliseconds,
+      };
+
+  Object? _traceValue(Object? value) {
+    if (value == null || value is String || value is num || value is bool) {
+      return value;
+    }
+    if (value is FormData) {
+      return <String, Object?>{
+        'fields': <Map<String, String>>[
+          for (final field in value.fields)
+            <String, String>{'name': field.key, 'value': field.value},
+        ],
+        'files': <Map<String, Object?>>[
+          for (final file in value.files)
+            <String, Object?>{
+              'name': file.key,
+              'filename': file.value.filename,
+              'length': file.value.length,
+            },
+        ],
+      };
+    }
+    if (value is Map) {
+      return <String, Object?>{
+        for (final entry in value.entries)
+          entry.key.toString(): _traceValue(entry.value),
+      };
+    }
+    if (value is Iterable) return value.map(_traceValue).toList();
+    return value.toString();
   }
 
   String _diagnosticRoute(Uri uri) {
@@ -222,11 +328,14 @@ class NarouAuthService {
     'cookieNames': _safeDiagnosticNames(cookies.keys),
     'cookieCount': cookies.length,
     'requiredSessionCookies': _sessionCookiePresence(cookies),
+    'optionalSessionCookies': <String, bool>{
+      'userl': cookies['userl']?.isNotEmpty == true,
+    },
   };
 
   Map<String, bool> _sessionCookiePresence(Map<String, String> cookies) =>
       <String, bool>{
-        for (final name in const <String>['ks2', 'ses', 'userl'])
+        for (final name in const <String>['ks2', 'ses'])
           name: cookies[name]?.isNotEmpty == true,
       };
 
@@ -291,13 +400,15 @@ class NarouAuthService {
     _discardMfaChallenge(reason: 'superseded-by-new-login');
     final generation = _authOperationGeneration;
     try {
+      final loginFormHeaders = _htmlHeaders();
       final formResponse = await _sendDiagnosticRequest(
         operationId: operationId,
         method: 'GET',
         requestUri: Uri.parse(_loginInputUrl),
+        traceRequestHeaders: loginFormHeaders,
         send: () => _dio.get<String>(
           _loginInputUrl,
-          options: _htmlOptions(),
+          options: _htmlOptions(headers: loginFormHeaders),
         ),
       );
       if (!_isCurrentAuthOperation(generation)) {
@@ -368,21 +479,24 @@ class NarouAuthService {
         return const NarouLoginResult.failure('ログイン先を安全に確認できませんでした');
       }
 
+      final loginRequestHeaders = _htmlHeaders(
+        headers: <String, Object?>{
+          'Referer': _loginInputUrl,
+          ...?_cookieHeaderMap(cookies),
+        },
+      );
       final response = await _sendDiagnosticRequest(
         operationId: operationId,
         method: 'POST',
         requestUri: loginAction,
         cookies: cookies,
         fieldNames: loginFields.keys,
+        traceRequestHeaders: loginRequestHeaders,
+        traceRequestData: loginFields,
         send: () => _dio.post<String>(
           loginAction.toString(),
           data: loginFields,
-          options: _htmlOptions(
-            headers: {
-              'Referer': _loginInputUrl,
-              ...?_cookieHeaderMap(cookies),
-            },
-          ),
+          options: _htmlOptions(headers: loginRequestHeaders),
         ),
       );
       if (!_isCurrentAuthOperation(generation)) {
@@ -416,18 +530,18 @@ class NarouAuthService {
           'targetRoute': _diagnosticRoute(challengeUri),
           'trustedTarget': true,
         });
+        final redirectRequestHeaders = _htmlHeaders(
+          headers: _cookieHeaderMap(cookies),
+        );
         challengeResponse = await _sendDiagnosticRequest(
           operationId: operationId,
           method: 'GET',
           requestUri: challengeUri,
           cookies: cookies,
+          traceRequestHeaders: redirectRequestHeaders,
           send: () => _dio.get<String>(
             challengeUri.toString(),
-            options: _htmlOptions(
-              headers: {
-                ...?_cookieHeaderMap(cookies),
-              },
-            ),
+            options: _htmlOptions(headers: redirectRequestHeaders),
           ),
         );
         if (!_isCurrentAuthOperation(generation)) {
@@ -500,12 +614,17 @@ class NarouAuthService {
         'type=${e.type} status=${e.response?.statusCode}',
       );
       return const NarouLoginResult.failure('ログイン通信に失敗しました');
-    } on Object catch (e) {
+    } on Object catch (e, stackTrace) {
       if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
       _log(operationId, 'login.result', <String, Object?>{
         'outcome': 'failure',
         'reason': 'processing-error',
         'errorType': e.runtimeType.toString(),
+      });
+      _diagnostics.recordTrace(operationId, 'login.error.trace', {
+        'stage': 'credential-login',
+        'error': e.toString(),
+        'stackTrace': stackTrace.toString(),
       });
       debugPrint('[NarouAuth] login: 処理失敗 type=${e.runtimeType}');
       return const NarouLoginResult.failure('ログイン処理に失敗しました');
@@ -546,21 +665,24 @@ class NarouAuthService {
       );
       final fields = Map<String, String>.of(pending.hiddenFields)
         ..[pending.codeField] = normalizedCode;
+      final mfaRequestHeaders = _htmlHeaders(
+        headers: <String, Object?>{
+          'Referer': pending.pageUri.toString(),
+          ...?_cookieHeaderMap(pending.cookies),
+        },
+      );
       var response = await _sendDiagnosticRequest(
         operationId: operationId,
         method: 'POST',
         requestUri: pending.action,
         cookies: pending.cookies,
         fieldNames: fields.keys,
+        traceRequestHeaders: mfaRequestHeaders,
+        traceRequestData: fields,
         send: () => _dio.post<String>(
           pending.action.toString(),
           data: fields,
-          options: _htmlOptions(
-            headers: {
-              'Referer': pending.pageUri.toString(),
-              ...?_cookieHeaderMap(pending.cookies),
-            },
-          ),
+          options: _htmlOptions(headers: mfaRequestHeaders),
         ),
       );
       if (!_isCurrentMfaChallenge(generation, pending)) {
@@ -595,18 +717,18 @@ class NarouAuthService {
           'targetRoute': _diagnosticRoute(redirect),
           'trustedTarget': true,
         });
+        final redirectRequestHeaders = _htmlHeaders(
+          headers: _cookieHeaderMap(pending.cookies),
+        );
         response = await _sendDiagnosticRequest(
           operationId: operationId,
           method: 'GET',
           requestUri: redirect,
           cookies: pending.cookies,
+          traceRequestHeaders: redirectRequestHeaders,
           send: () => _dio.get<String>(
             redirect.toString(),
-            options: _htmlOptions(
-              headers: {
-                ...?_cookieHeaderMap(pending.cookies),
-              },
-            ),
+            options: _htmlOptions(headers: redirectRequestHeaders),
           ),
         );
         if (!_isCurrentMfaChallenge(generation, pending)) {
@@ -830,7 +952,7 @@ class NarouAuthService {
         '認証コードの送信に失敗しました',
         canRetryMfa: true,
       );
-    } on Object catch (e) {
+    } on Object catch (e, stackTrace) {
       if (!_isCurrentMfaChallenge(generation, pending)) {
         return _cancelledLoginResult;
       }
@@ -838,6 +960,11 @@ class NarouAuthService {
         'outcome': 'retryable-failure',
         'reason': 'processing-error',
         'errorType': e.runtimeType.toString(),
+      });
+      _diagnostics.recordTrace(operationId, 'mfa.verify.error.trace', {
+        'stage': 'code-verification',
+        'error': e.toString(),
+        'stackTrace': stackTrace.toString(),
       });
       debugPrint('[NarouAuth] MFA処理失敗 type=${e.runtimeType}');
       return const NarouLoginResult.failure(
@@ -953,7 +1080,7 @@ class NarouAuthService {
           username: username,
           ks2: cookies['ks2']!,
           ses: cookies['ses']!,
-          userl: cookies['userl']!,
+          userl: cookies['userl'],
           rememberSession: rememberSession,
         );
         if (!_isCurrentAuthOperation(generation)) {
@@ -1040,14 +1167,18 @@ class NarouAuthService {
     Map<String, String> cookies, {
     required String operationId,
   }) async {
+    final requestHeaders = _htmlHeaders(
+      headers: _cookieHeaderMap(cookies),
+    );
     final response = await _sendDiagnosticRequest(
       operationId: operationId,
       method: 'GET',
       requestUri: Uri.parse(_bookmarkListUrl),
       cookies: cookies,
+      traceRequestHeaders: requestHeaders,
       send: () => _dio.get<String>(
         _bookmarkListUrl,
-        options: _htmlOptions(headers: {...?_cookieHeaderMap(cookies)}),
+        options: _htmlOptions(headers: requestHeaders),
       ),
     );
     if (response.statusCode != 200 ||
@@ -1059,12 +1190,15 @@ class NarouAuthService {
     return _isAuthenticatedBookmarkListHtml(html) ? html : null;
   }
 
-  Options _htmlOptions({Map<String, Object>? headers}) => Options(
-    headers: {
-      'User-Agent': narouUserAgent,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      ...?headers,
-    },
+  Map<String, Object?> _htmlHeaders({Map<String, Object?>? headers}) =>
+      <String, Object?>{
+        'User-Agent': narouUserAgent,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...?headers,
+      };
+
+  Options _htmlOptions({Map<String, Object?>? headers}) => Options(
+    headers: _htmlHeaders(headers: headers),
     followRedirects: false,
     validateStatus: (status) => status != null && status >= 200 && status < 400,
     responseType: ResponseType.plain,
@@ -1121,9 +1255,7 @@ class NarouAuthService {
       uri.fragment.isEmpty;
 
   bool _hasSessionCookies(Map<String, String> cookies) =>
-      cookies['ks2']?.isNotEmpty == true &&
-      cookies['ses']?.isNotEmpty == true &&
-      cookies['userl']?.isNotEmpty == true;
+      cookies['ks2']?.isNotEmpty == true && cookies['ses']?.isNotEmpty == true;
 
   bool _hasUpdatedSessionCookie(
     Map<String, String> previous,
@@ -1307,21 +1439,24 @@ class NarouAuthService {
         });
         return null;
       }
+      final choiceRequestHeaders = _htmlHeaders(
+        headers: <String, Object?>{
+          'Referer': pageUri.toString(),
+          ...?_cookieHeaderMap(cookies),
+        },
+      );
       final response = await _sendDiagnosticRequest(
         operationId: operationId,
         method: 'POST',
         requestUri: action,
         cookies: cookies,
         fieldNames: fields.keys,
+        traceRequestHeaders: choiceRequestHeaders,
+        traceRequestData: fields,
         send: () => _dio.post<String>(
           action.toString(),
           data: fields,
-          options: _htmlOptions(
-            headers: {
-              'Referer': pageUri.toString(),
-              ...?_cookieHeaderMap(cookies),
-            },
-          ),
+          options: _htmlOptions(headers: choiceRequestHeaders),
         ),
       );
       if (!_isCurrentAuthOperation(generation)) return null;
@@ -1376,14 +1511,18 @@ class NarouAuthService {
         });
         return null;
       }
+      final codePageRequestHeaders = _htmlHeaders(
+        headers: _cookieHeaderMap(cookies),
+      );
       final response = await _sendDiagnosticRequest(
         operationId: operationId,
         method: 'GET',
         requestUri: current,
         cookies: cookies,
+        traceRequestHeaders: codePageRequestHeaders,
         send: () => _dio.get<String>(
           current.toString(),
-          options: _htmlOptions(headers: {...?_cookieHeaderMap(cookies)}),
+          options: _htmlOptions(headers: codePageRequestHeaders),
         ),
       );
       if (!_isCurrentAuthOperation(generation)) return null;

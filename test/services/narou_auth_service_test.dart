@@ -283,11 +283,13 @@ class _TwoStepMfaAdapter implements HttpClientAdapter {
     this.emailOnly = false,
     this.sessionCookiesOnChallenge = false,
     this.updateSessionCookiesAfterMfa = true,
+    this.includeUserlAfterMfa = true,
   });
 
   final bool emailOnly;
   final bool sessionCookiesOnChallenge;
   final bool updateSessionCookiesAfterMfa;
+  final bool includeUserlAfterMfa;
   final List<RequestOptions> requests = <RequestOptions>[];
 
   static const _challengeId = 'test-challenge';
@@ -329,7 +331,8 @@ class _TwoStepMfaAdapter implements HttpClientAdapter {
             'set-cookie': <String>[
               'ks2=ks2-value; Path=/; Secure',
               'ses=ses-value; Path=/; HttpOnly; Secure',
-              'userl=userl-value; Path=/; HttpOnly; Secure',
+              if (includeUserlAfterMfa)
+                'userl=userl-value; Path=/; HttpOnly; Secure',
             ],
         },
       );
@@ -375,6 +378,7 @@ class _TwoStepMfaAdapter implements HttpClientAdapter {
         '<h2>二段階認証</h2><p>メール認証に切り替えることもできます。'
         '認証コードを登録メールに送信できます</p><form '
         'action="/user2stepauth/totpauth/authtoken/$_challengeId/"> '
+        '<input type="hidden" name="csrf" value="csrf-value"> '
         '<input type="text" name="totp_code" '
         'autocomplete="one-time-code"></form>',
         200,
@@ -529,7 +533,7 @@ class _OrderedAuthRepository extends AuthRepository {
     required String username,
     required String ks2,
     required String ses,
-    required String userl,
+    required String? userl,
     required bool rememberSession,
   }) async {
     events.add('session');
@@ -852,6 +856,35 @@ void main() {
       ).called(1);
     });
 
+    test('userl Cookieが返らなくても認証済みユーザーページを確認できればログインする', () async {
+      final adapter = _TwoStepMfaAdapter(includeUserlAfterMfa: false);
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'secret-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('654321');
+
+      expect(result.isSuccess, isTrue, reason: result.error);
+      expect(result.username, 'テスト利用者');
+      verify(
+        mockAuthRepository.saveSession(
+          narouid: 'reader-id',
+          username: 'テスト利用者',
+          ks2: 'ks2-value',
+          ses: 'ses-value',
+          userl: null,
+          rememberSession: true,
+        ),
+      ).called(1);
+    });
+
     test('MFA診断ログに通信段階を記録し認証情報を含めない', () async {
       final directory = await Directory.systemTemp.createTemp(
         'novelty-narou-auth-trace-test-',
@@ -909,6 +942,89 @@ void main() {
         expect(allLogText, isNot(contains('userl-value')));
         expect(allLogText, isNot(contains('テスト利用者')));
         expect(consoleLines, isNotEmpty);
+      } finally {
+        await directory.delete(recursive: true);
+      }
+    });
+
+    test('Traceログに通信本文と認証値を記録して通常ログから分離する', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'novelty-narou-auth-sensitive-trace-test-',
+      );
+      final diagnostics = NarouAuthDiagnosticsLogger(
+        enabled: true,
+        captureSensitiveTrace: true,
+        directoryResolver: () async => directory,
+        consoleSink: (_) {},
+      );
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = _TwoStepMfaAdapter(),
+        diagnostics: diagnostics,
+      );
+
+      try {
+        final firstStep = await service.login(
+          narouid: 'reader@example.com',
+          password: 'diagnostic-secret-password',
+        );
+        expect(firstStep.requiresMfa, isTrue);
+        expect((await service.verifyMfaCode('654321')).isSuccess, isTrue);
+
+        final tracePath = await service.diagnosticsLogFilePath();
+        final normalPath = await diagnostics.logFilePath();
+        final traceLog = await File(tracePath!).readAsString();
+        final normalLog = await File(normalPath!).readAsString();
+        final traceEntries = traceLog
+            .split('\n')
+            .where((line) => line.isNotEmpty)
+            .map((line) => jsonDecode(line) as Map<String, dynamic>)
+            .toList();
+        final credentialRequestStart = traceEntries.firstWhere(
+          (entry) =>
+              entry['event'] == 'http.request.started' &&
+              entry['method'] == 'POST' &&
+              (entry['requestUri'] as String).contains('/login/login/'),
+        );
+        final mfaRequestStart = traceEntries.firstWhere(
+          (entry) =>
+              entry['event'] == 'http.request.started' &&
+              entry['method'] == 'POST' &&
+              (entry['requestUri'] as String).contains('/totpauth/'),
+        );
+
+        expect(service.diagnosticsTraceEnabled, isTrue);
+        expect(
+          (credentialRequestStart['requestData'] as Map)['pass'],
+          'diagnostic-secret-password',
+        );
+        expect(
+          (credentialRequestStart['requestHeaders'] as Map)['Content-Type'],
+          'application/x-www-form-urlencoded',
+        );
+        expect(
+          (mfaRequestStart['requestData'] as Map)['totp_code'],
+          '654321',
+        );
+        expect(
+          (mfaRequestStart['requestHeaders'] as Map)['Cookie'],
+          contains('challenge=fake'),
+        );
+        expect(traceLog, contains('"level":"TRACE"'));
+        expect(traceLog, contains('diagnostic-secret-password'));
+        expect(traceLog, contains('reader@example.com'));
+        expect(traceLog, contains('654321'));
+        expect(traceLog, contains('test-challenge'));
+        expect(traceLog, contains('csrf-value'));
+        expect(traceLog, contains('challenge=fake'));
+        expect(traceLog, contains('ks2-value'));
+        expect(traceLog, contains('ses-value'));
+        expect(traceLog, contains('userl-value'));
+        expect(traceLog, contains('テスト利用者'));
+        expect(traceLog, contains('https://syosetu.com/login/login/'));
+        expect(traceLog, contains('responseBody'));
+        expect(normalLog, isNot(contains('diagnostic-secret-password')));
+        expect(normalLog, isNot(contains('654321')));
       } finally {
         await directory.delete(recursive: true);
       }

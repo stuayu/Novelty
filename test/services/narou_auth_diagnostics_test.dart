@@ -19,13 +19,16 @@ void main() {
     await logDirectory.delete(recursive: true);
   });
 
-  NarouAuthDiagnosticsLogger createLogger({int maxBytes = 512 * 1024}) =>
-      NarouAuthDiagnosticsLogger(
-        enabled: true,
-        directoryResolver: () async => logDirectory,
-        consoleSink: consoleLines.add,
-        maxBytes: maxBytes,
-      );
+  NarouAuthDiagnosticsLogger createLogger({
+    int maxBytes = 512 * 1024,
+    bool captureSensitiveTrace = false,
+  }) => NarouAuthDiagnosticsLogger(
+    enabled: true,
+    captureSensitiveTrace: captureSensitiveTrace,
+    directoryResolver: () async => logDirectory,
+    consoleSink: consoleLines.add,
+    maxBytes: maxBytes,
+  );
 
   test('構造化イベントをコンソールとJSONLファイルへ同じ順序で出力する', () async {
     final logger = createLogger();
@@ -75,6 +78,33 @@ void main() {
     expect(rotatedFile.existsSync(), isTrue);
     expect(activeFile.lengthSync(), lessThanOrEqualTo(320));
     expect(rotatedFile.lengthSync(), lessThanOrEqualTo(320));
+  });
+
+  test('Traceレベルの詳細は通常ログと分けたJSONLへ保存する', () async {
+    final logger = createLogger(captureSensitiveTrace: true);
+    final operationId = logger.createOperationId();
+
+    logger
+      ..record(operationId, 'login.started')
+      ..recordTrace(operationId, 'http.request', <String, Object?>{
+        'uri': 'https://syosetu.com/login/login/?challenge=private-token',
+        'requestData': <String, String>{
+          'narouid': 'reader@example.com',
+          'pass': 'private-password',
+        },
+      });
+    await logger.flush();
+
+    final normalPath = await logger.logFilePath();
+    final tracePath = await logger.traceLogFilePath();
+    final normalLog = await File(normalPath!).readAsString();
+    final traceLog = await File(tracePath!).readAsString();
+    expect(normalLog, contains('login.started'));
+    expect(normalLog, isNot(contains('private-password')));
+    expect(traceLog, contains('"level":"TRACE"'));
+    expect(traceLog, contains('private-token'));
+    expect(traceLog, contains('private-password'));
+    expect(consoleLines.join('\n'), contains('private-password'));
   });
 
   test('無効化時はログを出さずファイルも作らない', () async {

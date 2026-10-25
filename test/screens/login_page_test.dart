@@ -13,24 +13,54 @@ class _MfaAuthService extends NarouAuthService {
   _MfaAuthService({
     this.retainMfaAfterVerification = false,
     this.diagnosticsEnabledForTest = false,
+    this.diagnosticsTraceEnabledForTest = false,
   }) : super(authRepository: AuthRepository());
 
   String? submittedCode;
   bool loginCalled = false;
   bool? rememberSession;
   bool challengeCancelled = false;
+  Error? loginError;
   final bool retainMfaAfterVerification;
   final bool diagnosticsEnabledForTest;
+  final bool diagnosticsTraceEnabledForTest;
   bool delayLogin = false;
   final loginStarted = Completer<void>();
   final loginCompletion = Completer<NarouLoginResult>();
+  final diagnosticEvents = <String>[];
+  final diagnosticTraces = <Map<String, Object?>>[];
 
   @override
   bool get diagnosticsEnabled => diagnosticsEnabledForTest;
 
   @override
+  bool get diagnosticsTraceEnabled => diagnosticsTraceEnabledForTest;
+
+  @override
   Future<String?> diagnosticsLogFilePath() async =>
-      diagnosticsEnabledForTest ? '/tmp/narou_auth_diagnostics.jsonl' : null;
+      diagnosticsTraceEnabledForTest
+      ? '/tmp/narou_auth_trace.jsonl'
+      : diagnosticsEnabledForTest
+      ? '/tmp/narou_auth_diagnostics.jsonl'
+      : null;
+
+  @override
+  void recordDiagnosticEvent(
+    String operationId,
+    String event, [
+    Map<String, Object?> fields = const <String, Object?>{},
+  ]) {
+    diagnosticEvents.add(event);
+  }
+
+  @override
+  void recordDiagnosticTrace(
+    String operationId,
+    String event, [
+    Map<String, Object?> fields = const <String, Object?>{},
+  ]) {
+    diagnosticTraces.add(<String, Object?>{'event': event, ...fields});
+  }
 
   @override
   void cancelMfaChallenge() => challengeCancelled = true;
@@ -43,6 +73,7 @@ class _MfaAuthService extends NarouAuthService {
   }) async {
     loginCalled = true;
     this.rememberSession = rememberSession;
+    if (loginError != null) throw loginError!;
     if (delayLogin) {
       loginStarted.complete();
       return loginCompletion.future;
@@ -259,10 +290,37 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('失敗時に診断ログのパスをコピーできる', (tester) async {
+  testWidgets('開発時はログイン前からTraceログのパスをコピーできる', (tester) async {
     final clipboard = installClipboardMock(tester);
     addTearDown(clipboard.dispose);
-    final authService = _MfaAuthService(diagnosticsEnabledForTest: true);
+    final authService = _MfaAuthService(
+      diagnosticsEnabledForTest: true,
+      diagnosticsTraceEnabledForTest: true,
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          narouAuthServiceProvider.overrideWithValue(authService),
+        ],
+        child: const MaterialApp(home: LoginPage()),
+      ),
+    );
+
+    expect(authService.diagnosticEvents, contains('login-screen.opened'));
+    final copyButton = find.byKey(const Key('narou-copy-diagnostics-path'));
+    expect(copyButton, findsOneWidget);
+    expect(find.text('Traceログのパスをコピー'), findsOneWidget);
+    await tester.tap(copyButton);
+    await tester.pumpAndSettle();
+
+    clipboard.expectCopiedText('/tmp/narou_auth_trace.jsonl');
+  });
+
+  testWidgets('ログイン画面で捕捉した例外をTraceログへ残す', (tester) async {
+    final authService = _MfaAuthService(
+      diagnosticsEnabledForTest: true,
+      diagnosticsTraceEnabledForTest: true,
+    )..loginError = StateError('adapter failed');
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -282,15 +340,12 @@ void main() {
     );
     await tester.tap(find.widgetWithText(FilledButton, 'ログイン'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('narou-mfa-code')), '123456');
-    await tester.tap(find.widgetWithText(FilledButton, '認証コードを確認'));
-    await tester.pumpAndSettle();
 
-    final copyButton = find.byKey(const Key('narou-copy-diagnostics-path'));
-    expect(copyButton, findsOneWidget);
-    await tester.tap(copyButton);
-    await tester.pumpAndSettle();
-
-    clipboard.expectCopiedText('/tmp/narou_auth_diagnostics.jsonl');
+    final errorTrace = authService.diagnosticTraces.singleWhere(
+      (entry) => entry['event'] == 'login.provider.error',
+      orElse: () => <String, Object?>{},
+    );
+    expect(errorTrace['error'], contains('adapter failed'));
+    expect(errorTrace['stackTrace'], contains('NarouLogin.login'));
   });
 }
