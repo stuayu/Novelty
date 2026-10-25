@@ -66,6 +66,8 @@ class _MfaLoginAdapter implements HttpClientAdapter {
     this.challengeLocation = '/login/auth_code/',
     this.failVerification = false,
     this.failVerificationWithGenericPage = false,
+    this.failVerificationWithUsername = false,
+    this.verificationResponseStatusCode,
     this.sessionCookiesOnChallenge = false,
     this.returnRefreshedChallengeOnce = false,
     this.failVerificationWithRedirect = false,
@@ -85,6 +87,8 @@ class _MfaLoginAdapter implements HttpClientAdapter {
   final String challengeLocation;
   final bool failVerification;
   final bool failVerificationWithGenericPage;
+  final bool failVerificationWithUsername;
+  final int? verificationResponseStatusCode;
   final bool sessionCookiesOnChallenge;
   final bool returnRefreshedChallengeOnce;
   final bool failVerificationWithRedirect;
@@ -111,6 +115,13 @@ class _MfaLoginAdapter implements HttpClientAdapter {
     requests.add(options);
     if (options.method == 'POST') {
       if (options.uri.path == '/login/auth_code/verify/') {
+        final responseStatusCode = verificationResponseStatusCode;
+        if (responseStatusCode != null) {
+          return ResponseBody.fromString(
+            '<html><body>認証を確認できませんでした</body></html>',
+            responseStatusCode,
+          );
+        }
         if (failVerification) {
           throw DioException(
             requestOptions: options,
@@ -120,6 +131,12 @@ class _MfaLoginAdapter implements HttpClientAdapter {
         if (failVerificationWithGenericPage) {
           return ResponseBody.fromString(
             '<html><body>認証を確認できませんでした</body></html>',
+            200,
+          );
+        }
+        if (failVerificationWithUsername) {
+          return ResponseBody.fromString(
+            '<span class="p-up-header-pc__username">認証済みユーザー</span>',
             200,
           );
         }
@@ -1106,6 +1123,68 @@ void main() {
       final result = await service.verifyMfaCode('123456');
 
       expect(result.isSuccess, isFalse);
+      verifyNever(repository.saveNarouid(any));
+      verifyNever(
+        repository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
+    });
+
+    test('MFA失敗応答にユーザー名があっても認証済み遷移先でなければログインしない', () async {
+      final repository = MockAuthRepository();
+      final adapter = _MfaLoginAdapter(
+        sessionCookiesOnChallenge: true,
+        failVerificationWithUsername: true,
+      );
+      final service = NarouAuthService(
+        authRepository: repository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('123456');
+
+      expect(result.isSuccess, isFalse);
+      verifyNever(repository.saveNarouid(any));
+      verifyNever(
+        repository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
+    });
+
+    test('失効したMFAチャレンジの404応答は再試行不可として破棄する', () async {
+      final repository = MockAuthRepository();
+      final adapter = _MfaLoginAdapter(
+        verificationResponseStatusCode: 404,
+      );
+      final service = NarouAuthService(
+        authRepository: repository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final expired = await service.verifyMfaCode('123456');
+      final retry = await service.verifyMfaCode('654321');
+
+      expect(expired.isSuccess, isFalse);
+      expect(expired.canRetryMfa, isFalse);
+      expect(retry.error, '認証コードを確認できません。最初からログインしてください。');
       verifyNever(repository.saveNarouid(any));
       verifyNever(
         repository.saveSessionCookies(

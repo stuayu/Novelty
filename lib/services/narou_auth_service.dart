@@ -285,13 +285,21 @@ class NarouAuthService {
         );
       }
 
-      var username = responseUsername;
+      final isAuthenticatedUserPage =
+          _isNarouUserTopUri(response.realUri) && responseUsername != null;
+      final isAuthenticatedBookmarkPage =
+          _isNarouBookmarkListUri(response.realUri) &&
+          _isAuthenticatedBookmarkListHtml(response.data);
+      var username = isAuthenticatedUserPage ? responseUsername : null;
+      if (username == null && isAuthenticatedBookmarkPage) {
+        username = responseUsername;
+      }
+      final hasMfaSuccessSignal =
+          redirectedToBookmarkList || sessionCookieChanged || username != null;
       if (response.statusCode != 200 ||
           !_isNarouUri(response.realUri) ||
           !hasSessionCookies ||
-          (!redirectedToBookmarkList &&
-              !sessionCookieChanged &&
-              username == null)) {
+          !hasMfaSuccessSignal) {
         _pendingMfa = null;
         return const NarouLoginResult.failure(
           '認証コードを確認できませんでした。ログインをやり直してください。',
@@ -300,8 +308,7 @@ class NarouAuthService {
 
       if (username == null) {
         String? bookmarkHtml;
-        if (_isNarouBookmarkListUri(response.realUri) &&
-            _isAuthenticatedBookmarkListHtml(response.data)) {
+        if (isAuthenticatedBookmarkPage) {
           bookmarkHtml = response.data;
         } else {
           try {
@@ -347,6 +354,15 @@ class NarouAuthService {
     } on DioException catch (e) {
       if (!_isCurrentMfaChallenge(generation, pending)) {
         return _cancelledLoginResult;
+      }
+      final statusCode = e.response?.statusCode;
+      if (_isExpiredMfaStatusCode(statusCode)) {
+        pending.cookies.clear();
+        _pendingMfa = null;
+        debugPrint('[NarouAuth] MFAチャレンジ失効 status=$statusCode');
+        return const NarouLoginResult.failure(
+          '二段階認証の期限が切れました。IDとパスワードを入力してログインし直してください。',
+        );
       }
       debugPrint(
         '[NarouAuth] MFA通信失敗 type=${e.type} status=${e.response?.statusCode}',
@@ -568,6 +584,19 @@ class NarouAuthService {
       uri.path == Uri.parse(_bookmarkListUrl).path &&
       uri.query.isEmpty &&
       uri.fragment.isEmpty;
+
+  bool _isNarouUserTopUri(Uri uri) =>
+      _isNarouUri(uri) &&
+      uri.path == '/user/top/' &&
+      uri.query.isEmpty &&
+      uri.fragment.isEmpty;
+
+  bool _isExpiredMfaStatusCode(int? statusCode) =>
+      statusCode == 401 ||
+      statusCode == 403 ||
+      statusCode == 404 ||
+      statusCode == 410 ||
+      statusCode == 419;
 
   bool _isNarouLoginUri(Uri uri) => isNarouLoginUri(uri);
 
