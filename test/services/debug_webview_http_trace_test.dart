@@ -279,4 +279,37 @@ void main() {
     expect(entry['responseData'], '<html><body>Login failed</body></html>');
     expect(entry['isForMainFrame'], isTrue);
   });
+
+  test('大きなDOMスナップショットを上限で切り詰めたと記録する', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'novelty-debug-webview-trace-cap-test-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final diagnostics = AppDiagnosticsLogger(
+      enabled: true,
+      directoryResolver: () async => directory,
+      consoleSink: (_) {},
+    );
+    final recordEvent = DebugWebViewHttpTrace(
+      diagnostics: diagnostics,
+      source: NovelSource.kakuyomu,
+    ).recordJavaScriptEvent;
+    recordEvent(<String, Object?>{
+      'phase': 'document',
+      'url': 'https://kakuyomu.jp/works/123',
+      'title': 'Large page',
+      'responseData': 'x' * (512 * 1024 + 10),
+      'isForMainFrame': true,
+    });
+    await diagnostics.flush();
+
+    final tracePath = await diagnostics.traceLogFilePath();
+    final entry =
+        jsonDecode(
+              File(tracePath!).readAsLinesSync().single,
+            )
+            as Map<String, dynamic>;
+    expect((entry['responseData'] as String).length, 512 * 1024);
+    expect(entry['responseDataTruncated'], isTrue);
+  });
 }
