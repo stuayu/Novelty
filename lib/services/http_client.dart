@@ -1,4 +1,7 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:novelty/services/debug_http_trace_interceptor.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:novelty/utils/user_agents.dart';
 
@@ -39,6 +42,7 @@ Dio createNoveltyDio({
   RequestRateLimiter? rateLimiter,
   String? userAgent,
   UserAgentProfile? userAgentProfile,
+  AppDiagnosticsLogger? diagnostics,
 }) {
   assert(maxRetries >= 0, 'maxRetriesは0以上である必要があります');
   final dio = Dio(
@@ -72,6 +76,12 @@ Dio createNoveltyDio({
       now: now ?? () => DateTime.now().toUtc(),
     ),
   );
+  final httpDiagnostics = diagnostics ?? appDiagnosticsLogger;
+  if (kDebugMode && httpDiagnostics.captureSensitiveTrace) {
+    dio.interceptors.add(
+      DebugHttpTraceInterceptor(diagnostics: httpDiagnostics),
+    );
+  }
   return dio;
 }
 

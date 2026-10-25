@@ -891,7 +891,6 @@ void main() {
       );
       final diagnostics = NarouAuthDiagnosticsLogger(
         enabled: true,
-        captureSensitiveTrace: true,
         directoryResolver: () async => directory,
         consoleSink: (_) {},
       );
@@ -967,6 +966,7 @@ void main() {
       final consoleLines = <String>[];
       final diagnostics = NarouAuthDiagnosticsLogger(
         enabled: true,
+        captureSensitiveTrace: false,
         directoryResolver: () async => directory,
         consoleSink: consoleLines.add,
       );
@@ -1028,7 +1028,6 @@ void main() {
       );
       final diagnostics = NarouAuthDiagnosticsLogger(
         enabled: true,
-        captureSensitiveTrace: true,
         directoryResolver: () async => directory,
         consoleSink: (_) {},
       );

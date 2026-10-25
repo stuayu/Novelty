@@ -317,9 +317,10 @@ class AlphapolisSite implements NovelSite {
       },
     );
     final document = html_parser.parse(await _getHtml(uri.toString()));
-    final items = document.querySelectorAll(
-      '.p-content.is-novel, section.c-content',
-    );
+    final items = document
+        .querySelectorAll('.p-content.is-novel, section.c-content')
+        .where(_hasNovelWorkLink)
+        .toList(growable: false);
     if (items.isEmpty) {
       throw const FormatException('ランキングの作品DOMが見つかりません');
     }
@@ -447,9 +448,7 @@ class AlphapolisSite implements NovelSite {
   }
 
   NovelInfo _listingToNovelInfo(Element item) {
-    final link = item.querySelector(
-      '.c-content__title a, .p-content__title a, .content-title .title a',
-    );
+    final link = _listingTitleLink(item);
     final href = link?.attributes['href'];
     if (href == null) {
       throw const FormatException('作品一覧のURLが見つかりません');
@@ -519,6 +518,21 @@ class AlphapolisSite implements NovelSite {
           .join(' '),
       generalLastup: _normalizeDateTime(updated),
     );
+  }
+
+  Element? _listingTitleLink(Element item) => item.querySelector(
+    '.c-content__title a, .p-content__title a, .content-title .title a',
+  );
+
+  bool _hasNovelWorkLink(Element item) {
+    final href = _listingTitleLink(item)?.attributes['href'];
+    if (href == null) return false;
+    final segments = Uri.tryParse(href)?.pathSegments;
+    return segments != null &&
+        segments.length == 3 &&
+        segments[0] == 'novel' &&
+        RegExp(r'^\d+$').hasMatch(segments[1]) &&
+        RegExp(r'^\d+$').hasMatch(segments[2]);
   }
 
   String? _listingAttributeValue(Element item, String label) {

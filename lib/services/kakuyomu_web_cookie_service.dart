@@ -5,6 +5,9 @@ import 'package:riverpod/riverpod.dart';
 
 final _kakuyomuWebUri = WebUri('https://kakuyomu.jp/');
 
+/// WebViewのCookieを取得する処理。
+typedef KakuyomuWebCookieReader = Future<List<Cookie>> Function(WebUri url);
+
 /// カクヨムWebView Cookieサービスのプロバイダー。
 final kakuyomuWebCookieServiceProvider = Provider<KakuyomuWebCookieService>(
   (ref) => KakuyomuWebCookieService(
@@ -18,17 +21,22 @@ class KakuyomuWebCookieService {
   KakuyomuWebCookieService({
     required KakuyomuSessionRepository sessionRepository,
     CookieManager? cookieManager,
+    KakuyomuWebCookieReader? cookieReader,
   }) : _sessionRepository = sessionRepository,
-       _cookieManager = cookieManager ?? CookieManager.instance();
+       _cookieManager = cookieManager,
+       _cookieReader = cookieReader;
 
   final KakuyomuSessionRepository _sessionRepository;
-  final CookieManager _cookieManager;
+  CookieManager? _cookieManager;
+  final KakuyomuWebCookieReader? _cookieReader;
+
+  CookieManager get _manager => _cookieManager ??= CookieManager.instance();
 
   /// Secure StorageのCookieをカクヨムWebViewへ復元する。
   Future<void> restoreToWebView() async {
     final cookies = await _sessionRepository.getCookies();
     for (final cookie in cookies) {
-      await _cookieManager.setCookie(
+      await _manager.setCookie(
         url: _kakuyomuWebUri,
         name: cookie.name,
         value: cookie.value,
@@ -43,7 +51,7 @@ class KakuyomuWebCookieService {
 
   /// WebViewから有効なカクヨムCookieを取得して保存する。
   Future<List<KakuyomuSessionCookie>> captureFromWebView() async {
-    final cookies = await _cookieManager.getCookies(url: _kakuyomuWebUri);
+    final cookies = await _readCookies();
     final sessionCookies = cookies
         .map(
           (cookie) => KakuyomuSessionCookie(
@@ -59,13 +67,15 @@ class KakuyomuWebCookieService {
         .where((cookie) => cookie.belongsToKakuyomu && !cookie.isExpired)
         .toList(growable: false);
 
-    await _sessionRepository.saveCookies(sessionCookies);
+    if (sessionCookies.isNotEmpty) {
+      await _sessionRepository.saveCookies(sessionCookies);
+    }
     return sessionCookies;
   }
 
   /// WebViewに残るカクヨムCookieを削除する。
   Future<void> clearWebViewCookies() async {
-    final cookies = await _cookieManager.getCookies(url: _kakuyomuWebUri);
+    final cookies = await _readCookies();
     for (final cookie in cookies) {
       final domain = cookie.domain ?? 'kakuyomu.jp';
       final candidate = KakuyomuSessionCookie(
@@ -77,7 +87,7 @@ class KakuyomuWebCookieService {
       );
       if (!candidate.belongsToKakuyomu) continue;
 
-      await _cookieManager.deleteCookie(
+      await _manager.deleteCookie(
         url: _kakuyomuWebUri,
         name: cookie.name,
         domain: domain,
@@ -85,4 +95,8 @@ class KakuyomuWebCookieService {
       );
     }
   }
+
+  Future<List<Cookie>> _readCookies() =>
+      _cookieReader?.call(_kakuyomuWebUri) ??
+      _manager.getCookies(url: _kakuyomuWebUri);
 }

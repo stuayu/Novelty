@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:novelty/services/debug_webview_http_trace.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/hameln/hameln_html_fetcher.dart';
 import 'package:novelty/utils/hameln_uri.dart';
 
@@ -31,6 +33,11 @@ Future<String> fetchHamelnHtmlWithWebView(String url) {
 
 Future<String> _fetch(String url) async {
   HeadlessInAppWebView? webView;
+  final webViewTrace = DebugWebViewHttpTrace(
+    diagnostics: appDiagnosticsLogger,
+    site: 'hameln',
+    trustedHosts: const <String>['syosetu.org'],
+  );
   final deadline = DateTime.now().add(_webViewTimeout);
   try {
     final loaded = Completer<void>();
@@ -40,6 +47,8 @@ Future<String> _fetch(String url) async {
       initialSettings: InAppWebViewSettings(
         useShouldOverrideUrlLoading: true,
       ),
+      initialUserScripts: webViewTrace.initialUserScripts,
+      onWebViewCreated: webViewTrace.registerHandler,
       shouldOverrideUrlLoading: (_, action) async {
         final uri = action.request.url?.uriValue;
         final allowed = action.isForMainFrame

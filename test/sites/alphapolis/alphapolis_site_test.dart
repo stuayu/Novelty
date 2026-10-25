@@ -421,6 +421,23 @@ void main() {
         expect(ranking.novels.single.generalLastup, '2026-10-24');
       });
 
+      test('現行のc-content内に混在する小説以外のカードを除外する', () async {
+        final adapter = _FixtureAdapter(<String, String>{
+          '/novel/index':
+              '''
+<section class="c-content">
+  <h2 class="c-content__title"><a href="/manga/283520571/107095527">漫画カード</a></h2>
+</section>
+${_fixture('ranking_page_current.html')}
+''',
+        });
+
+        final ranking = await _createSite(adapter).fetchRanking('24hpt');
+
+        expect(ranking.novels, hasLength(1));
+        expect(ranking.novels.single.title, '現行DOMの作品');
+      });
+
       test('作品一覧DOMからランキングと次ページ有無を返す', () async {
         final adapter = _FixtureAdapter(<String, String>{
           '/novel/index': _fixture('ranking_page.html'),

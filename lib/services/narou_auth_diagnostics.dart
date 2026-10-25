@@ -15,6 +15,7 @@ typedef AuthDiagnosticsConsoleSink = void Function(String line);
 
 const _captureSensitiveTraceFromEnvironment = bool.fromEnvironment(
   'NAROU_AUTH_TRACE_SENSITIVE',
+  defaultValue: true,
 );
 
 /// アプリ全体の構造化診断ログを出力する。

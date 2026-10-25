@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/providers/auth_provider.dart';
+import 'package:novelty/services/debug_webview_http_trace.dart';
 import 'package:novelty/services/estar_auth_service.dart';
 import 'package:novelty/services/estar_web_cookie_service.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/estar_webview_support.dart';
 
@@ -25,10 +27,16 @@ class _EstarLoginPageState extends ConsumerState<EstarLoginPage> {
   bool _isCompleting = false;
   bool _isCompleted = false;
   String? _errorMessage;
+  late final DebugWebViewHttpTrace _webViewHttpTrace;
 
   @override
   void initState() {
     super.initState();
+    _webViewHttpTrace = DebugWebViewHttpTrace(
+      diagnostics: ref.read(appDiagnosticsLoggerProvider),
+      site: 'estar',
+      trustedHosts: const <String>['estar.jp'],
+    );
     if (isEstarWebViewSupported) {
       unawaited(_prepareSession());
     } else {
@@ -120,6 +128,8 @@ class _EstarLoginPageState extends ConsumerState<EstarLoginPage> {
                       url: WebUri(_estarLoginUrl),
                     ),
                     initialSettings: InAppWebViewSettings(),
+                    initialUserScripts: _webViewHttpTrace.initialUserScripts,
+                    onWebViewCreated: _webViewHttpTrace.registerHandler,
                     onLoadStop: (controller, url) async {
                       await _tryCompleteLogin(url);
                     },

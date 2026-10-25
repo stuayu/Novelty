@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/providers/auth_provider.dart';
+import 'package:novelty/services/debug_webview_http_trace.dart';
 import 'package:novelty/services/kakuyomu_auth_service.dart';
+import 'package:novelty/services/kakuyomu_login_check_queue.dart';
 import 'package:novelty/services/kakuyomu_web_cookie_service.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/kakuyomu_uri.dart';
 import 'package:novelty/utils/kakuyomu_webview_support.dart';
 
 const _kakuyomuLoginUrl = 'https://kakuyomu.jp/auth/login';
@@ -25,10 +29,22 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
   bool _isCheckingLogin = false;
   bool _isCompleted = false;
   String? _errorMessage;
+  late final String _loginOperationId;
+  late final DebugWebViewHttpTrace _webViewHttpTrace;
+  final KakuyomuLoginCheckQueue _loginCheckQueue = KakuyomuLoginCheckQueue();
+  int _loginCheckCount = 0;
 
   @override
   void initState() {
     super.initState();
+    final diagnostics = ref.read(appDiagnosticsLoggerProvider);
+    _loginOperationId = diagnostics.createOperationId();
+    _webViewHttpTrace = DebugWebViewHttpTrace(
+      diagnostics: diagnostics,
+      operationId: _loginOperationId,
+      site: 'kakuyomu',
+      trustedHosts: const <String>['kakuyomu.jp'],
+    );
     if (isKakuyomuWebViewSupported) {
       unawaited(_prepareSession());
     } else {
@@ -47,40 +63,124 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
     setState(() => _isPreparing = false);
   }
 
-  Future<void> _tryCompleteLogin(WebUri? currentUrl) async {
-    if (_isCheckingLogin || _isCompleted) return;
+  Future<void> _tryCompleteLogin(
+    WebUri? currentUrl, {
+    required String trigger,
+  }) {
+    final diagnostics = ref.read(appDiagnosticsLoggerProvider);
+    final currentPath = _diagnosticPagePath(currentUrl);
+    diagnostics.record(_loginOperationId, 'kakuyomu.login.navigation', {
+      'trigger': trigger,
+      'pagePath': currentPath,
+    });
+    return _loginCheckQueue.request(
+      () => _checkLoginAfterNavigation(
+        currentPath: currentPath,
+        trigger: trigger,
+        diagnostics: diagnostics,
+      ),
+    );
+  }
 
-    final webCookieService = ref.read(kakuyomuWebCookieServiceProvider);
-
+  Future<bool> _checkLoginAfterNavigation({
+    required String currentPath,
+    required String trigger,
+    required AppDiagnosticsLogger diagnostics,
+  }) async {
+    if (!mounted || _isCompleted) return _isCompleted;
+    final attempt = ++_loginCheckCount;
     try {
       setState(() {
         _isCheckingLogin = true;
         _errorMessage = null;
       });
 
-      final cookies = await webCookieService.captureFromWebView();
-      if (cookies.isEmpty) return;
+      diagnostics.record(_loginOperationId, 'kakuyomu.login.check.started', {
+        'attempt': attempt,
+        'trigger': trigger,
+        'pagePath': currentPath,
+      });
+
+      final cookies = await ref
+          .read(kakuyomuWebCookieServiceProvider)
+          .captureFromWebView();
+      diagnostics.record(
+        _loginOperationId,
+        'kakuyomu.login.cookies.captured',
+        {
+          'attempt': attempt,
+          'count': cookies.length,
+          'names': cookies.map((cookie) => cookie.name).toSet().toList()
+            ..sort(),
+          'domains': cookies.map((cookie) => cookie.domain).toSet().toList()
+            ..sort(),
+        },
+      );
+      if (cookies.isEmpty) {
+        if (mounted && _shouldShowLoginCheckError(currentPath)) {
+          setState(() {
+            _errorMessage = 'カクヨムのログインCookieを取得できませんでした。';
+          });
+        }
+        return false;
+      }
 
       final authService = ref.read(kakuyomuAuthServiceProvider);
-      final isValid = await authService.isSessionValid();
-      if (!isValid) return;
+      final sessionStatus = await authService.validateSessionStatus();
+      diagnostics.record(
+        _loginOperationId,
+        'kakuyomu.login.session_check.completed',
+        {
+          'attempt': attempt,
+          'status': sessionStatus.name,
+        },
+      );
+      if (sessionStatus != KakuyomuSessionValidity.valid) {
+        if (mounted && _shouldShowLoginCheckError(currentPath)) {
+          setState(() {
+            _errorMessage = sessionStatus == KakuyomuSessionValidity.unavailable
+                ? 'カクヨムのログイン状態を確認できませんでした。通信状態を確認してください。'
+                : 'Cookieは取得しましたが、カクヨムのログインを確認できません。';
+          });
+        }
+        return false;
+      }
 
+      if (!mounted) return false;
       _isCompleted = true;
       ref.invalidate(accountAuthStateProvider(NovelSource.kakuyomu));
 
-      if (!mounted) return;
       Navigator.of(context).pop(true);
+      return true;
     } on Exception {
-      if (!mounted) return;
+      diagnostics.record(_loginOperationId, 'kakuyomu.login.check.failed', {
+        'attempt': attempt,
+        'pagePath': currentPath,
+      });
+      if (!mounted) return false;
       setState(() {
         _errorMessage = 'ログイン状態を確認できませんでした。もう一度お試しください。';
       });
+      return false;
     } finally {
       if (mounted && !_isCompleted) {
         setState(() => _isCheckingLogin = false);
       }
     }
   }
+
+  String _diagnosticPagePath(WebUri? currentUrl) {
+    if (currentUrl == null) return 'unknown';
+    final uri = Uri.tryParse(currentUrl.toString());
+    if (uri == null || !isTrustedKakuyomuUri(uri)) return 'external';
+    return uri.path;
+  }
+
+  bool _shouldShowLoginCheckError(String pagePath) =>
+      pagePath != 'unknown' &&
+      pagePath != 'external' &&
+      !pagePath.startsWith('/auth/login') &&
+      !pagePath.startsWith('/login');
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +200,12 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
           if (_errorMessage != null)
             MaterialBanner(
               content: Text(_errorMessage!),
-              actions: [TextButton(onPressed: () {}, child: const Text('閉じる'))],
+              actions: [
+                TextButton(
+                  onPressed: () => setState(() => _errorMessage = null),
+                  child: const Text('閉じる'),
+                ),
+              ],
             ),
           if (_isCheckingLogin) const LinearProgressIndicator(),
           Expanded(
@@ -111,12 +216,17 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
                       url: WebUri(_kakuyomuLoginUrl),
                     ),
                     initialSettings: InAppWebViewSettings(),
+                    initialUserScripts: _webViewHttpTrace.initialUserScripts,
+                    onWebViewCreated: _webViewHttpTrace.registerHandler,
                     onLoadStop: (controller, url) async {
-                      await _tryCompleteLogin(url);
+                      await _tryCompleteLogin(url, trigger: 'loadStop');
                     },
                     onUpdateVisitedHistory:
                         (controller, url, androidIsReload) async {
-                          await _tryCompleteLogin(url);
+                          await _tryCompleteLogin(
+                            url,
+                            trigger: 'visitedHistory',
+                          );
                         },
                   ),
           ),
