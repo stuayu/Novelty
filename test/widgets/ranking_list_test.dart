@@ -57,6 +57,96 @@ void main() {
       expect(find.text('読み込みに失敗しました'), findsNothing);
     });
 
+    testWidgets('作品が0件でも次ページがあるときは追加読込を案内する', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rankingProvider(
+              NovelSource.hameln,
+              'rank_day',
+            ).overrideWithValue(
+              const RankingState(page: 2),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: RankingList(
+                source: NovelSource.hameln,
+                rankingType: 'rank_day',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('次のページを読み込む'), findsOneWidget);
+    });
+
+    testWidgets('追加ページ取得の失敗を表示して再試行を案内する', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rankingProvider(
+              NovelSource.hameln,
+              'rank_day',
+            ).overrideWithValue(
+              RankingState(
+                novels: const [
+                  NovelInfo(
+                    source: NovelSource.hameln,
+                    workId: '123',
+                    title: '表示済み作品',
+                  ),
+                ],
+                page: 3,
+                error: Exception('通信失敗'),
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: RankingList(
+                source: NovelSource.hameln,
+                rankingType: 'rank_day',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('続きの読み込みに失敗しました'), findsOneWidget);
+      expect(find.text('再試行'), findsOneWidget);
+    });
+
+    testWidgets('空の結果で追加ページの取得に失敗しても再試行を案内する', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rankingProvider(
+              NovelSource.hameln,
+              'rank_day',
+            ).overrideWithValue(
+              RankingState(
+                page: 2,
+                error: Exception('通信失敗'),
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: RankingList(
+                source: NovelSource.hameln,
+                rankingType: 'rank_day',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('続きの読み込みに失敗しました'), findsOneWidget);
+      expect(find.text('再試行'), findsOneWidget);
+    });
+
     testWidgets('should display ranking list items', (
       tester,
     ) async {

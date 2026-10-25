@@ -30,6 +30,20 @@ class RankingList extends HookConsumerWidget {
 
     // スクロール通知を監視するためのリスナー
     final scrollController = useScrollController();
+    final hasListFooter =
+        rankingState.isLoadingMore ||
+        rankingState.error != null ||
+        rankingState.hasMore;
+    final showEmptyResult =
+        rankingState.novels.isEmpty &&
+        !rankingState.isLoading &&
+        !hasListFooter;
+
+    void loadNextPage() {
+      unawaited(
+        ref.read(rankingProvider(source, rankingType).notifier).fetchNextPage(),
+      );
+    }
 
     // 無限スクロールの検知
     // NotificationListenerを使用しても良いが、ScrollControllerで制御するほうが一般的
@@ -55,7 +69,9 @@ class RankingList extends HookConsumerWidget {
     }, [scrollController]);
 
     // 初回ロード失敗時のリトライボタン
-    if (rankingState.error != null && rankingState.novels.isEmpty) {
+    if (rankingState.error != null &&
+        rankingState.novels.isEmpty &&
+        rankingState.page == 1) {
       final errorMessage = rankingState.error is AccessRestrictedException
           ? 'アクセスが制限されています。しばらく待ってから再度お試しください'
           : '読み込みに失敗しました';
@@ -92,13 +108,56 @@ class RankingList extends HookConsumerWidget {
         controller: scrollController,
         // アイテム数 + ローディングインジケータ（必要な場合）
         itemCount:
-            rankingState.novels.length + (rankingState.isLoadingMore ? 1 : 0),
+            rankingState.novels.length +
+            (hasListFooter || showEmptyResult ? 1 : 0),
         itemBuilder: (context, index) {
           if (index == rankingState.novels.length) {
-            return const Padding(
-              padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator()),
-            );
+            if (rankingState.isLoadingMore) {
+              return const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            if (rankingState.error != null) {
+              final errorMessage =
+                  rankingState.error is AccessRestrictedException
+                  ? 'アクセスが制限されています。しばらく待ってから再度お試しください'
+                  : '続きの読み込みに失敗しました';
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(errorMessage, textAlign: TextAlign.center),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: loadNextPage,
+                      child: const Text('再試行'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            if (rankingState.hasMore) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: Center(
+                  child: TextButton(
+                    onPressed: loadNextPage,
+                    child: const Text('次のページを読み込む'),
+                  ),
+                ),
+              );
+            }
+
+            if (rankingState.novels.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: Text('ランキング作品がありません')),
+              );
+            }
           }
 
           final novel = rankingState.novels[index];
