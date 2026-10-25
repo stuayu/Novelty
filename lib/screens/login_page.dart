@@ -101,6 +101,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         ),
       );
     } else {
+      if (_awaitingMfa && !result.canRetryMfa) {
+        _cancelMfaChallenge();
+        setState(() => _awaitingMfa = false);
+      }
       final colorScheme = Theme.of(context).colorScheme;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

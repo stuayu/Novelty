@@ -194,7 +194,10 @@ class NarouAuthService {
     }
     final normalizedCode = code.trim();
     if (!RegExp(r'^\d{1,32}$').hasMatch(normalizedCode)) {
-      return const NarouLoginResult.failure('認証コードを半角数字で入力してください。');
+      return const NarouLoginResult.failure(
+        '認証コードを半角数字で入力してください。',
+        canRetryMfa: true,
+      );
     }
 
     try {
@@ -268,21 +271,24 @@ class NarouAuthService {
       if (!_isCurrentMfaChallenge(generation, pending)) {
         return _cancelledLoginResult;
       }
-      if (refreshedChallenge != null) {
-        _pendingMfa = refreshedChallenge;
-        return const NarouLoginResult.failure(
-          '認証コードを確認できませんでした。コードを確認して再入力してください。',
-        );
-      }
-
-      var username = _extractUsername(response.data);
+      final hasSessionCookies = _hasSessionCookies(pending.cookies);
       final sessionCookieChanged = _hasUpdatedSessionCookie(
         sessionCookiesBeforeVerification,
         pending.cookies,
       );
+      final responseUsername = _extractUsername(response.data);
+      if (refreshedChallenge != null) {
+        _pendingMfa = refreshedChallenge;
+        return const NarouLoginResult.failure(
+          '認証コードを確認できませんでした。コードを確認して再入力してください。',
+          canRetryMfa: true,
+        );
+      }
+
+      var username = responseUsername;
       if (response.statusCode != 200 ||
           !_isNarouUri(response.realUri) ||
-          !_hasSessionCookies(pending.cookies) ||
+          !hasSessionCookies ||
           (!redirectedToBookmarkList &&
               !sessionCookieChanged &&
               username == null)) {
@@ -345,13 +351,19 @@ class NarouAuthService {
       debugPrint(
         '[NarouAuth] MFA通信失敗 type=${e.type} status=${e.response?.statusCode}',
       );
-      return const NarouLoginResult.failure('認証コードの送信に失敗しました');
+      return const NarouLoginResult.failure(
+        '認証コードの送信に失敗しました',
+        canRetryMfa: true,
+      );
     } on Object catch (e) {
       if (!_isCurrentMfaChallenge(generation, pending)) {
         return _cancelledLoginResult;
       }
       debugPrint('[NarouAuth] MFA処理失敗 type=${e.runtimeType}');
-      return const NarouLoginResult.failure('認証コードの処理に失敗しました');
+      return const NarouLoginResult.failure(
+        '認証コードの処理に失敗しました',
+        canRetryMfa: true,
+      );
     }
   }
 
@@ -911,28 +923,35 @@ class NarouLoginResult {
     this.shouldSuggestAuthenticatorApp = false,
   }) : isSuccess = true,
        requiresMfa = false,
+       canRetryMfa = false,
        error = null;
 
   /// 二段階認証コードの入力待ち。
   const NarouLoginResult.mfaRequired()
     : isSuccess = false,
       requiresMfa = true,
+      canRetryMfa = true,
       username = null,
       shouldSuggestAuthenticatorApp = false,
       error = null;
 
   /// ログイン失敗。
-  const NarouLoginResult.failure(String this.error)
-    : isSuccess = false,
-      requiresMfa = false,
-      username = null,
-      shouldSuggestAuthenticatorApp = false;
+  const NarouLoginResult.failure(
+    String this.error, {
+    this.canRetryMfa = false,
+  }) : isSuccess = false,
+       requiresMfa = false,
+       username = null,
+       shouldSuggestAuthenticatorApp = false;
 
   /// 成功したか否か。
   final bool isSuccess;
 
   /// 二段階認証コードの入力が必要か。
   final bool requiresMfa;
+
+  /// 保留中の二段階認証チャレンジで再試行できるか。
+  final bool canRetryMfa;
 
   /// ログイン成功時のユーザー名。
   final String? username;

@@ -8,12 +8,14 @@ import 'package:novelty/screens/login_page.dart';
 import 'package:novelty/services/narou_auth_service.dart';
 
 class _MfaAuthService extends NarouAuthService {
-  _MfaAuthService() : super(authRepository: AuthRepository());
+  _MfaAuthService({this.retainMfaAfterVerification = false})
+    : super(authRepository: AuthRepository());
 
   String? submittedCode;
   bool loginCalled = false;
   bool? rememberSession;
   bool challengeCancelled = false;
+  final bool retainMfaAfterVerification;
   bool delayLogin = false;
   final loginStarted = Completer<void>();
   final loginCompletion = Completer<NarouLoginResult>();
@@ -39,13 +41,21 @@ class _MfaAuthService extends NarouAuthService {
   @override
   Future<NarouLoginResult> verifyMfaCode(String code) async {
     submittedCode = code;
-    return const NarouLoginResult.failure('認証コードを確認できませんでした');
+    if (retainMfaAfterVerification) {
+      return const NarouLoginResult.failure(
+        '認証コードを確認できませんでした',
+        canRetryMfa: true,
+      );
+    }
+    return const NarouLoginResult.failure(
+      '認証コードを確認できません。最初からログインしてください。',
+    );
   }
 }
 
 void main() {
   testWidgets('MFA待ちではパスワードを消し安全な確認コード入力へ切り替える', (tester) async {
-    final authService = _MfaAuthService();
+    final authService = _MfaAuthService(retainMfaAfterVerification: true);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -106,6 +116,40 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('narou-mfa-code')), findsNothing);
+  });
+
+  testWidgets('失効したMFAチャレンジでは資格情報ログインへ戻す', (tester) async {
+    final authService = _MfaAuthService();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          narouAuthServiceProvider.overrideWithValue(authService),
+        ],
+        child: const MaterialApp(home: LoginPage()),
+      ),
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'ユーザーIDまたはメールアドレス'),
+      'reader@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'パスワード'),
+      'secret-password',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'ログイン'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('narou-mfa-code')), '123456');
+    await tester.tap(find.widgetWithText(FilledButton, '認証コードを確認'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('narou-mfa-code')), findsNothing);
+    expect(authService.challengeCancelled, isTrue);
+    expect(
+      find.widgetWithText(TextFormField, 'ユーザーIDまたはメールアドレス'),
+      findsOneWidget,
+    );
+    expect(find.widgetWithText(TextFormField, 'パスワード'), findsOneWidget);
   });
 
   testWidgets('永続ログインのチェックを外すと短期セッションを指定する', (tester) async {
