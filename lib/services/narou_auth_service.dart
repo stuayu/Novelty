@@ -654,6 +654,7 @@ class NarouAuthService {
       );
     }
 
+    var sessionPersistenceStarted = false;
     try {
       _log(operationId, 'mfa.verify.started', <String, Object?>{
         'challengeType': pending.usedEmail ? 'email' : 'totp-or-email',
@@ -905,6 +906,7 @@ class NarouAuthService {
         });
       }
 
+      sessionPersistenceStarted = true;
       _pendingMfa = null;
       final result = await _finishLogin(
         pending.cookies,
@@ -953,23 +955,33 @@ class NarouAuthService {
         canRetryMfa: true,
       );
     } on Object catch (e, stackTrace) {
-      if (!_isCurrentMfaChallenge(generation, pending)) {
+      if (!_isCurrentAuthOperation(generation) ||
+          (!sessionPersistenceStarted &&
+              !_isCurrentMfaChallenge(generation, pending))) {
         return _cancelledLoginResult;
       }
+      final canRetryMfa = !sessionPersistenceStarted;
       _log(operationId, 'mfa.verify.result', <String, Object?>{
-        'outcome': 'retryable-failure',
-        'reason': 'processing-error',
+        'outcome': canRetryMfa ? 'retryable-failure' : 'failure',
+        'reason': canRetryMfa ? 'processing-error' : 'session-persist-failed',
         'errorType': e.runtimeType.toString(),
       });
       _diagnostics.recordTrace(operationId, 'mfa.verify.error.trace', {
-        'stage': 'code-verification',
+        'stage': sessionPersistenceStarted
+            ? 'session-persistence'
+            : 'code-verification',
         'error': e.toString(),
         'stackTrace': stackTrace.toString(),
       });
       debugPrint('[NarouAuth] MFA処理失敗 type=${e.runtimeType}');
-      return const NarouLoginResult.failure(
+      if (sessionPersistenceStarted) {
+        return const NarouLoginResult.failure(
+          'ログイン情報を安全に保存できませんでした。ログインをやり直してください。',
+        );
+      }
+      return NarouLoginResult.failure(
         '認証コードの処理に失敗しました',
-        canRetryMfa: true,
+        canRetryMfa: canRetryMfa,
       );
     }
   }

@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
@@ -883,6 +883,81 @@ void main() {
           rememberSession: true,
         ),
       ).called(1);
+    });
+
+    test('セッション保存失敗をキャンセル扱いせずTraceに例外とStackTraceを記録する', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'novelty-narou-session-persist-error-trace-test-',
+      );
+      final diagnostics = NarouAuthDiagnosticsLogger(
+        enabled: true,
+        captureSensitiveTrace: true,
+        directoryResolver: () async => directory,
+        consoleSink: (_) {},
+      );
+      final storageError = PlatformException(
+        code: 'secure-storage-error-marker',
+        message: 'keychain-entitlement-error-marker',
+      );
+      final storageStack = StackTrace.fromString(
+        'secure-storage-write-stack-marker',
+      );
+      when(
+        mockAuthRepository.saveSession(
+          narouid: 'reader-id',
+          username: 'テスト利用者',
+          ks2: 'ks2-value',
+          ses: 'ses-value',
+          userl: 'userl-value',
+          rememberSession: true,
+        ),
+      ).thenAnswer((_) => Future<void>.error(storageError, storageStack));
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = _TwoStepMfaAdapter(),
+        diagnostics: diagnostics,
+      );
+
+      try {
+        final firstStep = await service.login(
+          narouid: 'reader-id',
+          password: 'test-password',
+        );
+        expect(firstStep.requiresMfa, isTrue);
+
+        final result = await service.verifyMfaCode('654321');
+        await diagnostics.flush();
+
+        expect(result.isSuccess, isFalse);
+        expect(
+          result.error,
+          'ログイン情報を安全に保存できませんでした。ログインをやり直してください。',
+        );
+        expect(result.canRetryMfa, isFalse);
+        final path = await diagnostics.traceLogFilePath();
+        final entries = File(path!)
+            .readAsLinesSync()
+            .where((line) => line.isNotEmpty)
+            .map((line) => jsonDecode(line) as Map<String, dynamic>)
+            .toList();
+        final persistFailure = entries.firstWhere(
+          (entry) => entry['event'] == 'session.persist.failed',
+        );
+        expect(persistFailure['errorType'], 'PlatformException');
+        final errorTrace = entries.firstWhere(
+          (entry) => entry['event'] == 'mfa.verify.error.trace',
+        );
+        expect(
+          errorTrace['error'],
+          contains('keychain-entitlement-error-marker'),
+        );
+        expect(
+          errorTrace['stackTrace'],
+          contains('secure-storage-write-stack-marker'),
+        );
+      } finally {
+        await directory.delete(recursive: true);
+      }
     });
 
     test('MFA診断ログに通信段階を記録し認証情報を含めない', () async {
