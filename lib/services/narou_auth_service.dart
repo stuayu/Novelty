@@ -627,12 +627,20 @@ class NarouAuthService {
       final href = anchor.attributes['href'];
       return href != null && _isNarouTotpPage(pageUri.resolve(href));
     });
+    final isTotpChallenge =
+        _isNarouTotpPage(pageUri) ||
+        action.path.startsWith('/user2stepauth/totpauth/') ||
+        codeField.toLowerCase().contains('totp');
     final emailCodeChallenge =
-        pageUri.path.startsWith('/user2stepauth/emailinput/') ||
-        action.path.startsWith('/user2stepauth/emailauth/') ||
-        codeField.toLowerCase().contains('email') ||
-        pageText.contains('メール認証') ||
-        pageText.contains('登録メールに送信');
+        !isTotpChallenge &&
+        (pageUri.path.startsWith('/user2stepauth/emailinput/') ||
+            action.path.startsWith('/user2stepauth/emailauth/') ||
+            codeField.toLowerCase().contains('email') ||
+            pageText.contains('メール認証') ||
+            pageText.contains('登録メールに送信'));
+    final emailIsOnlyOption = emailCodeChallenge && !hasTotpOption;
+    final shouldSuggestAuthenticatorApp =
+        !isTotpChallenge && (usedEmail || emailIsOnlyOption);
     return _PendingNarouMfa(
       action: action,
       pageUri: pageUri,
@@ -640,7 +648,7 @@ class NarouAuthService {
       hiddenFields: _hiddenFields(form),
       cookies: Map<String, String>.of(cookies),
       narouid: narouid,
-      usedEmail: usedEmail || (emailCodeChallenge && !hasTotpOption),
+      usedEmail: shouldSuggestAuthenticatorApp,
       rememberSession: rememberSession,
     );
   }

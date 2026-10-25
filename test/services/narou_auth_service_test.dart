@@ -338,7 +338,8 @@ class _TwoStepMfaAdapter implements HttpClientAdapter {
     if (options.method == 'GET' &&
         path == '/user2stepauth/totpinput/authtoken/$_challengeId/') {
       return ResponseBody.fromString(
-        '<h2>二段階認証</h2><form '
+        '<h2>二段階認証</h2><p>メール認証に切り替えることもできます。'
+        '認証コードを登録メールに送信できます</p><form '
         'action="/user2stepauth/totpauth/authtoken/$_challengeId/"> '
         '<input type="text" name="totp_code" '
         'autocomplete="one-time-code"></form>',
@@ -738,7 +739,7 @@ void main() {
       );
     });
 
-    test('実ログ形式の選択画面からTOTP入力へ進みコードを同一originへ送る', () async {
+    test('TOTPページにメール認証への切替案内があっても設定案内を重複表示しない', () async {
       final adapter = _TwoStepMfaAdapter();
       final service = NarouAuthService(
         authRepository: mockAuthRepository,
@@ -876,7 +877,7 @@ void main() {
       final adapter = _MfaLoginAdapter(
         challengeHtml: '''
 <h2>二段階認証</h2>
-<p>登録メールに送信した認証コードを入力してください</p>
+<p>メール認証コードを入力してください</p>
 <form action="/login/auth_code/verify/" method="post">
 <input type="text" name="auth_code" autocomplete="one-time-code"></form>
 ''',

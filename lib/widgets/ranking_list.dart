@@ -51,6 +51,10 @@ class RankingList extends HookConsumerWidget {
     useEffect(() {
       void onScroll() {
         if (!scrollController.hasClients) return;
+        // 失敗後はスクロールでは再取得せず、フッターのボタン操作を待つ。
+        if (ref.read(rankingProvider(source, rankingType)).error != null) {
+          return;
+        }
         final maxScroll = scrollController.position.maxScrollExtent;
         final currentScroll = scrollController.offset;
 

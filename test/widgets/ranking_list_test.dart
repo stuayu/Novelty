@@ -3,17 +3,64 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
+import 'package:novel_parser_core/novel_parser_core.dart';
 import 'package:novelty/domain/ranking_filter_state.dart';
 import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/novel_search_result.dart';
+import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/providers/ranking_provider.dart';
 import 'package:novelty/services/api_service.dart';
 import 'package:novelty/sites/hameln/hameln_site.dart';
+import 'package:novelty/sites/novel_site.dart';
+import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/settings_provider.dart';
 import 'package:novelty/widgets/ranking_list.dart';
 
 import 'ranking_list_test.mocks.dart';
+
+class _FailingSecondPageSite extends NovelSite {
+  int requestCount = 0;
+  int failedPageCount = 0;
+
+  @override
+  NovelSource get source => NovelSource.hameln;
+
+  @override
+  List<GenreMaster> get genres => const [];
+
+  @override
+  List<RankingTypeMaster> get rankingTypes => const [];
+
+  @override
+  String? metaText(NovelInfo info) => null;
+
+  @override
+  List<NovelContentElement> parseEpisodeBody(String html) =>
+      throw UnsupportedError('テスト対象外');
+
+  @override
+  Future<RankingPage> fetchRanking(String rankingType, {int page = 1}) async {
+    requestCount++;
+    if (page == 1) {
+      return RankingPage(
+        novels: List.generate(
+          20,
+          (index) => NovelInfo(
+            source: source,
+            workId: 'work-$index',
+            title: '作品$index',
+            end: 1,
+          ),
+        ),
+        hasNextPage: true,
+      );
+    }
+    if (failedPageCount++ == 0) throw Exception('通信失敗');
+    return const RankingPage(novels: [], hasNextPage: false);
+  }
+}
 
 @GenerateMocks([ApiService])
 void main() {
@@ -145,6 +192,66 @@ void main() {
 
       expect(find.text('続きの読み込みに失敗しました'), findsOneWidget);
       expect(find.text('再試行'), findsOneWidget);
+    });
+
+    testWidgets('追加読み込み失敗後はスクロールで再要求せず明示的な再試行を待つ', (
+      tester,
+    ) async {
+      final site = _FailingSecondPageSite();
+      await tester.binding.setSurfaceSize(const Size(390, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            novelSiteRegistryProvider.overrideWithValue({
+              NovelSource.hameln: site,
+            }),
+            isOfflineModeProvider.overrideWithValue(false),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: RankingList(
+                source: NovelSource.hameln,
+                rankingType: 'rank_day',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      expect(site.requestCount, 1);
+
+      await tester.drag(find.byType(ListView), const Offset(0, -5000));
+      await tester.pumpAndSettle();
+      expect(site.requestCount, 2);
+      expect(find.text('続きの読み込みに失敗しました'), findsOneWidget);
+
+      final listFinder = find.byType(ListView);
+      final scrollableFinder = find.descendant(
+        of: listFinder,
+        matching: find.byType(Scrollable),
+      );
+      final offsetBeforeRetryScroll = tester
+          .state<ScrollableState>(scrollableFinder)
+          .position
+          .pixels;
+      await tester.drag(listFinder, const Offset(0, 400));
+      await tester.pumpAndSettle();
+      expect(
+        tester.state<ScrollableState>(scrollableFinder).position.pixels,
+        lessThan(offsetBeforeRetryScroll),
+      );
+      await tester.drag(listFinder, const Offset(0, -1000));
+      await tester.pumpAndSettle();
+      expect(site.requestCount, 2);
+
+      await tester.ensureVisible(find.text('再試行'));
+      await tester.tap(find.text('再試行'));
+      await tester.pumpAndSettle();
+      expect(site.requestCount, 3);
     });
 
     testWidgets('should display ranking list items', (
