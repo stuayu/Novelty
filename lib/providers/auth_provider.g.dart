@@ -36,7 +36,7 @@ final class NarouLoginProvider
   NarouLogin create() => NarouLogin();
 }
 
-String _$narouLoginHash() => r'611cac2acb3cdb42bab26f4eaa4accff3bf2f1d5';
+String _$narouLoginHash() => r'f218399021791edd96964000235c0fa8b8921f1a';
 
 /// なろうのログイン処理を管理するコントローラー。
 

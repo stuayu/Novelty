@@ -6,6 +6,7 @@ import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/http_cookie.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 part 'narou_auth_service.g.dart';
@@ -13,20 +14,6 @@ part 'narou_auth_service.g.dart';
 const _loginUrl = 'https://syosetu.com/login/login/';
 const _loginInputUrl = 'https://syosetu.com/login/input/';
 const _bookmarkListUrl = 'https://syosetu.com/favnovelmain/list/';
-const _cookieMonths = <String, int>{
-  'jan': 1,
-  'feb': 2,
-  'mar': 3,
-  'apr': 4,
-  'may': 5,
-  'jun': 6,
-  'jul': 7,
-  'aug': 8,
-  'sep': 9,
-  'oct': 10,
-  'nov': 11,
-  'dec': 12,
-};
 
 /// なろうへのHTTPリクエストで使用するUser-Agent。
 const narouUserAgent =
@@ -77,6 +64,7 @@ class NarouAuthService {
   Future<NarouLoginResult> login({
     required String narouid,
     required String password,
+    bool rememberSession = true,
   }) async {
     cancelMfaChallenge();
     final generation = _authOperationGeneration;
@@ -95,8 +83,9 @@ class NarouAuthService {
       }
 
       final cookies = <String, String>{};
-      _mergeCookies(cookies, formResponse.headers.map['set-cookie']);
+      mergeSetCookieHeaders(cookies, formResponse.headers.map['set-cookie']);
       final loginFields = _hiddenFields(loginForm)
+        ..addAll(_persistentLoginFields(loginForm, rememberSession))
         ..['narouid'] = narouid
         ..['pass'] = password;
       final loginAction = _formAction(
@@ -119,7 +108,7 @@ class NarouAuthService {
         ),
       );
       if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
-      _mergeCookies(cookies, response.headers.map['set-cookie']);
+      mergeSetCookieHeaders(cookies, response.headers.map['set-cookie']);
       var challengeUri = _responseRedirect(response);
       Response<String>? challengeResponse;
       for (
@@ -141,7 +130,10 @@ class NarouAuthService {
         if (!_isCurrentAuthOperation(generation)) {
           return _cancelledLoginResult;
         }
-        _mergeCookies(cookies, challengeResponse.headers.map['set-cookie']);
+        mergeSetCookieHeaders(
+          cookies,
+          challengeResponse.headers.map['set-cookie'],
+        );
         challengeUri = _responseRedirect(challengeResponse);
       }
       if (challengeUri != null) {
@@ -150,11 +142,13 @@ class NarouAuthService {
 
       final challengePage = challengeResponse?.data ?? response.data ?? '';
       final pageUri = challengeResponse?.realUri ?? response.realUri;
-      final pending = _parseMfaChallenge(
+      final pending = await _resolveMfaChallenge(
         challengePage,
         pageUri,
         cookies,
         narouid,
+        rememberSession: rememberSession,
+        generation: generation,
       );
       if (!_isCurrentAuthOperation(generation)) return _cancelledLoginResult;
       if (pending == null) {
@@ -209,7 +203,10 @@ class NarouAuthService {
       if (!_isCurrentMfaChallenge(generation, pending)) {
         return _cancelledLoginResult;
       }
-      _mergeCookies(pending.cookies, response.headers.map['set-cookie']);
+      mergeSetCookieHeaders(
+        pending.cookies,
+        response.headers.map['set-cookie'],
+      );
       var redirect = _responseRedirect(response);
       var redirectedToBookmarkList =
           redirect != null && _isNarouBookmarkListUri(redirect);
@@ -231,7 +228,10 @@ class NarouAuthService {
         if (!_isCurrentMfaChallenge(generation, pending)) {
           return _cancelledLoginResult;
         }
-        _mergeCookies(pending.cookies, response.headers.map['set-cookie']);
+        mergeSetCookieHeaders(
+          pending.cookies,
+          response.headers.map['set-cookie'],
+        );
         redirect = _responseRedirect(response);
         if (redirect != null) {
           redirectedToBookmarkList = _isNarouBookmarkListUri(redirect);
@@ -249,6 +249,8 @@ class NarouAuthService {
         response.realUri,
         pending.cookies,
         pending.narouid,
+        usedEmail: pending.usedEmail,
+        rememberSession: pending.rememberSession,
       );
       if (!_isCurrentMfaChallenge(generation, pending)) {
         return _cancelledLoginResult;
@@ -318,6 +320,8 @@ class NarouAuthService {
         pending.narouid,
         username,
         generation: generation,
+        shouldSuggestAuthenticatorApp: pending.usedEmail,
+        rememberSession: pending.rememberSession,
       );
     } on DioException catch (e) {
       if (!_isCurrentMfaChallenge(generation, pending)) {
@@ -363,6 +367,9 @@ class NarouAuthService {
           data == null) {
         return false;
       }
+      await authRepository.updateSessionCookieHeaders(
+        response.headers.map['set-cookie'],
+      );
       return _isAuthenticatedBookmarkListHtml(data);
     } on Exception {
       return false;
@@ -388,6 +395,8 @@ class NarouAuthService {
     String narouid,
     String username, {
     required int generation,
+    bool shouldSuggestAuthenticatorApp = false,
+    bool rememberSession = true,
   }) async {
     var cancelled = false;
     var cleanedAfterCancellation = false;
@@ -397,26 +406,13 @@ class NarouAuthService {
         return;
       }
 
-      await authRepository.saveNarouid(narouid);
-      if (!_isCurrentAuthOperation(generation)) {
-        cancelled = true;
-        cleanedAfterCancellation = true;
-        await authRepository.clearAll();
-        return;
-      }
-
-      await authRepository.saveUsername(username);
-      if (!_isCurrentAuthOperation(generation)) {
-        cancelled = true;
-        cleanedAfterCancellation = true;
-        await authRepository.clearAll();
-        return;
-      }
-
-      await authRepository.saveSessionCookies(
+      await authRepository.saveSession(
+        narouid: narouid,
+        username: username,
         ks2: cookies['ks2']!,
         ses: cookies['ses']!,
         userl: cookies['userl']!,
+        rememberSession: rememberSession,
       );
       if (!_isCurrentAuthOperation(generation)) {
         cancelled = true;
@@ -431,7 +427,10 @@ class NarouAuthService {
       }
       return _cancelledLoginResult;
     }
-    return NarouLoginResult.success(username: username);
+    return NarouLoginResult.success(
+      username: username,
+      shouldSuggestAuthenticatorApp: shouldSuggestAuthenticatorApp,
+    );
   }
 
   Future<void> _serializeSessionMutation(
@@ -487,6 +486,7 @@ class NarouAuthService {
         !_isNarouBookmarkListUri(response.realUri)) {
       return null;
     }
+    mergeSetCookieHeaders(cookies, response.headers.map['set-cookie']);
     final html = response.data;
     return _isAuthenticatedBookmarkListHtml(html) ? html : null;
   }
@@ -523,6 +523,24 @@ class NarouAuthService {
   bool _isNarouLoginAction(Uri uri) =>
       _isNarouUri(uri) && uri.path == Uri.parse(_loginUrl).path;
 
+  bool _isNarouMfaAction(Uri uri) =>
+      _isNarouUri(uri) &&
+      (uri.path.startsWith('/login/auth_code/verify/') ||
+          uri.path.startsWith('/user2stepauth/totpauth/') ||
+          uri.path.startsWith('/user2stepauth/emailauth/'));
+
+  bool _isNarouTotpPage(Uri uri) =>
+      _isNarouUri(uri) &&
+      uri.path.startsWith('/user2stepauth/totpinput/') &&
+      uri.query.isEmpty &&
+      uri.fragment.isEmpty;
+
+  bool _isNarouEmailChoiceAction(Uri uri) =>
+      _isNarouUri(uri) &&
+      uri.path.startsWith('/user2stepauth/sendemail/') &&
+      uri.query.isEmpty &&
+      uri.fragment.isEmpty;
+
   bool _hasSessionCookies(Map<String, String> cookies) =>
       cookies['ks2']?.isNotEmpty == true &&
       cookies['ses']?.isNotEmpty == true &&
@@ -536,69 +554,14 @@ class NarouAuthService {
         current[name]?.isNotEmpty == true && current[name] != previous[name],
   );
 
-  void _mergeCookies(Map<String, String> cookies, List<String>? headers) {
-    if (headers == null) return;
-    for (final header in headers) {
-      final pair = header.split(';').first.trim();
-      final separator = pair.indexOf('=');
-      if (separator <= 0) continue;
-      final name = pair.substring(0, separator).trim();
-      final value = pair.substring(separator + 1).trim();
-      if (name.isEmpty) continue;
-      if (_isExpiredCookie(header, value)) {
-        cookies.remove(name);
-      } else {
-        cookies[name] = value;
-      }
-    }
-  }
-
-  bool _isExpiredCookie(String header, String value) {
-    if (value.isEmpty) return true;
-    for (final attribute in header.split(';').skip(1)) {
-      final trimmedAttribute = attribute.trim();
-      final normalized = trimmedAttribute.toLowerCase();
-      if (normalized.startsWith('max-age=')) {
-        final maxAge = int.tryParse(normalized.substring('max-age='.length));
-        if (maxAge != null && maxAge <= 0) return true;
-      }
-      if (normalized.startsWith('expires=')) {
-        final expiresAt = _parseCookieExpiration(
-          trimmedAttribute.substring('expires='.length).trim(),
-        );
-        if (expiresAt != null && !expiresAt.isAfter(DateTime.now().toUtc())) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  DateTime? _parseCookieExpiration(String value) {
-    final match = RegExp(
-      r'^(?:[a-z]{3},\s*)?(\d{1,2})[\s-]+([a-z]{3})[\s-]'
-      r'(\d{4})\s+(\d{2}):(\d{2}):(\d{2})\s+gmt$',
-      caseSensitive: false,
-    ).firstMatch(value);
-    if (match == null) return null;
-    final month = _cookieMonths[match.group(2)!.toLowerCase()];
-    if (month == null) return null;
-    return DateTime.utc(
-      int.parse(match.group(3)!),
-      month,
-      int.parse(match.group(1)!),
-      int.parse(match.group(4)!),
-      int.parse(match.group(5)!),
-      int.parse(match.group(6)!),
-    );
-  }
-
   _PendingNarouMfa? _parseMfaChallenge(
     String html,
     Uri pageUri,
     Map<String, String> cookies,
-    String narouid,
-  ) {
+    String narouid, {
+    bool usedEmail = false,
+    bool rememberSession = true,
+  }) {
     if (!_isNarouUri(pageUri)) return null;
     final document = parser.parse(html);
     final pageText = document.body?.text.toLowerCase() ?? '';
@@ -622,7 +585,7 @@ class NarouAuthService {
     final codeField = codeInput.attributes['name'];
     if (codeField == null || codeField.isEmpty) return null;
     final action = _formAction(form, pageUri, fallback: pageUri);
-    if (!_isNarouUri(action)) return null;
+    if (!_isNarouMfaAction(action)) return null;
     return _PendingNarouMfa(
       action: action,
       pageUri: pageUri,
@@ -630,7 +593,164 @@ class NarouAuthService {
       hiddenFields: _hiddenFields(form),
       cookies: Map<String, String>.of(cookies),
       narouid: narouid,
+      usedEmail: usedEmail,
+      rememberSession: rememberSession,
     );
+  }
+
+  Future<_PendingNarouMfa?> _resolveMfaChallenge(
+    String html,
+    Uri pageUri,
+    Map<String, String> cookies,
+    String narouid, {
+    required bool rememberSession,
+    required int generation,
+  }) async {
+    if (!_isNarouUri(pageUri)) return null;
+    final directChallenge = _parseMfaChallenge(
+      html,
+      pageUri,
+      cookies,
+      narouid,
+      rememberSession: rememberSession,
+    );
+    if (directChallenge != null) return directChallenge;
+
+    final document = parser.parse(html);
+    Uri? totpUri;
+    for (final anchor in document.querySelectorAll('a[href]')) {
+      final href = anchor.attributes['href'];
+      if (href == null || href.isEmpty) continue;
+      final target = pageUri.resolve(href);
+      if (_isNarouTotpPage(target)) {
+        totpUri = target;
+        break;
+      }
+    }
+    if (totpUri != null) {
+      return _fetchMfaCodePage(
+        totpUri,
+        cookies,
+        narouid,
+        usedEmail: false,
+        rememberSession: rememberSession,
+        generation: generation,
+      );
+    }
+
+    for (final form in document.querySelectorAll('form')) {
+      final action = _formAction(form, pageUri, fallback: pageUri);
+      if (!_isNarouEmailChoiceAction(action) ||
+          (form.attributes['method'] ?? 'get').toLowerCase() != 'post') {
+        continue;
+      }
+      final fields = _emailChoiceFields(form);
+      if (fields == null) return null;
+      final response = await _dio.post<String>(
+        action.toString(),
+        data: fields,
+        options: _htmlOptions(
+          headers: {
+            'Referer': pageUri.toString(),
+            ...?_cookieHeaderMap(cookies),
+          },
+        ),
+      );
+      if (!_isCurrentAuthOperation(generation)) return null;
+      mergeSetCookieHeaders(cookies, response.headers.map['set-cookie']);
+      final redirect = _responseRedirect(response);
+      if (redirect != null) {
+        if (!_isNarouUri(redirect)) return null;
+        return _fetchMfaCodePage(
+          redirect,
+          cookies,
+          narouid,
+          usedEmail: true,
+          rememberSession: rememberSession,
+          generation: generation,
+        );
+      }
+      return _parseMfaChallenge(
+        response.data ?? '',
+        response.realUri,
+        cookies,
+        narouid,
+        usedEmail: true,
+        rememberSession: rememberSession,
+      );
+    }
+    return null;
+  }
+
+  Future<_PendingNarouMfa?> _fetchMfaCodePage(
+    Uri startUri,
+    Map<String, String> cookies,
+    String narouid, {
+    required bool usedEmail,
+    required bool rememberSession,
+    required int generation,
+  }) async {
+    var current = startUri;
+    for (var redirects = 0; redirects <= 5; redirects++) {
+      if (!_isNarouUri(current)) return null;
+      final response = await _dio.get<String>(
+        current.toString(),
+        options: _htmlOptions(headers: {...?_cookieHeaderMap(cookies)}),
+      );
+      if (!_isCurrentAuthOperation(generation)) return null;
+      if (!_isNarouUri(response.realUri)) return null;
+      mergeSetCookieHeaders(cookies, response.headers.map['set-cookie']);
+      final redirect = _responseRedirect(response);
+      if (redirect == null) {
+        return _parseMfaChallenge(
+          response.data ?? '',
+          response.realUri,
+          cookies,
+          narouid,
+          usedEmail: usedEmail,
+          rememberSession: rememberSession,
+        );
+      }
+      if (!_isNarouUri(redirect) || redirects == 5) return null;
+      current = redirect;
+    }
+    return null;
+  }
+
+  Map<String, String>? _emailChoiceFields(Element form) {
+    final radios = form.querySelectorAll('input[type="radio"][name]');
+    if (radios.isEmpty) return null;
+    final chosen = radios.firstWhere(
+      (radio) => radio.attributes.containsKey('checked'),
+      orElse: () => radios.first,
+    );
+    final name = chosen.attributes['name'];
+    final value = chosen.attributes['value'];
+    if (name == null || name.isEmpty || value == null || value.isEmpty) {
+      return null;
+    }
+    return _hiddenFields(form)..[name] = value;
+  }
+
+  Map<String, String> _persistentLoginFields(
+    Element form,
+    bool rememberSession,
+  ) {
+    if (!rememberSession) return const {};
+    final fields = <String, String>{};
+    for (final input in form.querySelectorAll('input[type="checkbox"][name]')) {
+      final name = input.attributes['name'];
+      if (name == null || name.isEmpty) continue;
+      final labelText = input.parent?.text ?? '';
+      final searchable = '${name.toLowerCase()} ${labelText.toLowerCase()}';
+      if (!searchable.contains('auto') &&
+          !searchable.contains('remember') &&
+          !searchable.contains('次回から自動的にログイン')) {
+        continue;
+      }
+      fields[name] = input.attributes['value'] ?? 'on';
+    }
+    return fields;
   }
 
   Element? _codeInput(Element form) {
@@ -647,7 +767,8 @@ class NarouAuthService {
       final codeFieldPattern = RegExp(
         '(^|[^a-z0-9])'
         '(otp|auth[_-]?code|mfa[_-]?code|verification[_-]?code|'
-        'security[_-]?code|confirmation[_-]?code)'
+        'security[_-]?code|confirmation[_-]?code|totp[_-]?code|'
+        'email[_-]?code)'
         '([^a-z0-9]|(?![a-z0-9]))',
       );
       final hasCodeMarker =
@@ -711,6 +832,8 @@ class _PendingNarouMfa {
     required this.hiddenFields,
     required this.cookies,
     required this.narouid,
+    this.usedEmail = false,
+    this.rememberSession = true,
   });
 
   final Uri action;
@@ -719,28 +842,34 @@ class _PendingNarouMfa {
   final Map<String, String> hiddenFields;
   final Map<String, String> cookies;
   final String narouid;
+  final bool usedEmail;
+  final bool rememberSession;
 }
 
 /// ログイン処理の結果を表すクラス。
 class NarouLoginResult {
   /// ログイン成功。
-  const NarouLoginResult.success({required this.username})
-    : isSuccess = true,
-      requiresMfa = false,
-      error = null;
+  const NarouLoginResult.success({
+    required this.username,
+    this.shouldSuggestAuthenticatorApp = false,
+  }) : isSuccess = true,
+       requiresMfa = false,
+       error = null;
 
   /// 二段階認証コードの入力待ち。
   const NarouLoginResult.mfaRequired()
     : isSuccess = false,
       requiresMfa = true,
       username = null,
+      shouldSuggestAuthenticatorApp = false,
       error = null;
 
   /// ログイン失敗。
   const NarouLoginResult.failure(String this.error)
     : isSuccess = false,
       requiresMfa = false,
-      username = null;
+      username = null,
+      shouldSuggestAuthenticatorApp = false;
 
   /// 成功したか否か。
   final bool isSuccess;
@@ -750,6 +879,9 @@ class NarouLoginResult {
 
   /// ログイン成功時のユーザー名。
   final String? username;
+
+  /// メール認証でログインし、認証アプリの設定案内を表示する必要があるか。
+  final bool shouldSuggestAuthenticatorApp;
 
   /// ログイン失敗時のエラーメッセージ。
   final String? error;

@@ -168,7 +168,8 @@ void main() {
   });
 
   test('通信例外内の資格情報とCookie値を画面・ログへ出さない', () async {
-    final repository = _MemorySessionRepository();
+    final repository = _MemorySessionRepository()
+      ..savedCookies = {'session': 'existing-session'};
     final adapter = _RecordingAdapter((options) {
       if (options.method == 'GET') {
         return _html(
@@ -204,10 +205,43 @@ void main() {
       expect(result.error, isNot(contains('secret-cookie')));
       expect(logs.join('\n'), isNot(contains('secret-password')));
       expect(logs.join('\n'), isNot(contains('secret-cookie')));
-      expect(repository.savedCookies, isEmpty);
+      expect(repository.savedCookies, {'session': 'existing-session'});
     } finally {
       debugPrint = originalDebugPrint;
     }
+  });
+
+  test('明示的な資格情報エラーでは古いフォーム認証セッションを削除する', () async {
+    final repository = _MemorySessionRepository()
+      ..savedCookies = {'session': 'previous-session'};
+    final adapter = _RecordingAdapter((options) {
+      if (options.method == 'GET') {
+        return _html(
+          '<form action="/login"> '
+          '<input type="hidden" name="csrf" value="csrf-value"> '
+          '<input name="account"><input name="password"></form>',
+          200,
+        );
+      }
+      return _html(
+        '<form action="/login"> '
+        '<input name="account"><input name="password"></form> '
+        '<p class="alert-danger">メールアドレスまたはパスワードが正しくありません</p>',
+        200,
+      );
+    });
+    final service = _service(
+      dio: Dio()..httpClientAdapter = adapter,
+      repository: repository,
+    );
+
+    final result = await service.login(
+      accountId: 'new-reader',
+      password: 'wrong-password',
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(repository.savedCookies, isEmpty);
   });
 
   test('同一originの認証redirectだけを受け入れ、URLのコードをログに出さない', () async {

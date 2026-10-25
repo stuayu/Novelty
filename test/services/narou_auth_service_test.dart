@@ -258,39 +258,172 @@ class _MfaLoginAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+class _TwoStepMfaAdapter implements HttpClientAdapter {
+  _TwoStepMfaAdapter({this.emailOnly = false});
+
+  final bool emailOnly;
+  final List<RequestOptions> requests = <RequestOptions>[];
+
+  static const _challengeId = 'test-challenge';
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add(options);
+    final path = options.uri.path;
+    if (options.method == 'POST' && path == '/login/login/') {
+      return ResponseBody.fromString(
+        '',
+        302,
+        headers: <String, List<String>>{
+          'location': ['/user2stepauth/input/authtoken/$_challengeId/'],
+          'set-cookie': ['challenge=fake; Path=/; Secure'],
+        },
+      );
+    }
+    if (options.method == 'POST' &&
+        (path.startsWith('/user2stepauth/totpauth/') ||
+            path.startsWith('/user2stepauth/emailauth/'))) {
+      return ResponseBody.fromString(
+        '',
+        302,
+        headers: <String, List<String>>{
+          'location': ['/login/user2stepauthend/'],
+          'set-cookie': <String>[
+            'ks2=ks2-value; Path=/; Secure',
+            'ses=ses-value; Path=/; HttpOnly; Secure',
+            'userl=userl-value; Path=/; HttpOnly; Secure',
+          ],
+        },
+      );
+    }
+    if (options.method == 'POST' &&
+        path.startsWith('/user2stepauth/sendemail/')) {
+      return ResponseBody.fromString(
+        '',
+        302,
+        headers: <String, List<String>>{
+          'location': [
+            '/user2stepauth/emailinput/authtoken/$_challengeId/',
+          ],
+        },
+      );
+    }
+    if (options.method == 'GET' && path == '/login/input/') {
+      return ResponseBody.fromString(
+        '<form action="/login/login/"> '
+        '<input name="narouid"><input name="pass"> '
+        '<label><input type="checkbox" name="auto_login" value="1"> '
+        '次回から自動的にログイン</label></form>',
+        200,
+      );
+    }
+    if (options.method == 'GET' &&
+        path == '/user2stepauth/input/authtoken/$_challengeId/') {
+      final totpLink = emailOnly
+          ? ''
+          : '<a href="/user2stepauth/totpinput/authtoken/$_challengeId/"> '
+                '認証アプリ</a>';
+      return ResponseBody.fromString(
+        '<form method="post" '
+        'action="/user2stepauth/sendemail/authtoken/$_challengeId/"> '
+        '<input type="radio" name="email_type" value="primary"> '
+        '</form>$totpLink',
+        200,
+      );
+    }
+    if (options.method == 'GET' &&
+        path == '/user2stepauth/totpinput/authtoken/$_challengeId/') {
+      return ResponseBody.fromString(
+        '<h2>二段階認証</h2><form '
+        'action="/user2stepauth/totpauth/authtoken/$_challengeId/"> '
+        '<input type="text" name="totp_code" '
+        'autocomplete="one-time-code"></form>',
+        200,
+      );
+    }
+    if (options.method == 'GET' &&
+        path == '/user2stepauth/emailinput/authtoken/$_challengeId/') {
+      return ResponseBody.fromString(
+        '<h2>メール認証コード</h2><form '
+        'action="/user2stepauth/emailauth/authtoken/$_challengeId/"> '
+        '<input type="text" name="email_code" '
+        'autocomplete="one-time-code"></form>',
+        200,
+      );
+    }
+    if (options.method == 'GET' && path == '/login/user2stepauthend/') {
+      return ResponseBody.fromString(
+        '',
+        302,
+        headers: <String, List<String>>{
+          'location': ['/user/top/'],
+        },
+      );
+    }
+    if (options.method == 'GET' && path == '/user/top/') {
+      return ResponseBody.fromString(
+        '<span class="p-up-header-pc__username">テスト利用者</span>',
+        200,
+      );
+    }
+    if (options.method == 'GET' && path == '/favnovelmain/list/') {
+      return ResponseBody.fromString(
+        '<span class="p-up-header-pc__username">テスト利用者</span>',
+        200,
+      );
+    }
+    return ResponseBody.fromString('', 404);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _RotatingSessionAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString(
+    '<span class="p-up-header-pc__username">テスト利用者</span> '
+    '<div>ブックマーク一覧</div>',
+    200,
+    headers: <String, List<String>>{
+      'set-cookie': <String>[
+        'ks2=ks2-rotated; Path=/; Secure',
+        'ses=ses-rotated; Path=/; HttpOnly; Secure',
+        'userl=userl-rotated; Path=/; HttpOnly; Secure',
+      ],
+    },
+  );
+
+  @override
+  void close({bool force = false}) {}
+}
+
 class _OrderedAuthRepository extends AuthRepository {
   final events = <String>[];
-  final narouidStarted = Completer<void>();
-  final usernameStarted = Completer<void>();
-  final cookiesStarted = Completer<void>();
-  final allowNarouid = Completer<void>();
-  final allowUsername = Completer<void>();
-  final allowCookies = Completer<void>();
+  final sessionStarted = Completer<void>();
+  final allowSession = Completer<void>();
   int clearCount = 0;
 
   @override
-  Future<void> saveNarouid(String narouid) async {
-    events.add('narouid');
-    narouidStarted.complete();
-    await allowNarouid.future;
-  }
-
-  @override
-  Future<void> saveUsername(String username) async {
-    events.add('username');
-    usernameStarted.complete();
-    await allowUsername.future;
-  }
-
-  @override
-  Future<void> saveSessionCookies({
+  Future<void> saveSession({
+    required String narouid,
+    required String username,
     required String ks2,
     required String ses,
     required String userl,
+    required bool rememberSession,
   }) async {
-    events.add('cookies');
-    cookiesStarted.complete();
-    await allowCookies.future;
+    events.add('session');
+    sessionStarted.complete();
+    await allowSession.future;
   }
 
   @override
@@ -300,9 +433,7 @@ class _OrderedAuthRepository extends AuthRepository {
   }
 
   void releaseAll() {
-    if (!allowNarouid.isCompleted) allowNarouid.complete();
-    if (!allowUsername.isCompleted) allowUsername.complete();
-    if (!allowCookies.isCompleted) allowCookies.complete();
+    if (!allowSession.isCompleted) allowSession.complete();
   }
 }
 
@@ -328,7 +459,37 @@ void main() {
       });
     });
 
-    test('認証情報は前の保存完了後に次の保存を開始する', () async {
+    test('有効確認中に更新されたセッションCookieをKeyChainへ保存する', () async {
+      when(
+        mockAuthRepository.buildCookieHeader(),
+      ).thenAnswer((_) async => 'ks2=old; ses=old; userl=old');
+      when(mockAuthRepository.getSessionCookies()).thenAnswer(
+        (_) async => <String, String>{
+          'ks2': 'ks2-old',
+          'ses': 'ses-old',
+          'userl': 'userl-old',
+        },
+      );
+      when(
+        mockAuthRepository.updateSessionCookieHeaders(any),
+      ).thenAnswer((_) async {});
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = _RotatingSessionAdapter(),
+      );
+
+      expect(await service.isSessionValid(), isTrue);
+
+      verify(
+        mockAuthRepository.updateSessionCookieHeaders([
+          'ks2=ks2-rotated; Path=/; Secure',
+          'ses=ses-rotated; Path=/; HttpOnly; Secure',
+          'userl=userl-rotated; Path=/; HttpOnly; Secure',
+        ]),
+      ).called(1);
+    });
+
+    test('認証情報をひとつのセッション保存として記録する', () async {
       final repository = _OrderedAuthRepository();
       final dio = Dio()..httpClientAdapter = _MfaLoginAdapter();
       final service = NarouAuthService(
@@ -344,19 +505,9 @@ void main() {
       final loginFuture = service.verifyMfaCode('123456');
 
       try {
-        await repository.narouidStarted.future;
-        await Future<void>.delayed(Duration.zero);
-        expect(repository.events, <String>['narouid']);
-
-        repository.allowNarouid.complete();
-        await repository.usernameStarted.future;
-        expect(repository.events, <String>['narouid', 'username']);
-
-        repository.allowUsername.complete();
-        await repository.cookiesStarted.future;
-        expect(repository.events, <String>['narouid', 'username', 'cookies']);
-
-        repository.allowCookies.complete();
+        await repository.sessionStarted.future;
+        expect(repository.events, <String>['session']);
+        repository.allowSession.complete();
         expect((await loginFuture).isSuccess, isTrue);
       } finally {
         repository.releaseAll();
@@ -424,6 +575,96 @@ void main() {
       );
     });
 
+    test('実ログ形式の選択画面からTOTP入力へ進みコードを同一originへ送る', () async {
+      final adapter = _TwoStepMfaAdapter();
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'secret-password',
+      );
+
+      expect(firstStep.requiresMfa, isTrue);
+      expect(
+        adapter.requests.map((request) => request.uri.path),
+        contains('/user2stepauth/totpinput/authtoken/test-challenge/'),
+      );
+      final loginPost = adapter.requests.firstWhere(
+        (request) => request.method == 'POST',
+      );
+      expect(loginPost.data, containsPair('auto_login', '1'));
+
+      final result = await service.verifyMfaCode('654321');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.shouldSuggestAuthenticatorApp, isFalse);
+      final totpPost = adapter.requests.firstWhere(
+        (request) => request.uri.path.startsWith('/user2stepauth/totpauth/'),
+      );
+      expect(totpPost.data, containsPair('totp_code', '654321'));
+      expect(totpPost.uri.host, 'syosetu.com');
+      verify(
+        mockAuthRepository.saveSession(
+          narouid: 'reader-id',
+          username: 'テスト利用者',
+          ks2: 'ks2-value',
+          ses: 'ses-value',
+          userl: 'userl-value',
+          rememberSession: true,
+        ),
+      ).called(1);
+    });
+
+    test('TOTP未設定の選択画面ではメールを要求しメールコードを送信できる', () async {
+      final adapter = _TwoStepMfaAdapter(emailOnly: true);
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'secret-password',
+        rememberSession: false,
+      );
+
+      expect(firstStep.requiresMfa, isTrue);
+      final loginPost = adapter.requests.firstWhere(
+        (request) => request.method == 'POST',
+      );
+      expect(loginPost.data, isNot(contains('auto_login')));
+      expect(
+        adapter.requests.map((request) => request.uri.path),
+        contains('/user2stepauth/emailinput/authtoken/test-challenge/'),
+      );
+      expect(
+        adapter.requests.map((request) => request.uri.path),
+        isNot(contains('/user2stepauth/totpinput/authtoken/test-challenge/')),
+      );
+
+      final result = await service.verifyMfaCode('123456');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.shouldSuggestAuthenticatorApp, isTrue);
+      verify(
+        mockAuthRepository.saveSession(
+          narouid: 'reader-id',
+          username: 'テスト利用者',
+          ks2: 'ks2-value',
+          ses: 'ses-value',
+          userl: 'userl-value',
+          rememberSession: false,
+        ),
+      ).called(1);
+      final emailPost = adapter.requests.firstWhere(
+        (request) => request.uri.path.startsWith('/user2stepauth/emailauth/'),
+      );
+      expect(emailPost.data, containsPair('email_code', '123456'));
+    });
+
     test('確認コードを同一originのchallenge formへ送り成功後だけsessionを保存する', () async {
       final adapter = _MfaLoginAdapter();
       final dio = Dio()..httpClientAdapter = adapter;
@@ -456,14 +697,54 @@ void main() {
         challengeRequest.headers['Cookie'],
         'form_session=form-value; challenge=temporary',
       );
-      verify(mockAuthRepository.saveNarouid('reader-id')).called(1);
       verify(
-        mockAuthRepository.saveSessionCookies(
+        mockAuthRepository.saveSession(
+          narouid: 'reader-id',
+          username: '認証済みユーザー',
           ks2: 'ks2-value',
           ses: 'ses-value',
           userl: 'userl-value',
+          rememberSession: true,
         ),
       ).called(1);
+    });
+
+    test('ログイン状態を維持しない選択ではセッション情報を永続保存しない', () async {
+      final adapter = _MfaLoginAdapter();
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'do-not-log-this-password',
+        rememberSession: false,
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('123456');
+
+      expect(result.isSuccess, isTrue);
+      verify(
+        mockAuthRepository.saveSession(
+          narouid: 'reader-id',
+          username: '認証済みユーザー',
+          ks2: 'ks2-value',
+          ses: 'ses-value',
+          userl: 'userl-value',
+          rememberSession: false,
+        ),
+      ).called(1);
+      verifyNever(mockAuthRepository.saveNarouid(any));
+      verifyNever(mockAuthRepository.saveUsername(any));
+      verifyNever(
+        mockAuthRepository.saveSessionCookies(
+          ks2: anyNamed('ks2'),
+          ses: anyNamed('ses'),
+          userl: anyNamed('userl'),
+        ),
+      );
     });
 
     test('MFA後の最終ページにユーザー名がなくてもブックマークページで確認してログインする', () async {
@@ -491,7 +772,16 @@ void main() {
         adapter.requests.last.headers['Cookie'],
         contains('ks2=ks2-value'),
       );
-      verify(mockAuthRepository.saveNarouid('reader-id')).called(1);
+      verify(
+        mockAuthRepository.saveSession(
+          narouid: 'reader-id',
+          username: '認証済みユーザー',
+          ks2: 'ks2-value',
+          ses: 'ses-value',
+          userl: 'userl-value',
+          rememberSession: true,
+        ),
+      ).called(1);
     });
 
     test('MFA後のユーザー名がなくても有効なブックマークページがあればログインIDを表示名に使う', () async {
@@ -514,7 +804,16 @@ void main() {
 
       expect(result.isSuccess, isTrue);
       expect(result.username, 'reader-id');
-      verify(mockAuthRepository.saveUsername('reader-id')).called(1);
+      verify(
+        mockAuthRepository.saveSession(
+          narouid: 'reader-id',
+          username: 'reader-id',
+          ks2: 'ks2-value',
+          ses: 'ses-value',
+          userl: 'userl-value',
+          rememberSession: true,
+        ),
+      ).called(1);
     });
 
     test('MFA後に認証済みブックマークページを確認できなければログインしない', () async {
@@ -689,7 +988,7 @@ void main() {
       expect(firstStep.requiresMfa, isTrue);
 
       final verification = service.verifyMfaCode('123456');
-      await repository.narouidStarted.future;
+      await repository.sessionStarted.future;
       final logout = service.logout();
       repository.releaseAll();
 

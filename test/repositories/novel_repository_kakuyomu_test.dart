@@ -70,10 +70,12 @@ void main() {
       mockApiService = MockApiService();
       final adapter = _FixtureAdapter(<String, String>{
         '/works/$_workId': _fixture('work_page.html'),
-        '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar':
-            _fixture('toc.html'),
-        '/works/$_workId/episodes/$_firstEpisodeId':
-            _fixture('episode_page.html'),
+        '/works/$_workId/episodes/$_firstEpisodeId/episode_sidebar': _fixture(
+          'toc.html',
+        ),
+        '/works/$_workId/episodes/$_firstEpisodeId': _fixture(
+          'episode_page.html',
+        ),
       });
       kakuyomuSite = KakuyomuSite(
         dio: Dio()..httpClientAdapter = adapter,

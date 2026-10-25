@@ -32,6 +32,29 @@ class MockAuthRepository extends _i1.Mock implements _i2.AuthRepository {
   }
 
   @override
+  _i3.Future<void> saveSession({
+    required String? narouid,
+    required String? username,
+    required String? ks2,
+    required String? ses,
+    required String? userl,
+    required bool? rememberSession,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#saveSession, [], {
+              #narouid: narouid,
+              #username: username,
+              #ks2: ks2,
+              #ses: ses,
+              #userl: userl,
+              #rememberSession: rememberSession,
+            }),
+            returnValue: _i3.Future<void>.value(),
+            returnValueForMissingStub: _i3.Future<void>.value(),
+          )
+          as _i3.Future<void>);
+
+  @override
   _i3.Future<void> saveNarouid(String? narouid) =>
       (super.noSuchMethod(
             Invocation.method(#saveNarouid, [narouid]),
@@ -66,6 +89,27 @@ class MockAuthRepository extends _i1.Mock implements _i2.AuthRepository {
           as _i3.Future<String?>);
 
   @override
+  _i3.Future<void> saveVolatileSession({
+    required String? narouid,
+    required String? username,
+    required String? ks2,
+    required String? ses,
+    required String? userl,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#saveVolatileSession, [], {
+              #narouid: narouid,
+              #username: username,
+              #ks2: ks2,
+              #ses: ses,
+              #userl: userl,
+            }),
+            returnValue: _i3.Future<void>.value(),
+            returnValueForMissingStub: _i3.Future<void>.value(),
+          )
+          as _i3.Future<void>);
+
+  @override
   _i3.Future<void> saveSessionCookies({
     required String? ks2,
     required String? ses,
@@ -97,6 +141,15 @@ class MockAuthRepository extends _i1.Mock implements _i2.AuthRepository {
             returnValue: _i3.Future<bool>.value(false),
           )
           as _i3.Future<bool>);
+
+  @override
+  _i3.Future<void> updateSessionCookieHeaders(List<String>? headers) =>
+      (super.noSuchMethod(
+            Invocation.method(#updateSessionCookieHeaders, [headers]),
+            returnValue: _i3.Future<void>.value(),
+            returnValueForMissingStub: _i3.Future<void>.value(),
+          )
+          as _i3.Future<void>);
 
   @override
   _i3.Future<void> clearAll() =>

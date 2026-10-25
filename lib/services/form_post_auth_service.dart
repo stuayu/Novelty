@@ -152,6 +152,9 @@ class FormPostAuthService {
       );
 
       if (!_indicatesLoginSuccess(postResponse, postCookies)) {
+        if (_isExplicitCredentialRejection(postResponse)) {
+          await _sessionRepository.clearAll();
+        }
         return const FormAuthLoginResult.failure('ログインに失敗しました。入力内容を確認してください');
       }
 
@@ -275,6 +278,32 @@ class FormPostAuthService {
       return result;
     }
     return body.isNotEmpty;
+  }
+
+  bool _isExplicitCredentialRejection(Response<String> response) {
+    final body = response.data;
+    if (body == null || body.isEmpty) return false;
+    final document = html_parser.parse(body);
+    if (!_containsLoginForm(document)) return false;
+
+    final text = document.body?.text.toLowerCase() ?? '';
+    const credentialTerms = <String>[
+      'id',
+      'メールアドレス',
+      'ユーザー名',
+      'アカウント',
+      'パスワード',
+      'password',
+    ];
+    const rejectionTerms = <String>[
+      '正しくありません',
+      '間違',
+      '違います',
+      '無効',
+      '失敗',
+    ];
+    return credentialTerms.any(text.contains) &&
+        rejectionTerms.any(text.contains);
   }
 
   bool _containsLoginForm(Document document) {

@@ -68,6 +68,38 @@ void main() {
         verifyNever(mockDatabase.addToLibrary(any, any));
       });
 
+      test('なろうへの同期応答で更新されたセッションCookieを保存する', () async {
+        final fakeAdapter = _FakeHttpClientAdapter(
+          (_) => ResponseBody.fromString(
+            '<html></html>',
+            200,
+            headers: <String, List<String>>{
+              'set-cookie': ['ks2=rotated; Path=/; Secure'],
+            },
+          ),
+        );
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=old; ses=session; userl=user');
+        when(
+          mockAuthRepository.updateSessionCookieHeaders(any),
+        ).thenAnswer((_) async {});
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        expect(await service.syncBookmarksFromNarou(), isEmpty);
+
+        verify(
+          mockAuthRepository.updateSessionCookieHeaders([
+            'ks2=rotated; Path=/; Secure',
+          ]),
+        ).called(1);
+      });
+
       test('ブックマーク一覧を解析しライブラリに追加・同期済みにする', () async {
         const listPageHtml = '''
 <li class="p-up-bookmark-item">

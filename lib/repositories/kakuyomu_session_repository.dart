@@ -16,7 +16,8 @@ final kakuyomuSessionRepositoryProvider = Provider<KakuyomuSessionRepository>(
 class KakuyomuSessionRepository {
   /// コンストラクタ。
   KakuyomuSessionRepository({FlutterSecureStorage? storage})
-    : _storage = storage ??
+    : _storage =
+          storage ??
           const FlutterSecureStorage(
             aOptions: AndroidOptions(encryptedSharedPreferences: true),
           );

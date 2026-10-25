@@ -6,6 +6,7 @@ import 'package:mockito/mockito.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/screens/history_page.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/font_family.dart';
 
 @GenerateMocks([AppDatabase])
 import 'history_page_visual_test.mocks.dart';
@@ -135,6 +136,7 @@ void main() {
             title: 'Novelty - History Test',
             theme: ThemeData(
               colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+              fontFamily: appUiFontFamily,
               useMaterial3: true,
             ),
             home: Scaffold(

@@ -36,7 +36,7 @@ run = "flutter run"
 
 [tasks.check]
 description = "コードの静的解析とフォーマットをチェックします"
-run = "dart analyze && dart format --dry-run ."
+run = "dart analyze && dart format --output=none --set-exit-if-changed ."
 
 [tasks.build]
 description = "iOS と Android（リリース用APK分割とApp Bundle）をビルドします"

@@ -39,7 +39,7 @@ final class NovelSiteRegistryProvider
         argument: null,
         retry: null,
         name: r'novelSiteRegistryProvider',
-        isAutoDispose: true,
+        isAutoDispose: false,
         dependencies: null,
         $allTransitiveDependencies: null,
       );
@@ -67,4 +67,4 @@ final class NovelSiteRegistryProvider
   }
 }
 
-String _$novelSiteRegistryHash() => r'982e9ba55a65ce6033abc34e7d53e00ed45aa865';
+String _$novelSiteRegistryHash() => r'1a87b43b0448f357759f091f90a71dbc5dc429f5';

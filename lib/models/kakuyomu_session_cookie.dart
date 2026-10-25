@@ -51,8 +51,7 @@ class KakuyomuSessionCookie {
   /// カクヨム本体へ送信してよい Cookie かどうか。
   bool get belongsToKakuyomu {
     final normalized = domain.toLowerCase().replaceFirst(RegExp(r'^\.'), '');
-    return normalized == 'kakuyomu.jp' ||
-        normalized.endsWith('.kakuyomu.jp');
+    return normalized == 'kakuyomu.jp' || normalized.endsWith('.kakuyomu.jp');
   }
 
   /// 現在時刻時点で有効期限切れかどうか。

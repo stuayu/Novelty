@@ -74,7 +74,8 @@ void main() {
           return KakuyomuRemoteReadingStateHttpResponse(
             statusCode: 200,
             realUri: url,
-            body: '''
+            body:
+                '''
               <html><body>
                 <script id="__NEXT_DATA__" type="application/json">
                   {
@@ -125,7 +126,8 @@ void main() {
           return KakuyomuRemoteReadingStateHttpResponse(
             statusCode: 200,
             realUri: url,
-            body: '''
+            body:
+                '''
               <script id="__NEXT_DATA__" type="application/json">
                 {
                   "props": {

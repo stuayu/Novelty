@@ -31,6 +31,7 @@ class NarouLogin extends _$NarouLogin {
   Future<NarouLoginResult> login({
     required String narouid,
     required String password,
+    bool rememberSession = true,
   }) async {
     state = const AsyncValue.loading();
     final authService = ref.read(narouAuthServiceProvider);
@@ -38,6 +39,7 @@ class NarouLogin extends _$NarouLogin {
       final result = await authService.login(
         narouid: narouid,
         password: password,
+        rememberSession: rememberSession,
       );
 
       if (result.isSuccess) {

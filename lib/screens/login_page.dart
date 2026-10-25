@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/services/narou_auth_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// なろうアカウントのログイン画面。
 class LoginPage extends ConsumerStatefulWidget {
@@ -23,6 +24,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _awaitingMfa = false;
+  bool _rememberSession = true;
   late final void Function() _cancelMfaChallenge;
 
   @override
@@ -56,6 +58,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           : await login.login(
               narouid: _narouidController.text.trim(),
               password: _passwordController.text,
+              rememberSession: _rememberSession,
             );
     } on Object {
       result = const NarouLoginResult.failure('ログイン処理に失敗しました');
@@ -77,18 +80,35 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     }
 
     if (result.isSuccess) {
+      final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
-          content: Text('${result.username} でログインしました'),
-          backgroundColor: Colors.green,
+          content: Text(
+            result.shouldSuggestAuthenticatorApp
+                ? '${result.username} でログインしました。次回に備えて認証アプリの設定をおすすめします。'
+                : '${result.username} でログインしました',
+          ),
+          duration: result.shouldSuggestAuthenticatorApp
+              ? const Duration(seconds: 12)
+              : const Duration(seconds: 4),
+          action: result.shouldSuggestAuthenticatorApp
+              ? SnackBarAction(
+                  label: 'TOTPを設定',
+                  onPressed: () => unawaited(_openAuthenticatorSettings()),
+                )
+              : null,
         ),
       );
     } else {
+      final colorScheme = Theme.of(context).colorScheme;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result.error ?? 'ログインに失敗しました'),
-          backgroundColor: Colors.red,
+          content: Text(
+            result.error ?? 'ログインに失敗しました',
+            style: TextStyle(color: colorScheme.onErrorContainer),
+          ),
+          backgroundColor: colorScheme.errorContainer,
         ),
       );
     }
@@ -102,9 +122,28 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     });
   }
 
+  Future<void> _openAuthenticatorSettings() async {
+    try {
+      final opened = await launchUrl(
+        Uri.parse('https://syosetu.com/personaluser2stepauth/top/'),
+        mode: LaunchMode.externalApplication,
+      );
+      if (opened || !mounted) return;
+    } on Exception {
+      if (!mounted) return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('認証アプリの設定ページを開けませんでした')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(narouLoginProvider);
+    final sessionStorageNotice = _rememberSession
+        ? 'ログインIDとセッション情報はSecure Storageに保存されます。'
+        : 'ログインIDとセッション情報はアプリを閉じるまで保持し、終了時に破棄します。';
     return Scaffold(
       appBar: AppBar(title: const Text('なろうアカウント ログイン')),
       body: SafeArea(
@@ -204,6 +243,19 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       return null;
                     },
                   ),
+                  CheckboxListTile(
+                    key: const Key('narou-remember-session'),
+                    contentPadding: EdgeInsets.zero,
+                    value: _rememberSession,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: const Text('この端末でログイン状態を維持'),
+                    subtitle: const Text('共有端末では選択を外してください'),
+                    onChanged: _isLoading
+                        ? null
+                        : (value) => setState(
+                            () => _rememberSession = value ?? false,
+                          ),
+                  ),
                 ],
                 const SizedBox(height: 32),
                 FilledButton(
@@ -225,10 +277,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 ],
                 const SizedBox(height: 16),
                 Text(
-                  [
-                    'ログインIDとセッション情報はデバイスのSecure Storageに保存されます。',
-                    'パスワードと確認コードは保存しません。',
-                  ].join('\n'),
+                  '$sessionStorageNotice\nパスワードと確認コードは保存しません。',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),

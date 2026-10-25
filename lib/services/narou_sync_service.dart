@@ -51,6 +51,35 @@ class NarouSessionExpiredException implements Exception {
   String toString() => 'NarouSessionExpiredException';
 }
 
+class _NarouSessionCookieInterceptor extends Interceptor {
+  _NarouSessionCookieInterceptor(this._authRepository);
+
+  final AuthRepository _authRepository;
+
+  @override
+  Future<void> onResponse(
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) async {
+    final request = response.requestOptions;
+    final isFirstPartySessionRequest =
+        request.uri.scheme == 'https' &&
+        request.uri.host == 'syosetu.com' &&
+        request.uri.port == 443 &&
+        request.headers.keys.any((key) => key.toLowerCase() == 'cookie');
+    if (isFirstPartySessionRequest) {
+      try {
+        await _authRepository.updateSessionCookieHeaders(
+          response.headers.map['set-cookie'],
+        );
+      } on Exception catch (error) {
+        debugPrint('[NarouSync] Cookie更新保存失敗 type=${error.runtimeType}');
+      }
+    }
+    handler.next(response);
+  }
+}
+
 /// [NarouSyncService.addBookmarkToNarou]の結果。
 ///
 /// [outcome]が[NarouBookmarkSyncOutcome.success]の場合、
@@ -105,7 +134,9 @@ class NarouSyncService {
            dio ??
            createNoveltyDio(
              rateLimiter: rateLimiter,
-           );
+           ) {
+    _dio.interceptors.add(_NarouSessionCookieInterceptor(authRepository));
+  }
 
   /// 認証情報リポジトリ。
   final AuthRepository authRepository;
@@ -431,6 +462,7 @@ class NarouSyncService {
             'Cookie': cookieHeader,
             'Referer': novelUrl,
           },
+          extra: const {'noveltyRetrySafe': false},
           followRedirects: false,
           responseType: ResponseType.plain,
           validateStatus: (status) =>
@@ -482,6 +514,7 @@ class NarouSyncService {
               'Cookie': cookieHeader,
               'Referer': novelUrl,
             },
+            extra: const {'noveltyRetrySafe': false},
             followRedirects: false,
           ),
         );
@@ -725,6 +758,9 @@ class NarouSyncService {
           'Cookie': cookieHeader,
           'Referer': referer,
         },
+        extra: {
+          'noveltyRetrySafe': !extraQuery.containsKey('token'),
+        },
         followRedirects: false,
         responseType: ResponseType.plain,
         validateStatus: (status) =>
@@ -881,6 +917,7 @@ class NarouSyncService {
             'Cookie': cookieHeader,
             'Referer': episodeUrl,
           },
+          extra: const {'noveltyRetrySafe': false},
           followRedirects: false,
           responseType: ResponseType.plain,
           validateStatus: (status) =>

@@ -93,9 +93,7 @@ class AlphapolisAccountSyncAdapter extends FormAccountSyncAdapter {
 
   /// お気に入り一覧の指定ページを取得する。
   Future<String> _fetchPage(int page, String cookieHeader) async {
-    final url = page == 1
-        ? _favoriteNovelUrl
-        : '$_favoriteNovelUrl?page=$page';
+    final url = page == 1 ? _favoriteNovelUrl : '$_favoriteNovelUrl?page=$page';
 
     final response = await _dio.get<String>(
       url,

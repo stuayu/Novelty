@@ -85,6 +85,33 @@ void main() {
     });
   });
 
+  test('サーバーから指定された休止時間中は新しいリクエストを許可しない', () {
+    fakeAsync((async) {
+      final permittedAt = <Duration>[];
+      final limiter = RequestRateLimiter(
+        interval: Duration.zero,
+        now: () => async.elapsed,
+      );
+
+      unawaited(limiter.wait().then((_) => permittedAt.add(async.elapsed)));
+      async.flushMicrotasks();
+      expect(permittedAt, <Duration>[Duration.zero]);
+
+      limiter.pauseFor(const Duration(milliseconds: 500));
+      unawaited(limiter.wait().then((_) => permittedAt.add(async.elapsed)));
+      async.flushMicrotasks();
+      expect(permittedAt, <Duration>[Duration.zero]);
+
+      async.elapse(const Duration(milliseconds: 499));
+      expect(permittedAt, <Duration>[Duration.zero]);
+      async.elapse(const Duration(milliseconds: 1));
+      expect(
+        permittedAt,
+        <Duration>[Duration.zero, const Duration(milliseconds: 500)],
+      );
+    });
+  });
+
   test('同じProviderContainerではサイトごとに単一インスタンスを共有する', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);

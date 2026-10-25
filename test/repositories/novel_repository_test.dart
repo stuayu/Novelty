@@ -24,7 +24,6 @@ import '../providers/novel_info_offline_test.mocks.dart';
 import 'novel_repository_test.mocks.dart';
 
 @GenerateNiceMocks([MockSpec<AccountSyncAdapter>()])
-
 /// メタデータ再取得のテスト用に fetchNovelInfo だけを持つサイト実装。
 class _FakeMetadataSite extends NovelSite {
   _FakeMetadataSite(this.source, this._responses);
@@ -919,8 +918,7 @@ void main() {
           apiServiceProvider.overrideWithValue(mockApiService),
           settingsProvider.overrideWith(FakeSettings.new),
           isOfflineModeProvider.overrideWithValue(false),
-          if (sites != null)
-            novelSiteRegistryProvider.overrideWithValue(sites),
+          if (sites != null) novelSiteRegistryProvider.overrideWithValue(sites),
         ],
       );
     }

@@ -12,6 +12,7 @@ class _MfaAuthService extends NarouAuthService {
 
   String? submittedCode;
   bool loginCalled = false;
+  bool? rememberSession;
   bool challengeCancelled = false;
   bool delayLogin = false;
   final loginStarted = Completer<void>();
@@ -24,8 +25,10 @@ class _MfaAuthService extends NarouAuthService {
   Future<NarouLoginResult> login({
     required String narouid,
     required String password,
+    bool rememberSession = true,
   }) async {
     loginCalled = true;
+    this.rememberSession = rememberSession;
     if (delayLogin) {
       loginStarted.complete();
       return loginCompletion.future;
@@ -64,6 +67,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(authService.loginCalled, isTrue);
+    expect(authService.rememberSession, isTrue);
     expect(find.text('二段階認証'), findsOneWidget);
     expect(find.widgetWithText(TextFormField, 'パスワード'), findsNothing);
     final codeTextField = tester.widget<TextField>(
@@ -102,6 +106,43 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('narou-mfa-code')), findsNothing);
+  });
+
+  testWidgets('永続ログインのチェックを外すと短期セッションを指定する', (tester) async {
+    final authService = _MfaAuthService();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          narouAuthServiceProvider.overrideWithValue(authService),
+        ],
+        child: const MaterialApp(home: LoginPage()),
+      ),
+    );
+
+    final rememberCheckbox = find.byKey(const Key('narou-remember-session'));
+    expect(tester.widget<CheckboxListTile>(rememberCheckbox).value, isTrue);
+    expect(
+      find.textContaining('ログインIDとセッション情報はSecure Storageに保存されます。'),
+      findsOneWidget,
+    );
+    await tester.tap(rememberCheckbox);
+    await tester.pump();
+    expect(
+      find.textContaining('ログインIDとセッション情報はアプリを閉じるまで保持し、終了時に破棄します。'),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'ユーザーIDまたはメールアドレス'),
+      'reader@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'パスワード'),
+      'secret-password',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'ログイン'));
+    await tester.pumpAndSettle();
+
+    expect(authService.rememberSession, isFalse);
   });
 
   testWidgets('MFA画面を閉じると保留中チャレンジを破棄する', (tester) async {

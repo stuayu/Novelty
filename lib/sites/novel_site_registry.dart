@@ -28,7 +28,7 @@ final Map<NovelSource, NovelSite> defaultNovelSiteRegistry =
 ///
 /// テスト時は [novelSiteRegistryProvider] をオーバーライドして
 /// カクヨム等のサイト実装を差し替えられるようにする。
-@riverpod
+@Riverpod(keepAlive: true)
 Map<NovelSource, NovelSite> novelSiteRegistry(Ref ref) =>
     <NovelSource, NovelSite>{
       NovelSource.narou: const NarouSite(),

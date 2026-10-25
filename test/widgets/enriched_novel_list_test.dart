@@ -92,19 +92,9 @@ void main() {
   });
 
   Widget createTestWidget(List<EnrichedNovelData> novels) {
-    return ProviderScope(
-      overrides: [
-        appDatabaseProvider.overrideWithValue(mockDb),
-        apiServiceProvider.overrideWithValue(mockApiService),
-        // 実機のsecure storageに触れないようフェイクに差し替える
-        authRepositoryProvider.overrideWithValue(_FakeAuthRepository()),
-        // InvalidateされるProviderたちをダミーでオーバーライド
-        libraryNovelsProvider.overrideWith((ref) => Stream.value([])),
-      ],
-      child: MaterialApp(
-        home: Scaffold(
-          body: EnrichedNovelList(enrichedNovels: novels),
-        ),
+    return MaterialApp(
+      home: Scaffold(
+        body: EnrichedNovelList(enrichedNovels: novels),
       ),
     );
   }
@@ -125,7 +115,21 @@ void main() {
         mockDb.addToLibrary(NovelSource.narou, any),
       ).thenAnswer((_) async => 1);
 
-      await tester.pumpWidget(createTestWidget([testEnrichedNovel]));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appDatabaseProvider.overrideWithValue(mockDb),
+            apiServiceProvider.overrideWithValue(mockApiService),
+            // 実機のsecure storageに触れないようフェイクに差し替える。
+            authRepositoryProvider.overrideWithValue(_FakeAuthRepository()),
+            // InvalidateされるProviderたちをダミーにオーバーライド。
+            libraryNovelsProvider.overrideWith(
+              (ref) => Stream.value([]),
+            ),
+          ],
+          child: createTestWidget([testEnrichedNovel]),
+        ),
+      );
 
       // --- Act ---
       await tester.longPress(find.byType(NovelListTile));

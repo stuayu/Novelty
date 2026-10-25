@@ -56,7 +56,12 @@ Dio createNoveltyDio({
     ),
   );
   if (rateLimiter != null) {
-    attachNoveltyRateLimiter(dio, rateLimiter);
+    attachNoveltyRateLimiter(
+      dio,
+      rateLimiter,
+      retryBaseDelay: retryBaseDelay,
+      now: now,
+    );
   }
   dio.interceptors.add(
     _RetryBackoffInterceptor(
@@ -73,16 +78,32 @@ Dio createNoveltyDio({
 /// 既存のDioへサイト共有レートリミッターを追加する。
 Dio attachNoveltyRateLimiter(
   Dio dio,
-  RequestRateLimiter rateLimiter,
-) {
-  dio.interceptors.add(_RateLimitInterceptor(rateLimiter));
+  RequestRateLimiter rateLimiter, {
+  Duration retryBaseDelay = noveltyRetryBaseDelay,
+  CurrentTime? now,
+}) {
+  dio.interceptors.insert(
+    0,
+    _RateLimitInterceptor(
+      rateLimiter,
+      retryBaseDelay: retryBaseDelay,
+      now: now ?? () => DateTime.now().toUtc(),
+    ),
+  );
   return dio;
 }
 
 class _RateLimitInterceptor extends Interceptor {
-  _RateLimitInterceptor(this._rateLimiter);
+  _RateLimitInterceptor(
+    this._rateLimiter, {
+    required Duration retryBaseDelay,
+    required CurrentTime now,
+  }) : _retryBaseDelay = retryBaseDelay,
+       _now = now;
 
   final RequestRateLimiter _rateLimiter;
+  final Duration _retryBaseDelay;
+  final CurrentTime _now;
 
   @override
   Future<void> onRequest(
@@ -91,6 +112,29 @@ class _RateLimitInterceptor extends Interceptor {
   ) async {
     await _rateLimiter.wait();
     handler.next(options);
+  }
+
+  @override
+  void onResponse(
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) {
+    _pauseFor429(response.statusCode, response.headers);
+    handler.next(response);
+  }
+
+  @override
+  void onError(DioException error, ErrorInterceptorHandler handler) {
+    _pauseFor429(error.response?.statusCode, error.response?.headers);
+    handler.next(error);
+  }
+
+  void _pauseFor429(int? statusCode, Headers? headers) {
+    if (statusCode == 429) {
+      _rateLimiter.pauseFor(
+        _retryAfterDuration(headers, _now) ?? _retryBaseDelay,
+      );
+    }
   }
 }
 
@@ -155,7 +199,12 @@ class _RetryBackoffInterceptor extends Interceptor {
 
   bool _shouldRetry(int? statusCode, RequestOptions options) {
     final retryCount = options.extra[_retryCountKey] as int? ?? 0;
-    return (statusCode == 429 || statusCode == 503) && retryCount < _maxRetries;
+    final retrySafe =
+        options.extra['noveltyRetrySafe'] == true ||
+        (options.method.toUpperCase() == 'GET' &&
+            options.extra['noveltyRetrySafe'] != false);
+    return retrySafe &&
+        (statusCode == 429 || (statusCode == 503 && retryCount < _maxRetries));
   }
 
   Future<Response<dynamic>> _retry(
@@ -163,58 +212,78 @@ class _RetryBackoffInterceptor extends Interceptor {
     Headers? headers,
   ) async {
     final retryCount = options.extra[_retryCountKey] as int? ?? 0;
-    final retryAfter = _retryAfter(headers);
-    await _delay(retryAfter ?? _retryBaseDelay * (1 << retryCount));
+    final retryAfter = _retryAfterDuration(headers, _now);
+    final exponent = retryCount > 5 ? 5 : retryCount;
+    await _delayOrCancel(
+      options,
+      retryAfter ?? _retryBaseDelay * (1 << exponent),
+    );
     options.extra[_retryCountKey] = retryCount + 1;
     return _dio.fetch<dynamic>(options);
   }
 
-  Duration? _retryAfter(Headers? headers) {
-    final value = headers?.value('retry-after');
-    if (value == null) return null;
-
-    final seconds = int.tryParse(value.trim());
-    if (seconds != null) {
-      return seconds < 0 ? null : Duration(seconds: seconds);
+  Future<void> _delayOrCancel(
+    RequestOptions options,
+    Duration duration,
+  ) async {
+    final cancelToken = options.cancelToken;
+    if (cancelToken == null) {
+      await _delay(duration);
+      return;
     }
+    if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+    await Future.any<void>(<Future<void>>[
+      _delay(duration),
+      cancelToken.whenCancel.then<void>((error) => throw error),
+    ]);
+  }
+}
 
-    final retryAt = _parseHttpDate(value.trim());
-    if (retryAt == null) return null;
-    final remaining = retryAt.difference(_now().toUtc());
-    return remaining.isNegative ? Duration.zero : remaining;
+Duration? _retryAfterDuration(Headers? headers, CurrentTime now) {
+  final value = headers?.value('retry-after');
+  if (value == null) return null;
+
+  final seconds = int.tryParse(value.trim());
+  if (seconds != null) {
+    return seconds < 0 ? null : Duration(seconds: seconds);
   }
 
-  DateTime? _parseHttpDate(String value) {
-    final match = RegExp(
-      r'^[A-Za-z]{3}, (\d{2}) ([A-Za-z]{3}) (\d{4}) '
-      r'(\d{2}):(\d{2}):(\d{2}) GMT$',
-    ).firstMatch(value);
-    if (match == null) return null;
+  final retryAt = _parseHttpDate(value.trim());
+  if (retryAt == null) return null;
+  final remaining = retryAt.difference(now().toUtc());
+  return remaining.isNegative ? Duration.zero : remaining;
+}
 
-    const months = <String, int>{
-      'Jan': 1,
-      'Feb': 2,
-      'Mar': 3,
-      'Apr': 4,
-      'May': 5,
-      'Jun': 6,
-      'Jul': 7,
-      'Aug': 8,
-      'Sep': 9,
-      'Oct': 10,
-      'Nov': 11,
-      'Dec': 12,
-    };
-    final month = months[match.group(2)];
-    if (month == null) return null;
+DateTime? _parseHttpDate(String value) {
+  final match = RegExp(
+    r'^[A-Za-z]{3}, (\d{2}) ([A-Za-z]{3}) (\d{4}) '
+    r'(\d{2}):(\d{2}):(\d{2}) GMT$',
+  ).firstMatch(value);
+  if (match == null) return null;
 
-    return DateTime.utc(
-      int.parse(match.group(3)!),
-      month,
-      int.parse(match.group(1)!),
-      int.parse(match.group(4)!),
-      int.parse(match.group(5)!),
-      int.parse(match.group(6)!),
-    );
-  }
+  const months = <String, int>{
+    'Jan': 1,
+    'Feb': 2,
+    'Mar': 3,
+    'Apr': 4,
+    'May': 5,
+    'Jun': 6,
+    'Jul': 7,
+    'Aug': 8,
+    'Sep': 9,
+    'Oct': 10,
+    'Nov': 11,
+    'Dec': 12,
+  };
+  final month = months[match.group(2)];
+  if (month == null) return null;
+
+  return DateTime.utc(
+    int.parse(match.group(3)!),
+    month,
+    int.parse(match.group(1)!),
+    int.parse(match.group(4)!),
+    int.parse(match.group(5)!),
+    int.parse(match.group(6)!),
+  );
 }

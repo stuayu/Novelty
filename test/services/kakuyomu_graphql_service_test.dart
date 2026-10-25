@@ -22,7 +22,9 @@ void main() {
           return const KakuyomuGraphqlResponse(
             statusCode: 200,
             body: <String, Object?>{
-              'data': <String, Object?>{'work': <String, Object?>{'id': '1'}},
+              'data': <String, Object?>{
+                'work': <String, Object?>{'id': '1'},
+              },
             },
           );
         },
