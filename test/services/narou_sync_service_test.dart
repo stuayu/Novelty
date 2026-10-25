@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
@@ -13,6 +15,124 @@ import 'package:novelty/sites/narou/narou_account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
 
 import 'narou_sync_service_test.mocks.dart';
+
+class _TestAppDatabase extends MockAppDatabase {
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function()? action, {
+    bool? requireNew = false,
+  }) async => action!();
+}
+
+class _TestAuthRepository extends MockAuthRepository {
+  @override
+  Future<bool> runIfSessionSnapshotMatches(
+    AuthSessionSnapshot snapshot,
+    Future<void> Function() operation,
+  ) async {
+    final current = await getSessionSnapshot();
+    if (current == null ||
+        current.generation != snapshot.generation ||
+        current.narouid != snapshot.narouid) {
+      return false;
+    }
+    await operation();
+    return true;
+  }
+}
+
+class _MemorySecureStorage extends FlutterSecureStorage {
+  final values = <String, String>{};
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (value == null) {
+      values.remove(key);
+    } else {
+      values[key] = value;
+    }
+  }
+
+  @override
+  Future<String?> read({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async => values[key];
+
+  @override
+  Future<void> delete({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    values.remove(key);
+  }
+}
+
+class _DelayedSetCookieAdapter implements HttpClientAdapter {
+  final requestStarted = Completer<void>();
+  final releaseResponse = Completer<void>();
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requestStarted.complete();
+    await releaseResponse.future;
+    return ResponseBody.fromString(
+      '<html></html>',
+      200,
+      headers: <String, List<String>>{
+        'set-cookie': ['ses=old-session-rotated; Path=/; Secure'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _DelayedBookmarkPageAdapter implements HttpClientAdapter {
+  _DelayedBookmarkPageAdapter(this.body);
+
+  final String body;
+  final requestStarted = Completer<void>();
+  final releaseResponse = Completer<void>();
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requestStarted.complete();
+    await releaseResponse.future;
+    return ResponseBody.fromString(body, 200);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
 
 /// テスト用のフェイクHTTPアダプタ。
 ///
@@ -41,15 +161,27 @@ class _FakeHttpClientAdapter implements HttpClientAdapter {
 @GenerateMocks([AuthRepository, AppDatabase, ApiService])
 void main() {
   group('NarouSyncService', () {
-    late MockAuthRepository mockAuthRepository;
+    late _TestAuthRepository mockAuthRepository;
     late MockAppDatabase mockDatabase;
     late MockApiService mockApiService;
     late NarouSyncService syncService;
 
     setUp(() {
-      mockAuthRepository = MockAuthRepository();
-      mockDatabase = MockAppDatabase();
+      mockAuthRepository = _TestAuthRepository();
+      mockDatabase = _TestAppDatabase();
       mockApiService = MockApiService();
+      when(
+        mockAuthRepository.getSessionSnapshot(),
+      ).thenAnswer((_) async {
+        final cookieHeader = await mockAuthRepository.buildCookieHeader();
+        if (cookieHeader == null) return null;
+        return AuthSessionSnapshot(
+          narouid: 'test-reader',
+          username: 'テスト読者',
+          cookieHeader: cookieHeader,
+          generation: 1,
+        );
+      });
       syncService = NarouSyncService(
         authRepository: mockAuthRepository,
         db: mockDatabase,
@@ -57,7 +189,371 @@ void main() {
       );
     });
 
+    test('別アカウントへ切り替えた後に届いた旧応答のCookieを適用しない', () async {
+      final repository = AuthRepository(storage: _MemorySecureStorage());
+      await repository.saveSession(
+        narouid: 'old-reader',
+        username: '旧利用者',
+        ks2: 'old-ks2',
+        ses: 'old-ses',
+        userl: 'old-userl',
+        rememberSession: true,
+      );
+      final adapter = _DelayedSetCookieAdapter();
+      final service = NarouSyncService(
+        authRepository: repository,
+        db: mockDatabase,
+        apiService: mockApiService,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final sync = service.syncBookmarksFromNarou();
+      await adapter.requestStarted.future;
+      await repository.saveSession(
+        narouid: 'new-reader',
+        username: '新利用者',
+        ks2: 'new-ks2',
+        ses: 'new-ses',
+        userl: 'new-userl',
+        rememberSession: true,
+      );
+      adapter.releaseResponse.complete();
+      await sync;
+
+      expect(await repository.getNarouid(), 'new-reader');
+      expect(await repository.getSessionCookies(), {
+        'ks2': 'new-ks2',
+        'ses': 'new-ses',
+        'userl': 'new-userl',
+      });
+    });
+
     group('syncBookmarksFromNarou', () {
+      test('同期中に同じセッションのCookieが更新されたら次ページへ反映する', () async {
+        final repository = AuthRepository(storage: _MemorySecureStorage());
+        await repository.saveSession(
+          narouid: 'reader-id',
+          username: '読者',
+          ks2: 'ks2-old',
+          ses: 'ses-old',
+          userl: 'userl-old',
+          rememberSession: true,
+        );
+        final firstPageEntries = List.generate(50, (index) {
+          final ncode = 'n${(index + 1).toString().padLeft(4, '0')}aa';
+          return '<li class="p-up-bookmark-item"><span '
+              'class="p-up-bookmark-item__title"><a '
+              'href="https://ncode.syosetu.com/$ncode/">作品</a></span></li>';
+        }).join();
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          if (options.uri.queryParameters['p'] == '2') {
+            return ResponseBody.fromString('<html></html>', 200);
+          }
+          return ResponseBody.fromString(
+            firstPageEntries,
+            200,
+            headers: <String, List<String>>{
+              'set-cookie': ['ses=ses-rotated; Path=/; Secure'],
+            },
+          );
+        });
+        when(mockDatabase.ensureNovelExists(any, any)).thenAnswer((_) async {});
+        when(mockDatabase.addToLibrary(any, any)).thenAnswer((_) async => 1);
+        when(
+          mockDatabase.markNarouBookmarkSynced(any, any),
+        ).thenAnswer((_) async {});
+        when(
+          mockApiService.fetchMultipleNovelsInfo(any),
+        ).thenAnswer((_) async => {});
+        final service = NarouSyncService(
+          authRepository: repository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        await service.syncBookmarksFromNarou();
+
+        expect(fakeAdapter.requests, hasLength(2));
+        expect(
+          fakeAdapter.requests.map((request) => request.headers['Cookie']),
+          [
+            'ks2=ks2-old; ses=ses-old; userl=userl-old',
+            'ks2=ks2-old; ses=ses-rotated; userl=userl-old',
+          ],
+        );
+      });
+
+      test('同期中にCookieが削除されたら認証切れとして返す', () async {
+        final repository = AuthRepository(storage: _MemorySecureStorage());
+        await repository.saveSession(
+          narouid: 'reader-id',
+          username: '読者',
+          ks2: 'ks2-token',
+          ses: 'ses-token',
+          userl: 'userl-token',
+          rememberSession: true,
+        );
+        final firstPageEntries = List.generate(50, (index) {
+          final ncode = 'n${(index + 1).toString().padLeft(4, '0')}aa';
+          return '<li class="p-up-bookmark-item"><span '
+              'class="p-up-bookmark-item__title"><a '
+              'href="https://ncode.syosetu.com/$ncode/">作品</a></span></li>';
+        }).join();
+        final fakeAdapter = _FakeHttpClientAdapter(
+          (_) => ResponseBody.fromString(
+            firstPageEntries,
+            200,
+            headers: <String, List<String>>{
+              'set-cookie': ['ses=; Max-Age=0; Path=/; Secure'],
+            },
+          ),
+        );
+        final service = NarouSyncService(
+          authRepository: repository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+        final accountAdapter = NarouAccountSyncAdapter(
+          syncService: service,
+          db: mockDatabase,
+          authRepository: repository,
+        );
+
+        await expectLater(
+          accountAdapter.pullLibrary(),
+          throwsA(isA<AccountSessionExpiredException>()),
+        );
+
+        expect(fakeAdapter.requests, hasLength(1));
+        expect(await repository.getSessionSnapshot(), isNull);
+        verifyNever(mockDatabase.addToLibrary(any, any));
+      });
+
+      test('ページ取得中に別アカウントへ切り替わったら次ページを送らない', () async {
+        final repository = AuthRepository(storage: _MemorySecureStorage());
+        await repository.saveSession(
+          narouid: 'old-reader',
+          username: '旧利用者',
+          ks2: 'old-ks2',
+          ses: 'old-ses',
+          userl: 'old-userl',
+          rememberSession: true,
+        );
+        final firstPageEntries = List.generate(50, (index) {
+          final ncode = 'n${(index + 1).toString().padLeft(4, '0')}aa';
+          return '<li class="p-up-bookmark-item"><span '
+              'class="p-up-bookmark-item__title"><a '
+              'href="https://ncode.syosetu.com/$ncode/">作品</a></span></li>';
+        }).join();
+        late Future<void> newLogin;
+        final fakeAdapter = _FakeHttpClientAdapter((options) {
+          newLogin = repository.saveSession(
+            narouid: 'new-reader',
+            username: '新利用者',
+            ks2: 'new-ks2',
+            ses: 'new-ses',
+            userl: 'new-userl',
+            rememberSession: true,
+          );
+          return options.uri.queryParameters['p'] == '2'
+              ? ResponseBody.fromString('<html></html>', 200)
+              : ResponseBody.fromString(firstPageEntries, 200);
+        });
+        final service = NarouSyncService(
+          authRepository: repository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        await expectLater(
+          service.syncBookmarksFromNarou(),
+          throwsA(isA<NarouBookmarkFetchException>()),
+        );
+        await newLogin;
+
+        expect(fakeAdapter.requests, hasLength(1));
+        expect(await repository.getNarouid(), 'new-reader');
+      });
+
+      test('最終ページの応答後に別アカウントへ切り替わったらDBへ反映しない', () async {
+        final repository = AuthRepository(storage: _MemorySecureStorage());
+        await repository.saveSession(
+          narouid: 'old-reader',
+          username: '旧利用者',
+          ks2: 'old-ks2',
+          ses: 'old-ses',
+          userl: 'old-userl',
+          rememberSession: true,
+        );
+        const bookmarkHtml = '''
+<li class="p-up-bookmark-item">
+  <span class="p-up-bookmark-item__title">
+    <a href="https://ncode.syosetu.com/n0156ia/">Title</a>
+  </span>
+  <a href="https://ncode.syosetu.com/n0156ia/3/" class="c-button--outline">ep.3</a>
+</li>
+''';
+        final fakeAdapter = _DelayedBookmarkPageAdapter(bookmarkHtml);
+        final database = MockAppDatabase();
+        when(database.ensureNovelExists(any, any)).thenAnswer((_) async {});
+        when(database.addToLibrary(any, any)).thenAnswer((_) async => 1);
+        when(
+          database.markNarouBookmarkSynced(any, any),
+        ).thenAnswer((_) async {});
+        final api = MockApiService();
+        when(api.fetchMultipleNovelsInfo(any)).thenAnswer((_) async => {});
+        final service = NarouSyncService(
+          authRepository: repository,
+          db: database,
+          apiService: api,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        final sync = service.syncBookmarksFromNarou();
+        await fakeAdapter.requestStarted.future;
+        await repository.saveSession(
+          narouid: 'new-reader',
+          username: '新利用者',
+          ks2: 'new-ks2',
+          ses: 'new-ses',
+          userl: 'new-userl',
+          rememberSession: true,
+        );
+        fakeAdapter.releaseResponse.complete();
+
+        await expectLater(sync, throwsA(isA<NarouBookmarkFetchException>()));
+
+        verifyNever(database.ensureNovelExists(any, any));
+        verifyNever(database.addToLibrary(any, any));
+        verifyNever(database.markNarouBookmarkSynced(any, any));
+        verifyNever(api.fetchMultipleNovelsInfo(any));
+      });
+
+      test('完全なログイン状態スナップショットがない場合はCookieだけで同期しない', () async {
+        when(
+          mockAuthRepository.getSessionSnapshot(),
+        ).thenAnswer((_) async => null);
+        when(mockAuthRepository.buildCookieHeader()).thenAnswer(
+          (_) async => 'ks2=legacy; ses=session; userl=user',
+        );
+        final fakeAdapter = _FakeHttpClientAdapter(
+          (_) => ResponseBody.fromString('<html></html>', 200),
+        );
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        expect(await service.syncBookmarksFromNarou(), isEmpty);
+
+        expect(fakeAdapter.requests, isEmpty);
+        verifyNever(mockDatabase.addToLibrary(any, any));
+      });
+
+      test('失効応答のSet-Cookieで古いセッションCookieを置き換えない', () async {
+        const originalCookie = 'ks2=old-ks2; ses=old-ses; userl=old-userl';
+        const loginForm = '<form action="/login/login/"><input></form>';
+        final responses = [
+          (
+            '',
+            302,
+            <String, List<String>>{
+              'location': ['/login/input/'],
+            },
+          ),
+          (loginForm, 200, <String, List<String>>{}),
+          ('Unauthorized', 401, <String, List<String>>{}),
+        ];
+
+        for (final (body, status, extraHeaders) in responses) {
+          final repository = AuthRepository(storage: _MemorySecureStorage());
+          await repository.saveSession(
+            narouid: 'reader-id',
+            username: '読者',
+            ks2: 'old-ks2',
+            ses: 'old-ses',
+            userl: 'old-userl',
+            rememberSession: true,
+          );
+          final fakeAdapter = _FakeHttpClientAdapter(
+            (_) => ResponseBody.fromString(
+              body,
+              status,
+              headers: {
+                Headers.contentTypeHeader: ['text/html; charset=utf-8'],
+                ...extraHeaders,
+                'set-cookie': ['ses=anonymous; Path=/; Secure'],
+              },
+            ),
+          );
+          final service = NarouSyncService(
+            authRepository: repository,
+            db: mockDatabase,
+            apiService: mockApiService,
+            dio: Dio()..httpClientAdapter = fakeAdapter,
+          );
+          final accountAdapter = NarouAccountSyncAdapter(
+            syncService: service,
+            db: mockDatabase,
+            authRepository: repository,
+          );
+
+          await expectLater(
+            accountAdapter.pullLibrary(),
+            throwsA(isA<AccountSessionExpiredException>()),
+          );
+
+          expect(
+            fakeAdapter.requests.single.headers['Cookie'],
+            originalCookie,
+          );
+          expect(await repository.getSessionSnapshot(), isNull);
+          expect(fakeAdapter.requests, hasLength(1));
+        }
+      });
+
+      test('content-typeがないログインフォーム応答のCookieを保存しない', () async {
+        final repository = AuthRepository(storage: _MemorySecureStorage());
+        await repository.saveSession(
+          narouid: 'reader-id',
+          username: '読者',
+          ks2: 'old-ks2',
+          ses: 'old-ses',
+          userl: 'old-userl',
+          rememberSession: true,
+        );
+        final fakeAdapter = _FakeHttpClientAdapter(
+          (_) => ResponseBody.fromString(
+            '<form action="/login/login/"><input></form>',
+            200,
+            headers: {
+              'set-cookie': ['ses=anonymous; Path=/; Secure'],
+            },
+          ),
+        );
+        final service = NarouSyncService(
+          authRepository: repository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        await expectLater(
+          service.syncBookmarksFromNarou(),
+          throwsA(isA<NarouSessionExpiredException>()),
+        );
+
+        expect(
+          (await repository.getSessionSnapshot())?.cookieHeader,
+          'ks2=old-ks2; ses=old-ses; userl=old-userl',
+        );
+      });
+
       test('セッションCookieがない場合は空リストを返す', () async {
         when(
           mockAuthRepository.buildCookieHeader(),
@@ -82,7 +578,10 @@ void main() {
           mockAuthRepository.buildCookieHeader(),
         ).thenAnswer((_) async => 'ks2=old; ses=session; userl=user');
         when(
-          mockAuthRepository.updateSessionCookieHeaders(any),
+          mockAuthRepository.updateSessionCookieHeaders(
+            any,
+            expectedCookieHeader: anyNamed('expectedCookieHeader'),
+          ),
         ).thenAnswer((_) async {});
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
@@ -96,7 +595,50 @@ void main() {
         verify(
           mockAuthRepository.updateSessionCookieHeaders([
             'ks2=rotated; Path=/; Secure',
-          ]),
+          ], expectedCookieHeader: 'ks2=old; ses=session; userl=user'),
+        ).called(1);
+      });
+
+      test('共有DioへCookie更新インターセプターを一度だけ登録する', () async {
+        final fakeAdapter = _FakeHttpClientAdapter(
+          (_) => ResponseBody.fromString(
+            '<html></html>',
+            200,
+            headers: <String, List<String>>{
+              'set-cookie': ['ses=rotated; Path=/; Secure'],
+            },
+          ),
+        );
+        when(
+          mockAuthRepository.buildCookieHeader(),
+        ).thenAnswer((_) async => 'ks2=old; ses=session; userl=user');
+        when(
+          mockAuthRepository.updateSessionCookieHeaders(
+            any,
+            expectedCookieHeader: anyNamed('expectedCookieHeader'),
+          ),
+        ).thenAnswer((_) async {});
+        final sharedDio = Dio()..httpClientAdapter = fakeAdapter;
+        NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: sharedDio,
+        );
+        final service = NarouSyncService(
+          authRepository: mockAuthRepository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: sharedDio,
+        );
+
+        await service.syncBookmarksFromNarou();
+
+        verify(
+          mockAuthRepository.updateSessionCookieHeaders(
+            ['ses=rotated; Path=/; Secure'],
+            expectedCookieHeader: 'ks2=old; ses=session; userl=user',
+          ),
         ).called(1);
       });
 
@@ -193,6 +735,12 @@ void main() {
         when(
           mockAuthRepository.buildCookieHeader(),
         ).thenAnswer((_) async => 'ks2=x; ses=y; userl=z');
+        when(
+          mockAuthRepository.clearAllIfSessionCookieHeaderAndGenerationMatches(
+            1,
+            'ks2=x; ses=y; userl=z',
+          ),
+        ).thenAnswer((_) async => true);
         final service = NarouSyncService(
           authRepository: mockAuthRepository,
           db: mockDatabase,

@@ -406,6 +406,82 @@ class _RotatingSessionAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+class _UnauthenticatedSessionAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString(
+    '<form action="/login/login/"><input name="narouid"></form>',
+    200,
+    headers: <String, List<String>>{
+      'set-cookie': <String>['ses=anonymous; Path=/; Secure'],
+    },
+  );
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _LoginRedirectSessionAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString(
+    '',
+    302,
+    headers: <String, List<String>>{
+      'location': <String>['/login/input/'],
+    },
+  );
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _TemporaryFailureSessionAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString('', 503);
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _StatusSessionAdapter implements HttpClientAdapter {
+  _StatusSessionAdapter(this.statusCode);
+
+  final int statusCode;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString('', statusCode);
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _UnknownBookmarkPageAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString('<h1>メンテナンス中</h1>', 200);
+
+  @override
+  void close({bool force = false}) {}
+}
+
 class _OrderedAuthRepository extends AuthRepository {
   final events = <String>[];
   final sessionStarted = Completer<void>();
@@ -485,8 +561,95 @@ void main() {
           'ks2=ks2-rotated; Path=/; Secure',
           'ses=ses-rotated; Path=/; HttpOnly; Secure',
           'userl=userl-rotated; Path=/; HttpOnly; Secure',
-        ]),
+        ], expectedCookieHeader: 'ks2=old; ses=old; userl=old'),
       ).called(1);
+    });
+
+    test('未認証ページのSet-Cookieでは保存済みセッションを更新しない', () async {
+      when(
+        mockAuthRepository.buildCookieHeader(),
+      ).thenAnswer((_) async => 'ks2=old; ses=old; userl=old');
+      when(
+        mockAuthRepository.updateSessionCookieHeaders(any),
+      ).thenAnswer((_) async {});
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = _UnauthenticatedSessionAdapter(),
+      );
+
+      expect(
+        await service.validateSession('ks2=old; ses=old; userl=old'),
+        NarouSessionValidity.invalid,
+      );
+      expect(await service.isSessionValid(), isFalse);
+
+      verifyNever(mockAuthRepository.updateSessionCookieHeaders(any));
+    });
+
+    test('ログイン画面へのリダイレクトを明示的なセッション失効として扱う', () async {
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = _LoginRedirectSessionAdapter(),
+      );
+
+      expect(
+        await service.validateSession(
+          'ks2=old; ses=old; userl=old',
+        ),
+        NarouSessionValidity.invalid,
+      );
+    });
+
+    test('なろうの一時エラーはセッション失効と判定しない', () async {
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = _TemporaryFailureSessionAdapter(),
+      );
+
+      expect(
+        await service.validateSession(
+          'ks2=old; ses=old; userl=old',
+        ),
+        NarouSessionValidity.unavailable,
+      );
+    });
+
+    test('401は未認証として扱うが403だけではセッションを失効させない', () async {
+      final unauthorizedService = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = _StatusSessionAdapter(401),
+      );
+      final forbiddenService = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = _StatusSessionAdapter(403),
+      );
+
+      expect(
+        await unauthorizedService.validateSession(
+          'ks2=old; ses=old; userl=old',
+        ),
+        NarouSessionValidity.invalid,
+      );
+      expect(
+        await forbiddenService.validateSession(
+          'ks2=old; ses=old; userl=old',
+        ),
+        NarouSessionValidity.unavailable,
+      );
+    });
+
+    test('認証状態を判断できない200ページはセッション失効と判定しない', () async {
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = _UnknownBookmarkPageAdapter(),
+      );
+
+      expect(
+        await service.validateSession(
+          'ks2=old; ses=old; userl=old',
+        ),
+        NarouSessionValidity.unavailable,
+      );
     });
 
     test('認証情報をひとつのセッション保存として記録する', () async {
@@ -707,6 +870,32 @@ void main() {
           rememberSession: true,
         ),
       ).called(1);
+    });
+
+    test('メール認証コードの直接入力で成功したらTOTP設定を案内する', () async {
+      final adapter = _MfaLoginAdapter(
+        challengeHtml: '''
+<h2>二段階認証</h2>
+<p>登録メールに送信した認証コードを入力してください</p>
+<form action="/login/auth_code/verify/" method="post">
+<input type="text" name="auth_code" autocomplete="one-time-code"></form>
+''',
+      );
+      final service = NarouAuthService(
+        authRepository: mockAuthRepository,
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final firstStep = await service.login(
+        narouid: 'reader-id',
+        password: 'secret-password',
+      );
+      expect(firstStep.requiresMfa, isTrue);
+
+      final result = await service.verifyMfaCode('123456');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.shouldSuggestAuthenticatorApp, isTrue);
     });
 
     test('ログイン状態を維持しない選択ではセッション情報を永続保存しない', () async {

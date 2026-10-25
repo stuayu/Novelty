@@ -10,7 +10,7 @@ class HamelnAccountSyncAdapter extends FormAccountSyncAdapter {
     required HamelnAuthService authService,
   }) : super(
          source: NovelSource.hameln,
-         validateSession: authService.isSessionValid,
+         validateSession: authService.isSessionValidForCookieHeader,
          clearSession: authService.logout,
        );
 }

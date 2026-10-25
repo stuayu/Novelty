@@ -17,18 +17,19 @@ class RequestRateLimiter {
   /// 直前の許可から [interval] 以上経過した時点で呼び出しを許可する。
   Future<void> wait() {
     final permit = _tail.then((_) async {
-      final lastPermitAt = _lastPermitAt;
-      final now = _now();
-      final intervalRemaining = lastPermitAt == null
-          ? Duration.zero
-          : interval - (now - lastPermitAt);
-      final blockedRemaining = _blockedUntil == null
-          ? Duration.zero
-          : _blockedUntil! - now;
-      final remaining = intervalRemaining > blockedRemaining
-          ? intervalRemaining
-          : blockedRemaining;
-      if (remaining > Duration.zero) {
+      while (true) {
+        final lastPermitAt = _lastPermitAt;
+        final now = _now();
+        final intervalRemaining = lastPermitAt == null
+            ? Duration.zero
+            : interval - (now - lastPermitAt);
+        final blockedRemaining = _blockedUntil == null
+            ? Duration.zero
+            : _blockedUntil! - now;
+        final remaining = intervalRemaining > blockedRemaining
+            ? intervalRemaining
+            : blockedRemaining;
+        if (remaining <= Duration.zero) break;
         await Future<void>.delayed(remaining);
       }
       _lastPermitAt = _now();

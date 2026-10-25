@@ -15,13 +15,62 @@ class _FakeSessionRepository extends FormAuthSessionRepository {
   _FakeSessionRepository(this.cookieHeader)
     : super(source: NovelSource.alphapolis);
 
-  final String? cookieHeader;
+  String? cookieHeader;
+  int generation = 1;
 
   @override
   Future<String?> buildCookieHeader() async => cookieHeader;
 
   @override
-  Future<void> clearAll() async {}
+  Future<FormAuthSessionSnapshot?> getSessionSnapshot() async {
+    final currentCookieHeader = cookieHeader;
+    if (currentCookieHeader == null) return null;
+    return FormAuthSessionSnapshot(
+      accountId: 'reader@example.com',
+      cookieHeader: currentCookieHeader,
+      generation: generation,
+    );
+  }
+
+  @override
+  Future<bool> runIfSessionSnapshotMatches(
+    FormAuthSessionSnapshot snapshot,
+    Future<void> Function() operation,
+  ) async {
+    final current = await getSessionSnapshot();
+    if (current == null ||
+        current.generation != snapshot.generation ||
+        current.cookieHeader != snapshot.cookieHeader ||
+        current.accountId != snapshot.accountId) {
+      return false;
+    }
+    await operation();
+    return true;
+  }
+
+  @override
+  Future<bool> clearAllIfSessionCookieHeaderAndGenerationMatches(
+    int expectedGeneration,
+    String expectedCookieHeader,
+  ) async {
+    if (generation != expectedGeneration ||
+        cookieHeader != expectedCookieHeader) {
+      return false;
+    }
+    await clearAll();
+    return true;
+  }
+
+  @override
+  Future<void> clearAll() async {
+    cookieHeader = null;
+    generation++;
+  }
+
+  void replaceSession(String value) {
+    cookieHeader = value;
+    generation++;
+  }
 }
 
 /// リクエストURLに応じた応答を返すHTTPアダプター。
@@ -78,13 +127,15 @@ void main() {
     AlphapolisAccountSyncAdapter buildAdapter(
       _StubAdapter httpAdapter, {
       String? cookieHeader = 'alpl_v2_front_session=valid',
+      _FakeSessionRepository? repository,
     }) {
-      final repository = _FakeSessionRepository(cookieHeader);
+      final sessionRepository =
+          repository ?? _FakeSessionRepository(cookieHeader);
       final dio = Dio()..httpClientAdapter = httpAdapter;
       return AlphapolisAccountSyncAdapter(
-        sessionRepository: repository,
+        sessionRepository: sessionRepository,
         authService: AlphapolisAuthService(
-          sessionRepository: repository,
+          sessionRepository: sessionRepository,
           dio: dio,
         ),
         db: db,
@@ -191,6 +242,67 @@ void main() {
           ),
         ),
       );
+
+      await expectLater(
+        adapter.pullLibrary(),
+        throwsA(isA<AccountSessionExpiredException>()),
+      );
+    });
+
+    test('同期中に再ログインしたら古い失効応答で新しいセッションを消さない', () async {
+      final repository = _FakeSessionRepository(
+        'alpl_v2_front_session=old',
+      );
+      final adapter = buildAdapter(
+        _StubAdapter((_) {
+          repository.replaceSession('alpl_v2_front_session=new');
+          return _html(
+            '',
+            302,
+            headers: {
+              'location': ['https://www.alphapolis.co.jp/login'],
+            },
+          );
+        }),
+        repository: repository,
+      );
+
+      await expectLater(adapter.pullLibrary(), throwsFormatException);
+
+      expect(repository.cookieHeader, 'alpl_v2_front_session=new');
+      expect(
+        await db.isInLibrary(NovelSource.alphapolis, '78147770-288151080'),
+        isFalse,
+      );
+    });
+
+    test('ログイン以外へのredirectではセッション失効として扱わない', () async {
+      for (final location in [
+        'https://www.alphapolis.co.jp/maintenance',
+        'https://attacker.example/login',
+      ]) {
+        final adapter = buildAdapter(
+          _StubAdapter(
+            (_) => _html(
+              '',
+              302,
+              headers: {
+                'location': [location],
+              },
+            ),
+          ),
+        );
+
+        await expectLater(
+          adapter.pullLibrary(),
+          throwsFormatException,
+          reason: location,
+        );
+      }
+    });
+
+    test('HTTP 401ならセッション失効として扱う', () async {
+      final adapter = buildAdapter(_StubAdapter((_) => _html('', 401)));
 
       await expectLater(
         adapter.pullLibrary(),

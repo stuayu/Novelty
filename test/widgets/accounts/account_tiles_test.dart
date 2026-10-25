@@ -81,6 +81,35 @@ void main() {
     expect(find.text('ブックマークを同期'), findsOneWidget);
   });
 
+  testWidgets('未確認のなろうセッションは状態を表示し再確認と再ログインを選べる', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          accountAuthStateProvider(NovelSource.narou).overrideWith(
+            (ref) async => const AccountAuthState.unverified(
+              source: NovelSource.narou,
+              displayName: '保存済みユーザー',
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: Scaffold(body: NarouAccountTile())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('保存済みユーザー'), findsOneWidget);
+    expect(find.text('セッションの状態を確認できません'), findsOneWidget);
+    await tester.tap(find.text('保存済みユーザー'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('認証状態を再確認'), findsOneWidget);
+    expect(find.text('ログインし直す'), findsOneWidget);
+    expect(find.text('ブックマークを同期'), findsNothing);
+    expect(find.text('ログアウト'), findsOneWidget);
+  });
+
   testWidgets('カクヨムタイルは共通認証状態でログイン済み表示を維持する', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -220,5 +249,33 @@ void main() {
     expect(adapter.logoutCount, 1);
     expect(find.text('カクヨムのログイン期限が切れました。再ログインしてください'), findsOneWidget);
     expect(find.text('ログイン'), findsOneWidget);
+  });
+
+  testWidgets('比較付きで処理済みの失効応答では現在のセッションを消さない', (tester) async {
+    final adapter = _FakeAccountSyncAdapter(
+      source: NovelSource.narou,
+      syncError: const AccountSessionExpiredException(
+        clearSessionOnCatch: false,
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          accountSyncRegistryProvider.overrideWithValue({
+            NovelSource.narou: adapter,
+          }),
+        ],
+        child: const MaterialApp(home: Scaffold(body: NarouAccountTile())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('ログイン済み'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ブックマークを同期'));
+    await tester.pumpAndSettle();
+
+    expect(adapter.logoutCount, 0);
+    expect(find.text('小説家になろうのログイン期限が切れました。再ログインしてください'), findsOneWidget);
   });
 }

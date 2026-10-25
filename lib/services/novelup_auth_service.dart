@@ -49,6 +49,15 @@ class NovelupAuthService {
   /// 保存済みセッションが有効か確認する。
   Future<bool> isSessionValid() => _delegate.isSessionValid();
 
+  /// 保存済みセッションを認証切れと一時的な確認不能に区別して確認する。
+  Future<FormAuthSessionValidity> validateSessionStatus() =>
+      _delegate.validateSession();
+
+  /// アダプターが取得したスナップショットCookieを検証する。
+  Future<FormAuthSessionValidity> validateSessionStatusForCookieHeader(
+    String cookieHeader,
+  ) => _delegate.validateSession(cookieHeader: cookieHeader);
+
   /// 保存済み認証情報を削除する。
   Future<void> logout() => _delegate.logout();
 }

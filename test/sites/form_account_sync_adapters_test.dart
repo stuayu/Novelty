@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -20,12 +21,57 @@ class _RedirectAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async => ResponseBody.fromString(
-    '',
-    302,
+    '<html><body>マイページ</body></html>',
+    200,
     headers: {
-      'location': ['/account'],
+      Headers.contentTypeHeader: ['text/html; charset=utf-8'],
     },
   );
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _StatusAdapter implements HttpClientAdapter {
+  _StatusAdapter(this.status);
+
+  final int status;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString('', status);
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _DelayedAuthCheckAdapter implements HttpClientAdapter {
+  final requestStarted = Completer<void>();
+  final releaseResponse = Completer<void>();
+  final cookieHeaders = <String?>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    cookieHeaders.add(options.headers['Cookie'] as String?);
+    if (cookieHeaders.length == 1) {
+      requestStarted.complete();
+      await releaseResponse.future;
+    }
+    return ResponseBody.fromString(
+      '',
+      302,
+      headers: {
+        'location': ['/mypage'],
+      },
+    );
+  }
 
   @override
   void close({bool force = false}) {}
@@ -34,13 +80,28 @@ class _RedirectAdapter implements HttpClientAdapter {
 class _MemoryRepository extends FormAuthSessionRepository {
   _MemoryRepository(NovelSource source)
     : _accountId = '${source.dbId}-user',
-      super(source: source);
+      super(source: source) {
+    if (source == NovelSource.hameln) _cookieHeader = 'sson=session';
+  }
 
   String? _accountId;
+  String _cookieHeader = 'opaque=session';
+  int _generation = 0;
   bool cleared = false;
 
   @override
-  Future<String?> buildCookieHeader() async => 'opaque=session';
+  Future<String?> buildCookieHeader() async => _cookieHeader;
+
+  @override
+  Future<FormAuthSessionSnapshot?> getSessionSnapshot() async {
+    final accountId = _accountId;
+    if (accountId == null) return null;
+    return FormAuthSessionSnapshot(
+      accountId: accountId,
+      cookieHeader: _cookieHeader,
+      generation: _generation,
+    );
+  }
 
   // ハーメルンはCloudflare対策でHTTP確認ができず、保存済みCookieの内容で
   // ログイン状態を判定する。Secure Storageへ触れないようここで返す。
@@ -53,13 +114,118 @@ class _MemoryRepository extends FormAuthSessionRepository {
   Future<String?> getAccountId() async => _accountId;
 
   @override
+  Future<void> saveSession({
+    required String accountId,
+    required Map<String, String> cookies,
+  }) async {
+    _accountId = accountId;
+    _cookieHeader = cookies.entries
+        .map((entry) => '${entry.key}=${entry.value}')
+        .join('; ');
+    _generation++;
+  }
+
+  @override
   Future<void> clearAll() async {
     cleared = true;
     _accountId = null;
+    _cookieHeader = '';
+    _generation++;
+  }
+
+  @override
+  Future<bool> clearAllIfSessionCookieHeaderAndGenerationMatches(
+    int expectedGeneration,
+    String expectedCookieHeader,
+  ) async {
+    final current = await getSessionSnapshot();
+    if (current == null ||
+        current.generation != expectedGeneration ||
+        current.cookieHeader != expectedCookieHeader) {
+      return false;
+    }
+    await clearAll();
+    return true;
   }
 }
 
 void main() {
+  test('一時的な通信障害ではフォーム認証Cookieを保持して未確認状態にする', () async {
+    final repository = _MemoryRepository(NovelSource.alphapolis);
+    final dio = Dio()..httpClientAdapter = _StatusAdapter(503);
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+    final adapter = AlphapolisAccountSyncAdapter(
+      sessionRepository: repository,
+      authService: AlphapolisAuthService(
+        sessionRepository: repository,
+        dio: dio,
+      ),
+      db: db,
+      dio: dio,
+    );
+
+    final state = await adapter.getAuthState();
+
+    expect(state.hasSession, isTrue);
+    expect(state.isLoggedIn, isFalse);
+    expect(state.isVerified, isFalse);
+    expect(state.accountId, 'alphapolis-user');
+    expect(repository.cleared, isFalse);
+  });
+
+  test('検証中に再ログインしたら新しいCookieとアカウントで再検証する', () async {
+    final repository = _MemoryRepository(NovelSource.alphapolis);
+    final httpAdapter = _DelayedAuthCheckAdapter();
+    final dio = Dio()..httpClientAdapter = httpAdapter;
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+    final adapter = AlphapolisAccountSyncAdapter(
+      sessionRepository: repository,
+      authService: AlphapolisAuthService(
+        sessionRepository: repository,
+        dio: dio,
+      ),
+      db: db,
+      dio: dio,
+    );
+
+    final stateFuture = adapter.getAuthState();
+    await httpAdapter.requestStarted.future;
+    await repository.saveSession(
+      accountId: 'new-reader',
+      cookies: const {'session': 'new-cookie'},
+    );
+    httpAdapter.releaseResponse.complete();
+    final state = await stateFuture;
+
+    expect(httpAdapter.cookieHeaders, ['opaque=session', 'session=new-cookie']);
+    expect(state.isLoggedIn, isTrue);
+    expect(state.accountId, 'new-reader');
+  });
+
+  test('認証切れを確認したら同じ世代のCookieだけを削除する', () async {
+    final repository = _MemoryRepository(NovelSource.alphapolis);
+    final dio = Dio()..httpClientAdapter = _StatusAdapter(401);
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+    final adapter = AlphapolisAccountSyncAdapter(
+      sessionRepository: repository,
+      authService: AlphapolisAuthService(
+        sessionRepository: repository,
+        dio: dio,
+      ),
+      db: db,
+      dio: dio,
+    );
+
+    final state = await adapter.getAuthState();
+
+    expect(state.isLoggedIn, isFalse);
+    expect(state.hasSession, isFalse);
+    expect(repository.cleared, isTrue);
+  });
+
   final cases =
       <
         (

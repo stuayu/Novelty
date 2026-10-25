@@ -4,6 +4,18 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:novelty/repositories/form_auth_session_repository.dart';
 
+/// フォーム認証Cookieの検証結果。
+enum FormAuthSessionValidity {
+  /// 認証ページが保存済みCookieを受け付けた。
+  valid,
+
+  /// 保存済みCookieが存在しないか、認証要求が拒否された。
+  invalid,
+
+  /// 通信障害などで認証状態を判定できなかった。
+  unavailable,
+}
+
 /// フォームPOSTログインのサイト別仕様。
 class FormPostAuthConfiguration {
   /// コンストラクタ。
@@ -15,6 +27,7 @@ class FormPostAuthConfiguration {
     required this.hiddenFields,
     this.staticFields = const {},
     this.sessionCheckUri,
+    this.sessionSuccessRedirectUris = const [],
   });
 
   /// ログインフォーム取得先。
@@ -26,6 +39,11 @@ class FormPostAuthConfiguration {
   /// ログイン状態を判別できない。その場合は未ログイン時にログインページへ
   /// リダイレクトする要認証URLを指定する。
   final Uri? sessionCheckUri;
+
+  /// ログインページの検証から成功と判断してよい、実測済みの転送先。
+  ///
+  /// 空の場合、ログインページからの未知の転送先は未確認として扱う。
+  final List<Uri> sessionSuccessRedirectUris;
 
   /// フォーム送信先。
   final Uri postUri;
@@ -152,9 +170,6 @@ class FormPostAuthService {
       );
 
       if (!_indicatesLoginSuccess(postResponse, postCookies)) {
-        if (_isExplicitCredentialRejection(postResponse)) {
-          await _sessionRepository.clearAll();
-        }
         return const FormAuthLoginResult.failure('ログインに失敗しました。入力内容を確認してください');
       }
 
@@ -182,13 +197,20 @@ class FormPostAuthService {
   }
 
   /// 保存済みセッションが有効か要認証ページで確認する。
-  Future<bool> isSessionValid() async {
-    if (!_hasValidOrigins) return false;
-    final cookieHeader = await _sessionRepository.buildCookieHeader();
-    if (cookieHeader == null || cookieHeader.isEmpty) {
+  Future<bool> isSessionValid() async =>
+      await validateSession() == FormAuthSessionValidity.valid;
+
+  /// 認証切れと一時的な確認不能を区別してセッションを検証する。
+  Future<FormAuthSessionValidity> validateSession({
+    String? cookieHeader,
+  }) async {
+    final requestCookieHeader =
+        cookieHeader ?? await _sessionRepository.buildCookieHeader();
+    if (requestCookieHeader == null || requestCookieHeader.isEmpty) {
       debugPrint('$_logTag isSessionValid: 保存Cookieなし');
-      return false;
+      return FormAuthSessionValidity.invalid;
     }
+    if (!_hasValidOrigins) return FormAuthSessionValidity.unavailable;
 
     final checkUri = _configuration.sessionCheckUri ?? _configuration.loginUri;
     final checksLoginPage = checkUri == _configuration.loginUri;
@@ -196,7 +218,7 @@ class FormPostAuthService {
     try {
       final response = await _dio.get<String>(
         checkUri.toString(),
-        options: _plainHtmlOptions(headers: {'Cookie': cookieHeader}),
+        options: _plainHtmlOptions(headers: {'Cookie': requestCookieHeader}),
       );
       final status = response.statusCode;
       final location = response.headers.value('location');
@@ -204,33 +226,49 @@ class FormPostAuthService {
         '$_logTag isSessionValid: status=$status redirect=${location != null} '
         'body=${response.data?.length ?? 0}文字',
       );
-      if (status == null || status < 200 || status >= 400) return false;
+      if (status == 401) return FormAuthSessionValidity.invalid;
+      if (status == null || status < 200 || status >= 400) {
+        return FormAuthSessionValidity.unavailable;
+      }
 
       if (location != null) {
-        final result = _redirectsAwayFromLogin(location);
+        final result = _classifySessionRedirect(
+          location,
+          checksLoginPage: checksLoginPage,
+          sessionCheckUri: checkUri,
+        );
         debugPrint('$_logTag isSessionValid: リダイレクト判定=$result');
         return result;
       }
 
       final body = response.data;
-      if (body == null || body.isEmpty) return false;
+      if (body == null || body.isEmpty) {
+        return FormAuthSessionValidity.unavailable;
+      }
       final document = html_parser.parse(body);
       final hasForm = _containsLoginForm(document);
       if (hasForm) {
         debugPrint('$_logTag isSessionValid: ログインフォームが表示されている');
-        return false;
+        return FormAuthSessionValidity.invalid;
       }
       // 要認証URLを指定している場合、リダイレクトされずに本文を取得できた
       // 時点でログイン済み。ここでエラー表示を探すと、通常ページに含まれる
       // `.error` などを誤検出して未ログイン扱いになる。
-      if (!checksLoginPage) return true;
+      if (!checksLoginPage) return FormAuthSessionValidity.valid;
 
       final hasError = _containsLoginError(document);
       debugPrint('$_logTag isSessionValid: エラー表示=$hasError');
-      return !hasError;
+      return hasError
+          ? FormAuthSessionValidity.invalid
+          : FormAuthSessionValidity.valid;
+    } on DioException catch (error) {
+      debugPrint('$_logTag isSessionValid: DioException type=${error.type}');
+      return error.response?.statusCode == 401
+          ? FormAuthSessionValidity.invalid
+          : FormAuthSessionValidity.unavailable;
     } on Exception catch (error) {
       debugPrint('$_logTag isSessionValid: 失敗 type=${error.runtimeType}');
-      return false;
+      return FormAuthSessionValidity.unavailable;
     }
   }
 
@@ -278,32 +316,6 @@ class FormPostAuthService {
       return result;
     }
     return body.isNotEmpty;
-  }
-
-  bool _isExplicitCredentialRejection(Response<String> response) {
-    final body = response.data;
-    if (body == null || body.isEmpty) return false;
-    final document = html_parser.parse(body);
-    if (!_containsLoginForm(document)) return false;
-
-    final text = document.body?.text.toLowerCase() ?? '';
-    const credentialTerms = <String>[
-      'id',
-      'メールアドレス',
-      'ユーザー名',
-      'アカウント',
-      'パスワード',
-      'password',
-    ];
-    const rejectionTerms = <String>[
-      '正しくありません',
-      '間違',
-      '違います',
-      '無効',
-      '失敗',
-    ];
-    return credentialTerms.any(text.contains) &&
-        rejectionTerms.any(text.contains);
   }
 
   bool _containsLoginForm(Document document) {
@@ -355,7 +367,8 @@ class FormPostAuthService {
     return secureLogin &&
         _isTrustedOrigin(_configuration.postUri) &&
         (_configuration.sessionCheckUri == null ||
-            _isTrustedOrigin(_configuration.sessionCheckUri!));
+            _isTrustedOrigin(_configuration.sessionCheckUri!)) &&
+        _configuration.sessionSuccessRedirectUris.every(_isTrustedOrigin);
   }
 
   bool _isTrustedOrigin(Uri uri) =>
@@ -393,6 +406,54 @@ class FormPostAuthService {
     }
     final mode = target.queryParameters['mode'];
     return mode == null || !mode.startsWith('login');
+  }
+
+  FormAuthSessionValidity _classifySessionRedirect(
+    String location, {
+    required bool checksLoginPage,
+    required Uri sessionCheckUri,
+  }) {
+    final target = _configuration.postUri.resolve(location);
+    if (!_isTrustedOrigin(target)) return FormAuthSessionValidity.unavailable;
+    if (_hasSamePathIgnoringTrailingSlash(
+          target.path,
+          _configuration.loginUri.path,
+        ) &&
+        (_configuration.loginUri.query.isEmpty ||
+            target.query == _configuration.loginUri.query)) {
+      return FormAuthSessionValidity.invalid;
+    }
+    final mode = target.queryParameters['mode'];
+    if (mode?.startsWith('login') ?? false) {
+      return FormAuthSessionValidity.invalid;
+    }
+    if (checksLoginPage) {
+      return _configuration.sessionSuccessRedirectUris.any(
+            (uri) =>
+                _hasSamePathIgnoringTrailingSlash(target.path, uri.path) &&
+                target.query == uri.query,
+          )
+          ? FormAuthSessionValidity.valid
+          : FormAuthSessionValidity.unavailable;
+    }
+    if (_isSameOrDescendantPath(target.path, sessionCheckUri.path)) {
+      return FormAuthSessionValidity.valid;
+    }
+    return FormAuthSessionValidity.unavailable;
+  }
+
+  bool _isSameOrDescendantPath(String targetPath, String basePath) {
+    String normalize(String path) =>
+        path.length > 1 ? path.replaceFirst(RegExp(r'/+$'), '') : path;
+    final target = normalize(targetPath);
+    final base = normalize(basePath);
+    return target == base || target.startsWith(base == '/' ? '/' : '$base/');
+  }
+
+  bool _hasSamePathIgnoringTrailingSlash(String first, String second) {
+    String normalize(String path) =>
+        path.length > 1 ? path.replaceFirst(RegExp(r'/+$'), '') : path;
+    return normalize(first) == normalize(second);
   }
 
   void _applySetCookies(

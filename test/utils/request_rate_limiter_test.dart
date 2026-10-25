@@ -112,6 +112,29 @@ void main() {
     });
   });
 
+  test('待機中に延長された休止時間を確認してから要求を許可する', () {
+    fakeAsync((async) {
+      final permittedAt = <Duration>[];
+      final limiter = RequestRateLimiter(
+        interval: Duration.zero,
+        now: () => async.elapsed,
+      )..pauseFor(const Duration(milliseconds: 500));
+
+      unawaited(limiter.wait().then((_) => permittedAt.add(async.elapsed)));
+      async
+        ..flushMicrotasks()
+        ..elapse(const Duration(milliseconds: 200));
+      limiter.pauseFor(const Duration(milliseconds: 1000));
+
+      async.elapse(const Duration(milliseconds: 300));
+      expect(permittedAt, isEmpty);
+      async.elapse(const Duration(milliseconds: 699));
+      expect(permittedAt, isEmpty);
+      async.elapse(const Duration(milliseconds: 1));
+      expect(permittedAt, <Duration>[const Duration(milliseconds: 1200)]);
+    });
+  });
+
   test('同じProviderContainerではサイトごとに単一インスタンスを共有する', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);

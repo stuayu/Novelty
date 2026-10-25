@@ -16,7 +16,12 @@ enum AccountSyncOutcome {
 /// 保存済みの認証セッションが失効した場合の共通例外。
 class AccountSessionExpiredException implements Exception {
   /// コンストラクタ。
-  const AccountSessionExpiredException();
+  const AccountSessionExpiredException({this.clearSessionOnCatch = true});
+
+  /// 呼び出し元が無条件にセッションを削除してよいか。
+  ///
+  /// 同期処理側ですでにCookie一致確認付きの削除をした場合は`false`にする。
+  final bool clearSessionOnCatch;
 
   @override
   String toString() => 'AccountSessionExpiredException';

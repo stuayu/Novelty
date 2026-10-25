@@ -15,6 +15,9 @@ final _configuration = FormPostAuthConfiguration(
   passwordField: 'pass',
   hiddenFields: const ['redirect_mode'],
   staticFields: const {'mode': 'login_entry_end'},
+  sessionSuccessRedirectUris: [
+    Uri.parse('https://syosetu.org/?mode=mypage'),
+  ],
 );
 
 /// ハーメルン認証サービスのプロバイダー。
@@ -71,6 +74,16 @@ class HamelnAuthService {
     final cookies = await _sessionRepository.getCookies();
     return cookies.keys.any(_loginCookieNames.contains);
   }
+
+  /// 指定されたスナップショットCookieがログイン用Cookieを含むか確認する。
+  Future<bool> isSessionValidForCookieHeader(String cookieHeader) async =>
+      cookieHeader.split(';').any((cookie) {
+        final separator = cookie.indexOf('=');
+        if (separator <= 0) return false;
+        return _loginCookieNames.contains(
+          cookie.substring(0, separator).trim(),
+        );
+      });
 
   /// 保存済み認証情報を削除する。
   Future<void> logout() async {

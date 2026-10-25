@@ -10,7 +10,8 @@ class NovelupAccountSyncAdapter extends FormAccountSyncAdapter {
     required NovelupAuthService authService,
   }) : super(
          source: NovelSource.novelup,
-         validateSession: authService.isSessionValid,
+         validateSessionStatus:
+             authService.validateSessionStatusForCookieHeader,
          clearSession: authService.logout,
        );
 }

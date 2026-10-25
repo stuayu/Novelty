@@ -12,6 +12,8 @@ void main() {
       );
 
       expect(state.isLoggedIn, isTrue);
+      expect(state.hasSession, isTrue);
+      expect(state.isVerified, isTrue);
       expect(state.accountId, 'test-user');
       expect(state.displayName, 'テストユーザー');
     });
@@ -22,14 +24,32 @@ void main() {
       );
 
       expect(state.isLoggedIn, isTrue);
+      expect(state.hasSession, isTrue);
+      expect(state.isVerified, isTrue);
       expect(state.accountId, isNull);
       expect(state.displayName, isNull);
+    });
+
+    test('保存済みだが未確認のログイン状態を表現できる', () {
+      const state = AccountAuthState.unverified(
+        source: NovelSource.narou,
+        accountId: 'test-user',
+        displayName: 'テストユーザー',
+      );
+
+      expect(state.isLoggedIn, isFalse);
+      expect(state.hasSession, isTrue);
+      expect(state.isVerified, isFalse);
+      expect(state.accountId, 'test-user');
+      expect(state.displayName, 'テストユーザー');
     });
 
     test('未ログイン状態を表現できる', () {
       const state = AccountAuthState.loggedOut(source: NovelSource.narou);
 
       expect(state.isLoggedIn, isFalse);
+      expect(state.hasSession, isFalse);
+      expect(state.isVerified, isFalse);
       expect(state.accountId, isNull);
       expect(state.displayName, isNull);
     });

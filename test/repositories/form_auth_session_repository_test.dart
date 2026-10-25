@@ -128,6 +128,105 @@ void main() {
       expect(events, ['cookies', 'account']);
     });
 
+    test('セッションスナップショットはアカウント・Cookie・世代をまとめて返す', () async {
+      await repository.saveSession(
+        accountId: 'reader@example.com',
+        cookies: const {'session': 'old'},
+      );
+
+      final snapshot = await repository.getSessionSnapshot();
+
+      expect(snapshot?.accountId, 'reader@example.com');
+      expect(snapshot?.cookieHeader, 'session=old');
+      expect(snapshot?.generation, 1);
+    });
+
+    test('一致したセッションの処理中は新しいログインを待たせる', () async {
+      await repository.saveSession(
+        accountId: 'old-reader',
+        cookies: const {'session': 'old'},
+      );
+      final snapshot = (await repository.getSessionSnapshot())!;
+      final operationStarted = Completer<void>();
+      final releaseOperation = Completer<void>();
+      var reloginCompleted = false;
+
+      final guardedOperation = repository.runIfSessionSnapshotMatches(
+        snapshot,
+        () async {
+          operationStarted.complete();
+          await releaseOperation.future;
+        },
+      );
+      await operationStarted.future;
+      final relogin = repository
+          .saveSession(
+            accountId: 'new-reader',
+            cookies: const {'session': 'new'},
+          )
+          .then((_) => reloginCompleted = true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(reloginCompleted, isFalse);
+      releaseOperation.complete();
+      expect(await guardedOperation, isTrue);
+      await relogin;
+      expect((await repository.getSessionSnapshot())?.accountId, 'new-reader');
+    });
+
+    test('一致したセッションの処理中も認証状態の読み取りを待たせない', () async {
+      await repository.saveSession(
+        accountId: 'reader-id',
+        cookies: const {'session': 'current'},
+      );
+      final snapshot = (await repository.getSessionSnapshot())!;
+      final operationStarted = Completer<void>();
+      final releaseOperation = Completer<void>();
+      final guardedOperation = repository.runIfSessionSnapshotMatches(
+        snapshot,
+        () async {
+          operationStarted.complete();
+          await releaseOperation.future;
+        },
+      );
+      await operationStarted.future;
+
+      var readCompleted = false;
+      final read = repository.getSessionSnapshot().then((value) {
+        readCompleted = true;
+        return value;
+      });
+      await Future<void>.delayed(Duration.zero);
+      final wasReadAvailable = readCompleted;
+      releaseOperation.complete();
+      expect(await guardedOperation, isTrue);
+
+      expect(wasReadAvailable, isTrue);
+      expect((await read)?.cookieHeader, snapshot.cookieHeader);
+    });
+
+    test('同期中に再ログインした場合は古い応答で新しいセッションを消せない', () async {
+      await repository.saveSession(
+        accountId: 'old-reader',
+        cookies: const {'session': 'old'},
+      );
+      final oldSnapshot = (await repository.getSessionSnapshot())!;
+      await repository.saveSession(
+        accountId: 'new-reader',
+        cookies: const {'session': 'new'},
+      );
+
+      final cleared = await repository
+          .clearAllIfSessionCookieHeaderAndGenerationMatches(
+            oldSnapshot.generation,
+            oldSnapshot.cookieHeader,
+          );
+
+      expect(cleared, isFalse);
+      expect((await repository.getSessionSnapshot())?.accountId, 'new-reader');
+      expect(await repository.buildCookieHeader(), 'session=new');
+    });
+
     test('ログアウトは保存済みセッションを直列に削除する', () async {
       final events = <String>[];
       final cookiesDeleted = Completer<void>();

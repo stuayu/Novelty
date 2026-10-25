@@ -71,6 +71,7 @@ FormPostAuthService _service({
   Uri? loginUri,
   Uri? postUri,
   Uri? sessionCheckUri,
+  List<Uri> sessionSuccessRedirectUris = const [],
 }) => FormPostAuthService(
   sessionRepository: repository,
   dio: dio,
@@ -81,10 +82,154 @@ FormPostAuthService _service({
     accountField: 'account',
     passwordField: 'password',
     hiddenFields: const ['csrf'],
+    sessionSuccessRedirectUris: sessionSuccessRedirectUris,
   ),
 );
 
 void main() {
+  test('保存Cookieがなければorigin設定が不正でも未ログインと判定する', () async {
+    final repository = _MemorySessionRepository();
+    final adapter = _RecordingAdapter((_) => _html('', 200));
+    final service = _service(
+      dio: Dio()..httpClientAdapter = adapter,
+      repository: repository,
+      loginUri: Uri.parse('http://auth.example/login'),
+      postUri: Uri.parse('http://auth.example/login'),
+    );
+
+    expect(await service.validateSession(), FormAuthSessionValidity.invalid);
+    expect(adapter.requests, isEmpty);
+  });
+
+  test('一時的なHTTPエラーと認証拒否を別の状態として返す', () async {
+    for (final (status, expected) in [
+      (401, FormAuthSessionValidity.invalid),
+      (403, FormAuthSessionValidity.unavailable),
+      (429, FormAuthSessionValidity.unavailable),
+      (503, FormAuthSessionValidity.unavailable),
+    ]) {
+      final repository = _MemorySessionRepository()
+        ..savedCookies = {'session': 'saved'};
+      final adapter = _RecordingAdapter((_) => _html('', status));
+      final service = _service(
+        dio: Dio()..httpClientAdapter = adapter,
+        repository: repository,
+      );
+
+      expect(await service.validateSession(), expected, reason: 'HTTP $status');
+      expect(repository.savedCookies, {'session': 'saved'});
+    }
+  });
+
+  test('ログインフォームへのリダイレクトを明示的な失効として返す', () async {
+    for (final location in ['/login?mode=login', '/login?expired=1']) {
+      final repository = _MemorySessionRepository()
+        ..savedCookies = {'session': 'saved'};
+      final adapter = _RecordingAdapter(
+        (_) => _html(
+          '',
+          302,
+          headers: {
+            'location': [location],
+          },
+        ),
+      );
+      final service = _service(
+        dio: Dio()..httpClientAdapter = adapter,
+        repository: repository,
+        sessionCheckUri: Uri.parse('https://auth.example/account'),
+      );
+
+      expect(
+        await service.validateSession(),
+        FormAuthSessionValidity.invalid,
+        reason: location,
+      );
+      expect(repository.savedCookies, {'session': 'saved'});
+    }
+  });
+
+  test('要認証ページからの未知のredirectを有効セッションと誤認しない', () async {
+    for (final (location, expected) in [
+      ('/login', FormAuthSessionValidity.invalid),
+      ('/login/', FormAuthSessionValidity.invalid),
+      ('/maintenance', FormAuthSessionValidity.unavailable),
+      ('/mypage/top', FormAuthSessionValidity.valid),
+      ('/mypagex', FormAuthSessionValidity.unavailable),
+    ]) {
+      final repository = _MemorySessionRepository()
+        ..savedCookies = {'session': 'saved'};
+      final adapter = _RecordingAdapter(
+        (_) => _html(
+          '',
+          302,
+          headers: {
+            'location': [location],
+          },
+        ),
+      );
+      final service = _service(
+        dio: Dio()..httpClientAdapter = adapter,
+        repository: repository,
+        sessionCheckUri: Uri.parse('https://auth.example/mypage'),
+      );
+
+      expect(
+        await service.validateSession(),
+        expected,
+        reason: location,
+      );
+    }
+  });
+
+  test('ログインページからのmode=mypage redirectは有効セッションとして扱う', () async {
+    final repository = _MemorySessionRepository()
+      ..savedCookies = {'session': 'saved'};
+    final adapter = _RecordingAdapter(
+      (_) => _html(
+        '',
+        302,
+        headers: {
+          'location': ['/?mode=mypage'],
+        },
+      ),
+    );
+    final service = _service(
+      dio: Dio()..httpClientAdapter = adapter,
+      repository: repository,
+      loginUri: Uri.parse('https://auth.example/?mode=login'),
+      postUri: Uri.parse('https://auth.example/?mode=login'),
+      sessionSuccessRedirectUris: [
+        Uri.parse('https://auth.example/?mode=mypage'),
+      ],
+    );
+
+    expect(await service.validateSession(), FormAuthSessionValidity.valid);
+  });
+
+  test('ログインページからの未登録redirectは有効扱いにしない', () async {
+    final repository = _MemorySessionRepository()
+      ..savedCookies = {'session': 'saved'};
+    final adapter = _RecordingAdapter(
+      (_) => _html(
+        '',
+        302,
+        headers: {
+          'location': ['/maintenance'],
+        },
+      ),
+    );
+    final service = _service(
+      dio: Dio()..httpClientAdapter = adapter,
+      repository: repository,
+    );
+
+    expect(
+      await service.validateSession(),
+      FormAuthSessionValidity.unavailable,
+    );
+  });
+
   test('loginとpostのoriginが一致しない設定では通信しない', () async {
     final repository = _MemorySessionRepository();
     final adapter = _RecordingAdapter((_) => _html('', 200));
@@ -211,7 +356,7 @@ void main() {
     }
   });
 
-  test('明示的な資格情報エラーでは古いフォーム認証セッションを削除する', () async {
+  test('別アカウントの資格情報エラーでは既存フォーム認証セッションを保持する', () async {
     final repository = _MemorySessionRepository()
       ..savedCookies = {'session': 'previous-session'};
     final adapter = _RecordingAdapter((options) {
@@ -241,7 +386,75 @@ void main() {
     );
 
     expect(result.isSuccess, isFalse);
-    expect(repository.savedCookies, isEmpty);
+    expect(repository.savedCookies, {'session': 'previous-session'});
+  });
+
+  test('改行を含むID・パスワード拒否表示でも既存セッションを保持する', () async {
+    final repository = _MemorySessionRepository()
+      ..savedCookies = {'session': 'previous-session'};
+    final adapter = _RecordingAdapter((options) {
+      if (options.method == 'GET') {
+        return _html(
+          '<form action="/login"> '
+          '<input type="hidden" name="csrf" value="csrf-value"> '
+          '<input name="account"><input name="password"></form>',
+          200,
+        );
+      }
+      return _html(
+        '<form action="/login"> '
+        '<input name="account"><input name="password"></form> '
+        '<div class="error">IDまたは<br>パスワードが違います</div>',
+        200,
+      );
+    });
+    final service = _service(
+      dio: Dio()..httpClientAdapter = adapter,
+      repository: repository,
+    );
+
+    final result = await service.login(
+      accountId: 'new-reader',
+      password: 'wrong-password',
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(repository.savedCookies, {'session': 'previous-session'});
+  });
+
+  test('CSRFトークンのエラーでは既存フォーム認証セッションを保持する', () async {
+    final repository = _MemorySessionRepository()
+      ..savedCookies = {'session': 'previous-session'};
+    final adapter = _RecordingAdapter((options) {
+      if (options.method == 'GET') {
+        return _html(
+          '<form action="/login"> '
+          '<input type="hidden" name="csrf" value="csrf-value"> '
+          '<label>メールアドレス<input name="account"></label> '
+          '<label>パスワード<input name="password"></label></form>',
+          200,
+        );
+      }
+      return _html(
+        '<form action="/login"> '
+        '<label>メールアドレス<input name="account"></label> '
+        '<label>パスワード<input name="password"></label></form> '
+        '<p class="alert-danger">認証トークンが無効です。もう一度お試しください。</p>',
+        200,
+      );
+    });
+    final service = _service(
+      dio: Dio()..httpClientAdapter = adapter,
+      repository: repository,
+    );
+
+    final result = await service.login(
+      accountId: 'reader',
+      password: 'password',
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(repository.savedCookies, {'session': 'previous-session'});
   });
 
   test('同一originの認証redirectだけを受け入れ、URLのコードをログに出さない', () async {
@@ -283,6 +496,7 @@ void main() {
     for (final location in [
       'http://auth.example/account',
       'https://auth.example:444/account',
+      'https://accounts.example/login',
     ]) {
       final repository = _MemorySessionRepository()
         ..savedCookies = {'session': 'value'};
@@ -301,7 +515,11 @@ void main() {
         sessionCheckUri: Uri.parse('https://auth.example/account'),
       );
 
-      expect(await service.isSessionValid(), isFalse, reason: location);
+      expect(
+        await service.validateSession(),
+        FormAuthSessionValidity.unavailable,
+        reason: location,
+      );
       expect(adapter.requests, hasLength(1));
     }
   });

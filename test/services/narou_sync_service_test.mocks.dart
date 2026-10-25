@@ -279,27 +279,6 @@ class MockAuthRepository extends _i1.Mock implements _i9.AuthRepository {
           as _i5.Future<String?>);
 
   @override
-  _i5.Future<void> saveVolatileSession({
-    required String? narouid,
-    required String? username,
-    required String? ks2,
-    required String? ses,
-    required String? userl,
-  }) =>
-      (super.noSuchMethod(
-            Invocation.method(#saveVolatileSession, [], {
-              #narouid: narouid,
-              #username: username,
-              #ks2: ks2,
-              #ses: ses,
-              #userl: userl,
-            }),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
-          )
-          as _i5.Future<void>);
-
-  @override
   _i5.Future<void> saveSessionCookies({
     required String? ks2,
     required String? ses,
@@ -325,6 +304,14 @@ class MockAuthRepository extends _i1.Mock implements _i9.AuthRepository {
           as _i5.Future<Map<String, String>?>);
 
   @override
+  _i5.Future<_i9.AuthSessionSnapshot?> getSessionSnapshot() =>
+      (super.noSuchMethod(
+            Invocation.method(#getSessionSnapshot, []),
+            returnValue: _i5.Future<_i9.AuthSessionSnapshot?>.value(),
+          )
+          as _i5.Future<_i9.AuthSessionSnapshot?>);
+
+  @override
   _i5.Future<bool> hasSessionCookies() =>
       (super.noSuchMethod(
             Invocation.method(#hasSessionCookies, []),
@@ -333,9 +320,16 @@ class MockAuthRepository extends _i1.Mock implements _i9.AuthRepository {
           as _i5.Future<bool>);
 
   @override
-  _i5.Future<void> updateSessionCookieHeaders(List<String>? headers) =>
+  _i5.Future<void> updateSessionCookieHeaders(
+    List<String>? headers, {
+    String? expectedCookieHeader,
+  }) =>
       (super.noSuchMethod(
-            Invocation.method(#updateSessionCookieHeaders, [headers]),
+            Invocation.method(
+              #updateSessionCookieHeaders,
+              [headers],
+              {#expectedCookieHeader: expectedCookieHeader},
+            ),
             returnValue: _i5.Future<void>.value(),
             returnValueForMissingStub: _i5.Future<void>.value(),
           )
@@ -349,6 +343,32 @@ class MockAuthRepository extends _i1.Mock implements _i9.AuthRepository {
             returnValueForMissingStub: _i5.Future<void>.value(),
           )
           as _i5.Future<void>);
+
+  @override
+  _i5.Future<bool> clearAllIfSessionCookieHeaderMatches(
+    String? expectedCookieHeader,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#clearAllIfSessionCookieHeaderMatches, [
+              expectedCookieHeader,
+            ]),
+            returnValue: _i5.Future<bool>.value(false),
+          )
+          as _i5.Future<bool>);
+
+  @override
+  _i5.Future<bool> clearAllIfSessionCookieHeaderAndGenerationMatches(
+    int? expectedGeneration,
+    String? expectedCookieHeader,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #clearAllIfSessionCookieHeaderAndGenerationMatches,
+              [expectedGeneration, expectedCookieHeader],
+            ),
+            returnValue: _i5.Future<bool>.value(false),
+          )
+          as _i5.Future<bool>);
 
   @override
   _i5.Future<String?> buildCookieHeader() =>

@@ -12,11 +12,15 @@ import 'package:novelty/services/api_service.dart';
 import 'package:novelty/services/http_client.dart';
 import 'package:novelty/services/narou_auth_service.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/narou_uri_utils.dart';
 import 'package:novelty/utils/ncode_utils.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'narou_sync_service.g.dart';
+
+const _skipNarouSessionCookieInterceptorExtra =
+    'skipNarouSessionCookieInterceptor';
 
 /// なろうへのブックマーク登録処理の結果。
 enum NarouBookmarkSyncOutcome {
@@ -45,10 +49,22 @@ class NarouBookmarkFetchException implements Exception {
 /// なろうの保存済みセッションが失効している場合の例外。
 class NarouSessionExpiredException implements Exception {
   /// コンストラクタ。
-  const NarouSessionExpiredException();
+  const NarouSessionExpiredException({this.cookieHeader, this.generation});
+
+  /// 失効と判定したリクエストで使用したCookie。
+  final String? cookieHeader;
+
+  /// リクエスト開始時に使ったログイン世代。
+  final int? generation;
 
   @override
   String toString() => 'NarouSessionExpiredException';
+}
+
+class _NarouSyncSession {
+  const _NarouSyncSession({required this.generation});
+
+  final int generation;
 }
 
 class _NarouSessionCookieInterceptor extends Interceptor {
@@ -62,15 +78,19 @@ class _NarouSessionCookieInterceptor extends Interceptor {
     ResponseInterceptorHandler handler,
   ) async {
     final request = response.requestOptions;
+    final cookieHeader = _cookieHeaderFromHeaders(request.headers);
     final isFirstPartySessionRequest =
         request.uri.scheme == 'https' &&
         request.uri.host == 'syosetu.com' &&
         request.uri.port == 443 &&
-        request.headers.keys.any((key) => key.toLowerCase() == 'cookie');
-    if (isFirstPartySessionRequest) {
+        cookieHeader != null;
+    if (isFirstPartySessionRequest &&
+        request.extra[_skipNarouSessionCookieInterceptorExtra] != true &&
+        !_isNarouUnauthenticatedResponse(response)) {
       try {
         await _authRepository.updateSessionCookieHeaders(
           response.headers.map['set-cookie'],
+          expectedCookieHeader: cookieHeader,
         );
       } on Exception catch (error) {
         debugPrint('[NarouSync] Cookie更新保存失敗 type=${error.runtimeType}');
@@ -78,6 +98,33 @@ class _NarouSessionCookieInterceptor extends Interceptor {
     }
     handler.next(response);
   }
+}
+
+bool _isNarouUnauthenticatedResponse(Response<dynamic> response) {
+  if (response.statusCode == 401 || isNarouLoginUri(response.realUri)) {
+    return true;
+  }
+  final location = response.headers.value('location');
+  if (location != null && isNarouLoginUri(response.realUri.resolve(location))) {
+    return true;
+  }
+  final body = response.data;
+  final contentType = response.headers
+      .value(Headers.contentTypeHeader)
+      ?.toLowerCase();
+  return body is String &&
+      contentType?.contains('text/html') == true &&
+      parser.parse(body).querySelector('form[action*="/login/login/"]') != null;
+}
+
+String? _cookieHeaderFromHeaders(Map<String, dynamic> headers) {
+  for (final entry in headers.entries) {
+    if (entry.key.toLowerCase() != 'cookie') continue;
+    final value = entry.value;
+    if (value == null) return null;
+    return value is Iterable ? value.join('; ') : value.toString();
+  }
+  return null;
 }
 
 /// [NarouSyncService.addBookmarkToNarou]の結果。
@@ -135,7 +182,15 @@ class NarouSyncService {
            createNoveltyDio(
              rateLimiter: rateLimiter,
            ) {
-    _dio.interceptors.add(_NarouSessionCookieInterceptor(authRepository));
+    final alreadyRegistered = _dio.interceptors
+        .whereType<_NarouSessionCookieInterceptor>()
+        .any(
+          (interceptor) =>
+              identical(interceptor._authRepository, authRepository),
+        );
+    if (!alreadyRegistered) {
+      _dio.interceptors.add(_NarouSessionCookieInterceptor(authRepository));
+    }
   }
 
   /// 認証情報リポジトリ。
@@ -165,41 +220,59 @@ class NarouSyncService {
   ///
   /// 戻り値：同期した小説のncodeリスト。
   Future<List<String>> syncBookmarksFromNarou() async {
-    final cookieHeader = await authRepository.buildCookieHeader();
-    if (cookieHeader == null) return [];
+    final snapshot = await authRepository.getSessionSnapshot();
+    if (snapshot == null) return [];
 
-    final entries = await _fetchAllBookmarkEntries(cookieHeader);
+    final session = _NarouSyncSession(generation: snapshot.generation);
+    final entries = await _fetchAllBookmarkEntries(session);
     if (entries.isEmpty) return [];
 
     final syncedNcodes = <String>[];
-    for (final entry in entries) {
-      final ncode = entry.ncode;
-      // LibraryEntriesの外部キー制約のため、先にNovelsテーブルにレコードを確保する
-      await db.ensureNovelExists(NovelSource.narou, ncode);
-      // ローカルライブラリに追加（すでに存在する場合は無視）
-      await db.addToLibrary(NovelSource.narou, ncode);
-      // なろう側で確認済みのブックマークのため同期済みとして記録する
-      await db.markNarouBookmarkSynced(NovelSource.narou, ncode);
-      syncedNcodes.add(ncode);
+    final committed = await authRepository.runIfSessionSnapshotMatches(
+      snapshot,
+      () async {
+        await db.transaction(() async {
+          for (final entry in entries) {
+            final ncode = entry.ncode;
+            // LibraryEntriesの外部キー制約のため、先にNovelsテーブルにレコードを確保する
+            await db.ensureNovelExists(NovelSource.narou, ncode);
+            // ローカルライブラリに追加（すでに存在する場合は無視）
+            await db.addToLibrary(NovelSource.narou, ncode);
+            // なろう側で確認済みのブックマークのため同期済みとして記録する
+            await db.markNarouBookmarkSynced(NovelSource.narou, ncode);
+            syncedNcodes.add(ncode);
 
-      // しおり位置をローカル履歴と比較して新しい方を採用する
-      if (entry.shioriEpisode != null) {
-        final localHistory = await db.getReadingHistoryEntry(
-          NovelSource.narou,
-          ncode,
-        );
-        final localEpisode = localHistory?.lastEpisodeId;
-        if (localEpisode == null || entry.shioriEpisode! > localEpisode) {
-          await db.addToHistory(
-            ReadingHistoryCompanion(
-              source: const drift.Value(NovelSource.narou),
-              workId: drift.Value(ncode),
-              lastEpisodeId: drift.Value(entry.shioriEpisode),
-              viewedAt: drift.Value(DateTime.now().millisecondsSinceEpoch),
-            ),
-          );
-        }
+            // しおり位置をローカル履歴と比較して新しい方を採用する
+            if (entry.shioriEpisode != null) {
+              final localHistory = await db.getReadingHistoryEntry(
+                NovelSource.narou,
+                ncode,
+              );
+              final localEpisode = localHistory?.lastEpisodeId;
+              if (localEpisode == null || entry.shioriEpisode! > localEpisode) {
+                await db.addToHistory(
+                  ReadingHistoryCompanion(
+                    source: const drift.Value(NovelSource.narou),
+                    workId: drift.Value(ncode),
+                    lastEpisodeId: drift.Value(entry.shioriEpisode),
+                    viewedAt: drift.Value(
+                      DateTime.now().millisecondsSinceEpoch,
+                    ),
+                  ),
+                );
+              }
+            }
+          }
+        });
+      },
+    );
+    if (!committed) {
+      if (await authRepository.getSessionSnapshot() == null) {
+        throw NarouSessionExpiredException(generation: snapshot.generation);
       }
+      throw const NarouBookmarkFetchException(
+        '同期中に認証情報が更新されたため処理を中断しました',
+      );
     }
 
     // APIから小説メタデータを一括取得してDBを更新する（認証Cookie不要）
@@ -225,12 +298,12 @@ class NarouSyncService {
 
   /// ブックマーク一覧ページを全ページ走査してエントリーを取得する。
   Future<List<NarouBookmarkEntry>> _fetchAllBookmarkEntries(
-    String cookieHeader,
+    _NarouSyncSession session,
   ) async {
     final allEntries = <NarouBookmarkEntry>[];
     var page = 1;
     while (true) {
-      final entries = await _fetchBookmarkPage(cookieHeader, page);
+      final entries = await _fetchBookmarkPage(session, page);
       if (entries.isEmpty) break;
       allEntries.addAll(entries);
       if (entries.length < 50) {
@@ -244,7 +317,7 @@ class NarouSyncService {
 
   /// ブックマーク一覧ページ1ページ分を取得・解析する。
   Future<List<NarouBookmarkEntry>> _fetchBookmarkPage(
-    String cookieHeader,
+    _NarouSyncSession session,
     int page,
   ) async {
     var current = Uri.parse(
@@ -263,16 +336,29 @@ class NarouSyncService {
         );
       }
 
-      final response = await _fetchBookmarkHttpPage(current, cookieHeader);
+      final requestCookieHeader = await _cookieHeaderForSession(session);
+      final response = await _fetchBookmarkHttpPage(
+        current,
+        requestCookieHeader,
+      );
       if (!_isTrustedNarouSyncUri(response.realUri)) {
         throw const NarouBookmarkFetchException(
           'なろうブックマーク一覧の応答先を確認できませんでした',
         );
       }
       if (_isNarouLoginPage(response.realUri)) {
-        throw const NarouSessionExpiredException();
+        throw NarouSessionExpiredException(
+          cookieHeader: requestCookieHeader,
+          generation: session.generation,
+        );
       }
       final statusCode = response.statusCode ?? 0;
+      if (statusCode == 401) {
+        throw NarouSessionExpiredException(
+          cookieHeader: requestCookieHeader,
+          generation: session.generation,
+        );
+      }
       if (statusCode >= 300 && statusCode < 400) {
         final location = response.headers.value('location');
         if (location == null || location.isEmpty) {
@@ -282,7 +368,10 @@ class NarouSyncService {
         }
         final target = response.realUri.resolve(location);
         if (_isNarouLoginPage(target)) {
-          throw const NarouSessionExpiredException();
+          throw NarouSessionExpiredException(
+            cookieHeader: requestCookieHeader,
+            generation: session.generation,
+          );
         }
         if (!_isTrustedNarouSyncUri(target)) {
           throw const NarouBookmarkFetchException(
@@ -294,6 +383,10 @@ class NarouSyncService {
             'なろうブックマーク一覧の転送回数が上限を超えました',
           );
         }
+        await authRepository.updateSessionCookieHeaders(
+          response.headers.map['set-cookie'],
+          expectedCookieHeader: requestCookieHeader,
+        );
         current = target;
         continue;
       }
@@ -313,13 +406,34 @@ class NarouSyncService {
           .parse(body)
           .querySelector('form[action*="/login/login/"]');
       if (loginForm != null) {
-        throw const NarouSessionExpiredException();
+        throw NarouSessionExpiredException(
+          cookieHeader: requestCookieHeader,
+          generation: session.generation,
+        );
       }
+      await authRepository.updateSessionCookieHeaders(
+        response.headers.map['set-cookie'],
+        expectedCookieHeader: requestCookieHeader,
+      );
       return _parseBookmarkListHtml(body);
     }
     throw const NarouBookmarkFetchException(
       'なろうブックマーク一覧の転送回数が上限を超えました',
     );
+  }
+
+  Future<String> _cookieHeaderForSession(_NarouSyncSession session) async {
+    final generation = session.generation;
+    final current = await authRepository.getSessionSnapshot();
+    if (current == null) {
+      throw NarouSessionExpiredException(generation: generation);
+    }
+    if (current.generation != generation) {
+      throw const NarouBookmarkFetchException(
+        '同期中に認証情報が更新されたため処理を中断しました',
+      );
+    }
+    return current.cookieHeader;
   }
 
   Future<Response<String>> _fetchBookmarkHttpPage(
@@ -333,6 +447,9 @@ class NarouSyncService {
           headers: {
             'User-Agent': narouUserAgent,
             'Cookie': cookieHeader,
+          },
+          extra: {
+            _skipNarouSessionCookieInterceptorExtra: true,
           },
           followRedirects: false,
           validateStatus: (status) => status != null && status < 600,
@@ -350,14 +467,9 @@ class NarouSyncService {
     }
   }
 
-  bool _isTrustedNarouSyncUri(Uri uri) =>
-      uri.scheme == 'https' &&
-      uri.host == 'syosetu.com' &&
-      uri.port == 443 &&
-      uri.userInfo.isEmpty;
+  bool _isTrustedNarouSyncUri(Uri uri) => isTrustedNarouUri(uri);
 
-  bool _isNarouLoginPage(Uri uri) =>
-      _isTrustedNarouSyncUri(uri) && uri.path.startsWith('/login');
+  bool _isNarouLoginPage(Uri uri) => isNarouLoginUri(uri);
 
   /// ブックマーク一覧HTMLを解析してエントリーリストを返す。
   ///

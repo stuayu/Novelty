@@ -7,6 +7,7 @@ import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/http_client.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/http_cookie.dart';
+import 'package:novelty/utils/narou_uri_utils.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 part 'narou_auth_service.g.dart';
@@ -14,6 +15,18 @@ part 'narou_auth_service.g.dart';
 const _loginUrl = 'https://syosetu.com/login/login/';
 const _loginInputUrl = 'https://syosetu.com/login/input/';
 const _bookmarkListUrl = 'https://syosetu.com/favnovelmain/list/';
+
+/// 保存済みセッションの検証結果。
+enum NarouSessionValidity {
+  /// 認証済みページを確認できた。
+  valid,
+
+  /// なろうのログイン画面を確認した。
+  invalid,
+
+  /// 通信エラーなどにより状態を確認できなかった。
+  unavailable,
+}
 
 /// なろうへのHTTPリクエストで使用するUser-Agent。
 const narouUserAgent =
@@ -348,6 +361,14 @@ class NarouAuthService {
     final cookieHeader = await authRepository.buildCookieHeader();
     if (cookieHeader == null) return false;
 
+    return await validateSession(cookieHeader) == NarouSessionValidity.valid;
+  }
+
+  /// 指定したセッションCookieの有効性を確認する。
+  ///
+  /// 401、ログイン画面への転送、ログインフォームが確認された場合に
+  /// [NarouSessionValidity.invalid]を返し、それ以外の異常は確認不能として扱う。
+  Future<NarouSessionValidity> validateSession(String cookieHeader) async {
     try {
       final response = await _dio.get<String>(
         _bookmarkListUrl,
@@ -361,18 +382,29 @@ class NarouAuthService {
           responseType: ResponseType.plain,
         ),
       );
+      final statusCode = response.statusCode;
+      if (statusCode != null && statusCode >= 300 && statusCode < 400) {
+        final redirect = _responseRedirect(response);
+        return redirect != null && _isNarouLoginUri(redirect)
+            ? NarouSessionValidity.invalid
+            : NarouSessionValidity.unavailable;
+      }
+      if (statusCode == 401) return NarouSessionValidity.invalid;
       final data = response.data;
-      if (response.statusCode != 200 ||
-          !_isNarouBookmarkListUri(response.realUri) ||
-          data == null) {
-        return false;
+      if (statusCode != 200 || !_isNarouBookmarkListUri(response.realUri)) {
+        return NarouSessionValidity.unavailable;
+      }
+      if (_isNarouLoginPageHtml(data)) return NarouSessionValidity.invalid;
+      if (!_isAuthenticatedBookmarkListHtml(data)) {
+        return NarouSessionValidity.unavailable;
       }
       await authRepository.updateSessionCookieHeaders(
         response.headers.map['set-cookie'],
+        expectedCookieHeader: cookieHeader,
       );
-      return _isAuthenticatedBookmarkListHtml(data);
+      return NarouSessionValidity.valid;
     } on Exception {
-      return false;
+      return NarouSessionValidity.unavailable;
     }
   }
 
@@ -467,13 +499,20 @@ class NarouAuthService {
   bool _isAuthenticatedBookmarkListHtml(String? html) {
     if (html == null || html.isEmpty) return false;
     final document = parser.parse(html);
-    final hasLoginForm =
-        document.querySelector('form[action*="/login/login/"]') != null;
+    final hasLoginForm = _hasNarouLoginForm(document);
     final hasBookmarkPage =
         document.querySelector('.p-up-bookmark-item') != null ||
         _extractUsername(html) != null;
     return !hasLoginForm && hasBookmarkPage;
   }
+
+  bool _isNarouLoginPageHtml(String? html) {
+    if (html == null || html.isEmpty) return false;
+    return _hasNarouLoginForm(parser.parse(html));
+  }
+
+  bool _hasNarouLoginForm(Document document) =>
+      document.querySelector('form[action*="/login/login/"]') != null;
 
   Future<String?> _fetchAuthenticatedBookmarkList(
     Map<String, String> cookies,
@@ -508,17 +547,15 @@ class NarouAuthService {
     return response.realUri.resolve(location);
   }
 
-  bool _isNarouUri(Uri uri) =>
-      uri.scheme == 'https' &&
-      uri.host == 'syosetu.com' &&
-      uri.port == 443 &&
-      uri.userInfo.isEmpty;
+  bool _isNarouUri(Uri uri) => isTrustedNarouUri(uri);
 
   bool _isNarouBookmarkListUri(Uri uri) =>
       _isNarouUri(uri) &&
       uri.path == Uri.parse(_bookmarkListUrl).path &&
       uri.query.isEmpty &&
       uri.fragment.isEmpty;
+
+  bool _isNarouLoginUri(Uri uri) => isNarouLoginUri(uri);
 
   bool _isNarouLoginAction(Uri uri) =>
       _isNarouUri(uri) && uri.path == Uri.parse(_loginUrl).path;
@@ -586,6 +623,16 @@ class NarouAuthService {
     if (codeField == null || codeField.isEmpty) return null;
     final action = _formAction(form, pageUri, fallback: pageUri);
     if (!_isNarouMfaAction(action)) return null;
+    final hasTotpOption = document.querySelectorAll('a[href]').any((anchor) {
+      final href = anchor.attributes['href'];
+      return href != null && _isNarouTotpPage(pageUri.resolve(href));
+    });
+    final emailCodeChallenge =
+        pageUri.path.startsWith('/user2stepauth/emailinput/') ||
+        action.path.startsWith('/user2stepauth/emailauth/') ||
+        codeField.toLowerCase().contains('email') ||
+        pageText.contains('メール認証') ||
+        pageText.contains('登録メールに送信');
     return _PendingNarouMfa(
       action: action,
       pageUri: pageUri,
@@ -593,7 +640,7 @@ class NarouAuthService {
       hiddenFields: _hiddenFields(form),
       cookies: Map<String, String>.of(cookies),
       narouid: narouid,
-      usedEmail: usedEmail,
+      usedEmail: usedEmail || (emailCodeChallenge && !hasTotpOption),
       rememberSession: rememberSession,
     );
   }

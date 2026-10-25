@@ -169,7 +169,7 @@ class AccountTile extends ConsumerWidget {
     final authAsync = ref.watch(accountAuthStateProvider(source));
     return authAsync.when(
       data: (authState) {
-        if (!authState.isLoggedIn) {
+        if (!authState.hasSession) {
           return ListTile(
             leading: const Icon(Icons.login),
             title: Text(source.label),
@@ -179,12 +179,41 @@ class AccountTile extends ConsumerWidget {
           );
         }
 
+        final subtitle = authState.isVerified
+            ? Text(authState.displayName ?? 'ログイン済み')
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (authState.displayName != null)
+                    Text(authState.displayName!),
+                  const Text('セッションの状態を確認できません'),
+                ],
+              );
+
         return ExpansionTile(
-          leading: const Icon(Icons.account_circle),
+          leading: Icon(
+            authState.isVerified
+                ? Icons.account_circle
+                : Icons.cloud_off_outlined,
+          ),
           title: Text(source.label),
-          subtitle: Text(authState.displayName ?? 'ログイン済み'),
+          subtitle: subtitle,
           children: [
-            if (configuration.syncEnabled)
+            if (!authState.isVerified) ...[
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('認証状態を再確認'),
+                subtitle: const Text('保存済みの認証情報は保持されています'),
+                onTap: () => ref.invalidate(accountAuthStateProvider(source)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.login),
+                title: const Text('ログインし直す'),
+                onTap: () => _login(context, ref),
+              ),
+            ],
+            if (configuration.syncEnabled && authState.isLoggedIn)
               ListTile(
                 leading: const Icon(Icons.sync),
                 title: Text(configuration.syncLabel),
@@ -241,11 +270,13 @@ class AccountTile extends ConsumerWidget {
           content: Text('$count ${configuration.syncSuccessNoun}を同期しました'),
         ),
       );
-    } on AccountSessionExpiredException {
-      try {
-        await adapter.logout();
-      } on Exception {
-        // 認証情報の削除に失敗しても認証状態は再評価する。
+    } on AccountSessionExpiredException catch (error) {
+      if (error.clearSessionOnCatch) {
+        try {
+          await adapter.logout();
+        } on Exception {
+          // 認証情報の削除に失敗しても認証状態は再評価する。
+        }
       }
       ref.invalidate(accountAuthStateProvider(source));
       if (!context.mounted) return;
