@@ -119,6 +119,49 @@ void main() {
       expect(novels[2].workId, 'n1234ab');
     });
 
+    test('同じ追加日時ではサイトと作品IDで安定してソートされること', () async {
+      const addedAt = 123456789;
+      final entries = [
+        (NovelSource.kakuyomu, 'kaku-z'),
+        (NovelSource.alphapolis, 'alpha-z'),
+        (NovelSource.kakuyomu, 'kaku-a'),
+        (NovelSource.alphapolis, 'alpha-a'),
+      ];
+
+      for (final (source, workId) in entries) {
+        await database
+            .into(database.novels)
+            .insert(
+              NovelsCompanion(
+                source: Value(source),
+                workId: Value(workId),
+                title: Value('Title $workId'),
+              ),
+            );
+        await database
+            .into(database.libraryEntries)
+            .insert(
+              LibraryEntriesCompanion(
+                source: Value(source),
+                workId: Value(workId),
+                addedAt: const Value(addedAt),
+              ),
+            );
+      }
+
+      final novels = await database.getLibraryNovels();
+
+      expect(
+        novels.map((novel) => '${novel.source.dbId}:${novel.workId}'),
+        [
+          'alphapolis:alpha-a',
+          'alphapolis:alpha-z',
+          'kakuyomu:kaku-a',
+          'kakuyomu:kaku-z',
+        ],
+      );
+    });
+
     test('なろう同期状態の初期値はfalseであること', () async {
       const ncode = 'n1234ab';
       await insertDummyNovel(ncode);

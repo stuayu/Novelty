@@ -122,6 +122,20 @@ class MockAuthRepository extends _i1.Mock implements _i2.AuthRepository {
           as _i3.Future<_i2.AuthSessionSnapshot?>);
 
   @override
+  _i3.Future<bool> runIfSessionSnapshotMatches(
+    _i2.AuthSessionSnapshot? snapshot,
+    _i3.Future<void> Function()? operation,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#runIfSessionSnapshotMatches, [
+              snapshot,
+              operation,
+            ]),
+            returnValue: _i3.Future<bool>.value(false),
+          )
+          as _i3.Future<bool>);
+
+  @override
   _i3.Future<bool> hasSessionCookies() =>
       (super.noSuchMethod(
             Invocation.method(#hasSessionCookies, []),

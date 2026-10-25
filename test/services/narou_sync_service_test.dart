@@ -30,9 +30,10 @@ class _TestAppDatabase extends MockAppDatabase {
 class _TestAuthRepository extends MockAuthRepository {
   @override
   Future<bool> runIfSessionSnapshotMatches(
-    AuthSessionSnapshot snapshot,
-    Future<void> Function() operation,
+    AuthSessionSnapshot? snapshot,
+    Future<void> Function()? operation,
   ) async {
+    if (snapshot == null || operation == null) return false;
     final current = await getSessionSnapshot();
     if (current == null ||
         current.generation != snapshot.generation ||

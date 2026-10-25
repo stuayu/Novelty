@@ -337,6 +337,9 @@ class Novels extends Table {
   /// キャッシュ日時(?)
   IntColumn get cachedAt => integer().nullable()();
 
+  /// ライブラリメタデータを最後に再取得した日時（UNIXミリ秒）。
+  IntColumn get metadataRefreshAttemptedAt => integer().nullable()();
+
   /// 非公開(凍結・削除等)かどうか
   /// true: 非公開、false: 公開中
   BoolColumn get isPrivate => boolean().withDefault(const Constant(false))();
@@ -622,7 +625,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   /// 現在のデータベーススキーマバージョン
-  static const int currentSchemaVersion = 23;
+  static const int currentSchemaVersion = 24;
 
   @override
   int get schemaVersion => currentSchemaVersion;
@@ -882,6 +885,10 @@ class AppDatabase extends _$AppDatabase {
 
           if (from < 23) {
             await _migrateToV23();
+          }
+
+          if (from < 24) {
+            await _migrateToV24(m);
           }
         } on MigrationException {
           rethrow;
@@ -1296,6 +1303,14 @@ class AppDatabase extends _$AppDatabase {
     ''');
   }
 
+  Future<void> _migrateToV24(Migrator m) async {
+    // メタデータが取得不能な作品の再試行を抑え、次の作品へ進める。
+    await m.addColumnIfNotExists(
+      novels,
+      novels.metadataRefreshAttemptedAt,
+    );
+  }
+
   /// 小説情報の取得
   Future<Novel?> getNovel(NovelSource source, String workId) {
     return (select(novels)..where(
@@ -1388,13 +1403,18 @@ class AppDatabase extends _$AppDatabase {
 
   /// ライブラリの小説リストを取得（追加日時の降順）
   Future<List<Novel>> getLibraryNovels() async {
-    final query = select(libraryEntries).join([
-      innerJoin(
-        novels,
-        novels.source.equalsExp(libraryEntries.source) &
-            novels.workId.equalsExp(libraryEntries.workId),
-      ),
-    ])..orderBy([OrderingTerm.desc(libraryEntries.addedAt)]);
+    final query =
+        select(libraryEntries).join([
+          innerJoin(
+            novels,
+            novels.source.equalsExp(libraryEntries.source) &
+                novels.workId.equalsExp(libraryEntries.workId),
+          ),
+        ])..orderBy([
+          OrderingTerm.desc(libraryEntries.addedAt),
+          OrderingTerm.asc(libraryEntries.source),
+          OrderingTerm.asc(libraryEntries.workId),
+        ]);
 
     final results = await query.get();
     return results.map((row) => row.readTable(novels)).toList();
@@ -1407,18 +1427,23 @@ class AppDatabase extends _$AppDatabase {
   /// [Novel]と併せて返す。閲覧履歴が無い小説は[LibraryNovelEntry.lastViewedAt]が
   /// `null`になる。
   Stream<List<LibraryNovelEntry>> watchLibraryNovels() {
-    final query = select(libraryEntries).join([
-      innerJoin(
-        novels,
-        novels.source.equalsExp(libraryEntries.source) &
-            novels.workId.equalsExp(libraryEntries.workId),
-      ),
-      leftOuterJoin(
-        readingHistory,
-        readingHistory.source.equalsExp(libraryEntries.source) &
-            readingHistory.workId.equalsExp(libraryEntries.workId),
-      ),
-    ])..orderBy([OrderingTerm.desc(libraryEntries.addedAt)]);
+    final query =
+        select(libraryEntries).join([
+          innerJoin(
+            novels,
+            novels.source.equalsExp(libraryEntries.source) &
+                novels.workId.equalsExp(libraryEntries.workId),
+          ),
+          leftOuterJoin(
+            readingHistory,
+            readingHistory.source.equalsExp(libraryEntries.source) &
+                readingHistory.workId.equalsExp(libraryEntries.workId),
+          ),
+        ])..orderBy([
+          OrderingTerm.desc(libraryEntries.addedAt),
+          OrderingTerm.asc(libraryEntries.source),
+          OrderingTerm.asc(libraryEntries.workId),
+        ]);
 
     return query.watch().map(
       (rows) => rows
@@ -1549,6 +1574,20 @@ class AppDatabase extends _$AppDatabase {
           NovelsCompanion(
             isPrivate: Value(isPrivate),
           ),
+        );
+  }
+
+  /// ライブラリメタデータの再取得を試した日時を記録する。
+  Future<int> recordMetadataRefreshAttempt(
+    NovelSource source,
+    String workId,
+    int attemptedAt,
+  ) {
+    return (update(
+          novels,
+        )..where((t) => t.source.equalsValue(source) & t.workId.equals(workId)))
+        .write(
+          NovelsCompanion(metadataRefreshAttemptedAt: Value(attemptedAt)),
         );
   }
 

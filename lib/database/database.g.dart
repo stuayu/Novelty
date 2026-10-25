@@ -383,6 +383,17 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const drift.VerificationMeta _metadataRefreshAttemptedAtMeta =
+      const drift.VerificationMeta('metadataRefreshAttemptedAt');
+  @override
+  late final drift.GeneratedColumn<int> metadataRefreshAttemptedAt =
+      drift.GeneratedColumn<int>(
+        'metadata_refresh_attempted_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      );
   static const drift.VerificationMeta _isPrivateMeta =
       const drift.VerificationMeta('isPrivate');
   @override
@@ -435,6 +446,7 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
     totalCharacterCount,
     novelUpdatedAt,
     cachedAt,
+    metadataRefreshAttemptedAt,
     isPrivate,
   ];
   @override
@@ -694,6 +706,15 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
         cachedAt.isAcceptableOrUnknown(data['cached_at']!, _cachedAtMeta),
       );
     }
+    if (data.containsKey('metadata_refresh_attempted_at')) {
+      context.handle(
+        _metadataRefreshAttemptedAtMeta,
+        metadataRefreshAttemptedAt.isAcceptableOrUnknown(
+          data['metadata_refresh_attempted_at']!,
+          _metadataRefreshAttemptedAtMeta,
+        ),
+      );
+    }
     if (data.containsKey('is_private')) {
       context.handle(
         _isPrivateMeta,
@@ -851,6 +872,10 @@ class $NovelsTable extends Novels with drift.TableInfo<$NovelsTable, Novel> {
         DriftSqlType.int,
         data['${effectivePrefix}cached_at'],
       ),
+      metadataRefreshAttemptedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}metadata_refresh_attempted_at'],
+      ),
       isPrivate: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_private'],
@@ -978,6 +1003,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
   /// キャッシュ日時(?)
   final int? cachedAt;
 
+  /// ライブラリメタデータを最後に再取得した日時（UNIXミリ秒）。
+  final int? metadataRefreshAttemptedAt;
+
   /// 非公開(凍結・削除等)かどうか
   /// true: 非公開、false: 公開中
   final bool isPrivate;
@@ -1017,6 +1045,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     this.totalCharacterCount,
     this.novelUpdatedAt,
     this.cachedAt,
+    this.metadataRefreshAttemptedAt,
     required this.isPrivate,
   });
   @override
@@ -1127,6 +1156,11 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     if (!nullToAbsent || cachedAt != null) {
       map['cached_at'] = drift.Variable<int>(cachedAt);
     }
+    if (!nullToAbsent || metadataRefreshAttemptedAt != null) {
+      map['metadata_refresh_attempted_at'] = drift.Variable<int>(
+        metadataRefreshAttemptedAt,
+      );
+    }
     map['is_private'] = drift.Variable<bool>(isPrivate);
     return map;
   }
@@ -1234,6 +1268,10 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       cachedAt: cachedAt == null && nullToAbsent
           ? const drift.Value.absent()
           : drift.Value(cachedAt),
+      metadataRefreshAttemptedAt:
+          metadataRefreshAttemptedAt == null && nullToAbsent
+          ? const drift.Value.absent()
+          : drift.Value(metadataRefreshAttemptedAt),
       isPrivate: drift.Value(isPrivate),
     );
   }
@@ -1281,6 +1319,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       ),
       novelUpdatedAt: serializer.fromJson<String?>(json['novelUpdatedAt']),
       cachedAt: serializer.fromJson<int?>(json['cachedAt']),
+      metadataRefreshAttemptedAt: serializer.fromJson<int?>(
+        json['metadataRefreshAttemptedAt'],
+      ),
       isPrivate: serializer.fromJson<bool>(json['isPrivate']),
     );
   }
@@ -1323,6 +1364,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
       'totalCharacterCount': serializer.toJson<int?>(totalCharacterCount),
       'novelUpdatedAt': serializer.toJson<String?>(novelUpdatedAt),
       'cachedAt': serializer.toJson<int?>(cachedAt),
+      'metadataRefreshAttemptedAt': serializer.toJson<int?>(
+        metadataRefreshAttemptedAt,
+      ),
       'isPrivate': serializer.toJson<bool>(isPrivate),
     };
   }
@@ -1363,6 +1407,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     drift.Value<int?> totalCharacterCount = const drift.Value.absent(),
     drift.Value<String?> novelUpdatedAt = const drift.Value.absent(),
     drift.Value<int?> cachedAt = const drift.Value.absent(),
+    drift.Value<int?> metadataRefreshAttemptedAt = const drift.Value.absent(),
     bool? isPrivate,
   }) => Novel(
     source: source ?? this.source,
@@ -1408,6 +1453,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
         ? novelUpdatedAt.value
         : this.novelUpdatedAt,
     cachedAt: cachedAt.present ? cachedAt.value : this.cachedAt,
+    metadataRefreshAttemptedAt: metadataRefreshAttemptedAt.present
+        ? metadataRefreshAttemptedAt.value
+        : this.metadataRefreshAttemptedAt,
     isPrivate: isPrivate ?? this.isPrivate,
   );
   Novel copyWithCompanion(NovelsCompanion data) {
@@ -1477,6 +1525,9 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
           ? data.novelUpdatedAt.value
           : this.novelUpdatedAt,
       cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
+      metadataRefreshAttemptedAt: data.metadataRefreshAttemptedAt.present
+          ? data.metadataRefreshAttemptedAt.value
+          : this.metadataRefreshAttemptedAt,
       isPrivate: data.isPrivate.present ? data.isPrivate.value : this.isPrivate,
     );
   }
@@ -1519,6 +1570,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
           ..write('totalCharacterCount: $totalCharacterCount, ')
           ..write('novelUpdatedAt: $novelUpdatedAt, ')
           ..write('cachedAt: $cachedAt, ')
+          ..write('metadataRefreshAttemptedAt: $metadataRefreshAttemptedAt, ')
           ..write('isPrivate: $isPrivate')
           ..write(')'))
         .toString();
@@ -1561,6 +1613,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
     totalCharacterCount,
     novelUpdatedAt,
     cachedAt,
+    metadataRefreshAttemptedAt,
     isPrivate,
   ]);
   @override
@@ -1602,6 +1655,7 @@ class Novel extends drift.DataClass implements drift.Insertable<Novel> {
           other.totalCharacterCount == this.totalCharacterCount &&
           other.novelUpdatedAt == this.novelUpdatedAt &&
           other.cachedAt == this.cachedAt &&
+          other.metadataRefreshAttemptedAt == this.metadataRefreshAttemptedAt &&
           other.isPrivate == this.isPrivate);
 }
 
@@ -1641,6 +1695,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
   final drift.Value<int?> totalCharacterCount;
   final drift.Value<String?> novelUpdatedAt;
   final drift.Value<int?> cachedAt;
+  final drift.Value<int?> metadataRefreshAttemptedAt;
   final drift.Value<bool> isPrivate;
   final drift.Value<int> rowid;
   const NovelsCompanion({
@@ -1679,6 +1734,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     this.totalCharacterCount = const drift.Value.absent(),
     this.novelUpdatedAt = const drift.Value.absent(),
     this.cachedAt = const drift.Value.absent(),
+    this.metadataRefreshAttemptedAt = const drift.Value.absent(),
     this.isPrivate = const drift.Value.absent(),
     this.rowid = const drift.Value.absent(),
   });
@@ -1718,6 +1774,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     this.totalCharacterCount = const drift.Value.absent(),
     this.novelUpdatedAt = const drift.Value.absent(),
     this.cachedAt = const drift.Value.absent(),
+    this.metadataRefreshAttemptedAt = const drift.Value.absent(),
     this.isPrivate = const drift.Value.absent(),
     this.rowid = const drift.Value.absent(),
   }) : source = drift.Value(source),
@@ -1758,6 +1815,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     drift.Expression<int>? totalCharacterCount,
     drift.Expression<String>? novelUpdatedAt,
     drift.Expression<int>? cachedAt,
+    drift.Expression<int>? metadataRefreshAttemptedAt,
     drift.Expression<bool>? isPrivate,
     drift.Expression<int>? rowid,
   }) {
@@ -1798,6 +1856,8 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
         'total_character_count': totalCharacterCount,
       if (novelUpdatedAt != null) 'novel_updated_at': novelUpdatedAt,
       if (cachedAt != null) 'cached_at': cachedAt,
+      if (metadataRefreshAttemptedAt != null)
+        'metadata_refresh_attempted_at': metadataRefreshAttemptedAt,
       if (isPrivate != null) 'is_private': isPrivate,
       if (rowid != null) 'rowid': rowid,
     });
@@ -1839,6 +1899,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     drift.Value<int?>? totalCharacterCount,
     drift.Value<String?>? novelUpdatedAt,
     drift.Value<int?>? cachedAt,
+    drift.Value<int?>? metadataRefreshAttemptedAt,
     drift.Value<bool>? isPrivate,
     drift.Value<int>? rowid,
   }) {
@@ -1878,6 +1939,8 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
       totalCharacterCount: totalCharacterCount ?? this.totalCharacterCount,
       novelUpdatedAt: novelUpdatedAt ?? this.novelUpdatedAt,
       cachedAt: cachedAt ?? this.cachedAt,
+      metadataRefreshAttemptedAt:
+          metadataRefreshAttemptedAt ?? this.metadataRefreshAttemptedAt,
       isPrivate: isPrivate ?? this.isPrivate,
       rowid: rowid ?? this.rowid,
     );
@@ -1995,6 +2058,11 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
     if (cachedAt.present) {
       map['cached_at'] = drift.Variable<int>(cachedAt.value);
     }
+    if (metadataRefreshAttemptedAt.present) {
+      map['metadata_refresh_attempted_at'] = drift.Variable<int>(
+        metadataRefreshAttemptedAt.value,
+      );
+    }
     if (isPrivate.present) {
       map['is_private'] = drift.Variable<bool>(isPrivate.value);
     }
@@ -2042,6 +2110,7 @@ class NovelsCompanion extends drift.UpdateCompanion<Novel> {
           ..write('totalCharacterCount: $totalCharacterCount, ')
           ..write('novelUpdatedAt: $novelUpdatedAt, ')
           ..write('cachedAt: $cachedAt, ')
+          ..write('metadataRefreshAttemptedAt: $metadataRefreshAttemptedAt, ')
           ..write('isPrivate: $isPrivate, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -4679,6 +4748,7 @@ typedef $$NovelsTableCreateCompanionBuilder =
       drift.Value<int?> totalCharacterCount,
       drift.Value<String?> novelUpdatedAt,
       drift.Value<int?> cachedAt,
+      drift.Value<int?> metadataRefreshAttemptedAt,
       drift.Value<bool> isPrivate,
       drift.Value<int> rowid,
     });
@@ -4719,6 +4789,7 @@ typedef $$NovelsTableUpdateCompanionBuilder =
       drift.Value<int?> totalCharacterCount,
       drift.Value<String?> novelUpdatedAt,
       drift.Value<int?> cachedAt,
+      drift.Value<int?> metadataRefreshAttemptedAt,
       drift.Value<bool> isPrivate,
       drift.Value<int> rowid,
     });
@@ -4905,6 +4976,11 @@ class $$NovelsTableFilterComposer
 
   drift.ColumnFilters<int> get cachedAt => $composableBuilder(
     column: $table.cachedAt,
+    builder: (column) => drift.ColumnFilters(column),
+  );
+
+  drift.ColumnFilters<int> get metadataRefreshAttemptedAt => $composableBuilder(
+    column: $table.metadataRefreshAttemptedAt,
     builder: (column) => drift.ColumnFilters(column),
   );
 
@@ -5098,6 +5174,12 @@ class $$NovelsTableOrderingComposer
     builder: (column) => drift.ColumnOrderings(column),
   );
 
+  drift.ColumnOrderings<int> get metadataRefreshAttemptedAt =>
+      $composableBuilder(
+        column: $table.metadataRefreshAttemptedAt,
+        builder: (column) => drift.ColumnOrderings(column),
+      );
+
   drift.ColumnOrderings<bool> get isPrivate => $composableBuilder(
     column: $table.isPrivate,
     builder: (column) => drift.ColumnOrderings(column),
@@ -5248,6 +5330,12 @@ class $$NovelsTableAnnotationComposer
   drift.GeneratedColumn<int> get cachedAt =>
       $composableBuilder(column: $table.cachedAt, builder: (column) => column);
 
+  drift.GeneratedColumn<int> get metadataRefreshAttemptedAt =>
+      $composableBuilder(
+        column: $table.metadataRefreshAttemptedAt,
+        builder: (column) => column,
+      );
+
   drift.GeneratedColumn<bool> get isPrivate =>
       $composableBuilder(column: $table.isPrivate, builder: (column) => column);
 }
@@ -5317,6 +5405,8 @@ class $$NovelsTableTableManager
                 drift.Value<String?> novelUpdatedAt =
                     const drift.Value.absent(),
                 drift.Value<int?> cachedAt = const drift.Value.absent(),
+                drift.Value<int?> metadataRefreshAttemptedAt =
+                    const drift.Value.absent(),
                 drift.Value<bool> isPrivate = const drift.Value.absent(),
                 drift.Value<int> rowid = const drift.Value.absent(),
               }) => NovelsCompanion(
@@ -5355,6 +5445,7 @@ class $$NovelsTableTableManager
                 totalCharacterCount: totalCharacterCount,
                 novelUpdatedAt: novelUpdatedAt,
                 cachedAt: cachedAt,
+                metadataRefreshAttemptedAt: metadataRefreshAttemptedAt,
                 isPrivate: isPrivate,
                 rowid: rowid,
               ),
@@ -5397,6 +5488,8 @@ class $$NovelsTableTableManager
                 drift.Value<String?> novelUpdatedAt =
                     const drift.Value.absent(),
                 drift.Value<int?> cachedAt = const drift.Value.absent(),
+                drift.Value<int?> metadataRefreshAttemptedAt =
+                    const drift.Value.absent(),
                 drift.Value<bool> isPrivate = const drift.Value.absent(),
                 drift.Value<int> rowid = const drift.Value.absent(),
               }) => NovelsCompanion.insert(
@@ -5435,6 +5528,7 @@ class $$NovelsTableTableManager
                 totalCharacterCount: totalCharacterCount,
                 novelUpdatedAt: novelUpdatedAt,
                 cachedAt: cachedAt,
+                metadataRefreshAttemptedAt: metadataRefreshAttemptedAt,
                 isPrivate: isPrivate,
                 rowid: rowid,
               ),

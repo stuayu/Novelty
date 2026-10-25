@@ -435,7 +435,7 @@ void main() {
         isA<MigrationException>().having(
           (e) => e.toVersion,
           'toVersion',
-          23,
+          24,
         ),
       ),
     );
@@ -464,16 +464,17 @@ void main() {
         .get();
     expect(oldTables, isEmpty);
 
-    // スキーマバージョンが19に更新されていること
+    // 最新のスキーマバージョンまで更新されていること
     final versionResult = await db
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(versionResult.read<int>('user_version'), 23);
+    expect(versionResult.read<int>('user_version'), 24);
 
     // novelsに非公開フラグが追加されていること
     final novel = await db.getNovel(NovelSource.narou, 'n1234ab');
     expect(novel, isNotNull);
     expect(novel!.isPrivate, isFalse);
+    expect(novel.metadataRefreshAttemptedAt, isNull);
   });
 
   test('v15中間状態からの修復：不完全な目次・本文行が episodes の値で上書きされること', () async {
@@ -691,5 +692,34 @@ void main() {
 
     final novel = await db.getNovel(NovelSource.narou, 'n1234ab');
     expect(novel!.isPrivate, isFalse);
+  });
+
+  test('v23からの更新でメタデータ再取得日時カラムを追加する', () async {
+    sqlite3.open(dbFile.path)
+      ..execute('''
+        CREATE TABLE novels (
+          source TEXT NOT NULL,
+          work_id TEXT NOT NULL,
+          PRIMARY KEY (source, work_id)
+        )
+      ''')
+      ..execute(
+        "INSERT INTO novels (source, work_id) VALUES ('narou', 'n1234ab')",
+      )
+      ..execute('PRAGMA user_version = 23')
+      ..close();
+
+    final db = AppDatabase.test(NativeDatabase(dbFile));
+    addTearDown(db.close);
+
+    final columns = await db.customSelect('PRAGMA table_info(novels)').get();
+    expect(
+      columns.map((column) => column.data['name']),
+      contains('metadata_refresh_attempted_at'),
+    );
+    final rows = await db
+        .customSelect('SELECT source, work_id FROM novels')
+        .get();
+    expect(rows.single.data, {'source': 'narou', 'work_id': 'n1234ab'});
   });
 }

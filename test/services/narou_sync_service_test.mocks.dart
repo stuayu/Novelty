@@ -312,6 +312,20 @@ class MockAuthRepository extends _i1.Mock implements _i9.AuthRepository {
           as _i5.Future<_i9.AuthSessionSnapshot?>);
 
   @override
+  _i5.Future<bool> runIfSessionSnapshotMatches(
+    _i9.AuthSessionSnapshot? snapshot,
+    _i5.Future<void> Function()? operation,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#runIfSessionSnapshotMatches, [
+              snapshot,
+              operation,
+            ]),
+            returnValue: _i5.Future<bool>.value(false),
+          )
+          as _i5.Future<bool>);
+
+  @override
   _i5.Future<bool> hasSessionCookies() =>
       (super.noSuchMethod(
             Invocation.method(#hasSessionCookies, []),
@@ -748,6 +762,22 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
               [source, workId],
               {#isPrivate: isPrivate},
             ),
+            returnValue: _i5.Future<int>.value(0),
+          )
+          as _i5.Future<int>);
+
+  @override
+  _i5.Future<int> recordMetadataRefreshAttempt(
+    _i11.NovelSource? source,
+    String? workId,
+    int? attemptedAt,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#recordMetadataRefreshAttempt, [
+              source,
+              workId,
+              attemptedAt,
+            ]),
             returnValue: _i5.Future<int>.value(0),
           )
           as _i5.Future<int>);

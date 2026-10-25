@@ -26,6 +26,13 @@ void main() {
   Future<void> createV22Database(File file) async {
     sqlite3.open(file.path)
       ..execute('''
+        CREATE TABLE novels (
+          source TEXT NOT NULL,
+          work_id TEXT NOT NULL,
+          PRIMARY KEY (source, work_id)
+        )
+      ''')
+      ..execute('''
         CREATE TABLE episode_list_entries (
           source TEXT NOT NULL,
           work_id TEXT NOT NULL,

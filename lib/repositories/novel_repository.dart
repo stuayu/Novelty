@@ -29,14 +29,24 @@ part 'novel_repository.g.dart';
 /// ライブラリが大きいときにサイトへ一度に大量のリクエストを送らないよう制限する。
 /// サイトごとのレート制限を通し、1サイトが全枠を占有しないようにする。
 const _maxSiteMetadataRefreshPerRun = 60;
-const _maxSiteMetadataRefreshPerSource = 30;
+const _maxSiteMetadataRefreshPerSource = 20;
+const _metadataRefreshAttemptRetryInterval = Duration(hours: 6);
 
-const _siteMetadataRefreshPriority = <NovelSource>[
+const _preferredSiteMetadataRefreshPriority = <NovelSource>[
   NovelSource.kakuyomu,
   NovelSource.alphapolis,
   NovelSource.hameln,
   NovelSource.estar,
   NovelSource.novelup,
+];
+
+final _siteMetadataRefreshPriority = <NovelSource>[
+  ..._preferredSiteMetadataRefreshPriority,
+  ...NovelSource.values.where(
+    (source) =>
+        source != NovelSource.narou &&
+        !_preferredSiteMetadataRefreshPriority.contains(source),
+  ),
 ];
 
 @Riverpod(keepAlive: true)
@@ -220,6 +230,14 @@ class NovelRepository {
       final libraryNovels = await _db.getLibraryNovels();
       final now = DateTime.now().millisecondsSinceEpoch;
       final staleMs = staleAfter.inMilliseconds;
+      var lastAttemptedAt = now - 1;
+
+      int nextAttemptedAt() {
+        final current = DateTime.now().millisecondsSinceEpoch;
+        return lastAttemptedAt = current > lastAttemptedAt
+            ? current
+            : lastAttemptedAt + 1;
+      }
 
       bool isStale(Novel novel) {
         final cachedAt = novel.cachedAt;
@@ -232,7 +250,14 @@ class NovelRepository {
             novel.generalAllNo == null ||
             novel.generalLastup == null ||
             genreMissing;
-        return metadataMissing || cachedAt == null || now - cachedAt > staleMs;
+        final needsRefresh =
+            metadataMissing || cachedAt == null || now - cachedAt > staleMs;
+        final attemptedAt = novel.metadataRefreshAttemptedAt;
+        final retryWindowElapsed =
+            attemptedAt == null ||
+            now - attemptedAt >=
+                _metadataRefreshAttemptRetryInterval.inMilliseconds;
+        return needsRefresh && retryWindowElapsed;
       }
 
       final staleNovels = libraryNovels.where(isStale).toList();
@@ -245,50 +270,32 @@ class NovelRepository {
           .map((novel) => novel.workId)
           .toList();
       final otherNovels = _siteMetadataRefreshPriority
+          .where(_sites.containsKey)
           .expand(
-            (source) => staleNovels
-                .where((novel) => novel.source == source)
-                .take(_maxSiteMetadataRefreshPerSource),
+            (source) => _takeRotatedMetadataRefreshCandidates(
+              source: source,
+              staleNovels: staleNovels,
+              libraryNovels: libraryNovels,
+            ),
           )
           .take(_maxSiteMetadataRefreshPerRun)
           .toList();
 
       var refreshed = 0;
 
-      if (narouNcodes.isNotEmpty) {
-        final novelMap = await apiService.fetchMultipleNovelsInfo(narouNcodes);
-        for (final info in novelMap.values) {
-          if (info.ncode == null) continue;
-          final existing = libraryNovels
-              .where(
-                (novel) =>
-                    novel.source == NovelSource.narou &&
-                    novel.workId == info.ncode,
-              )
-              .firstOrNull;
-          final merged = existing == null
-              ? info
-              : _mergeMetadata(existing.toModel(), info);
-          await _db.insertNovel(merged.toDbCompanion());
-          refreshed++;
-        }
-        if (novelMap.length != narouNcodes.length) {
-          final missing = narouNcodes
-              .where((ncode) => !novelMap.containsKey(ncode))
-              .join(',');
-          debugPrint(
-            '[LibraryMetadataRefresh] APIから取得できなかった作品: $missing',
-          );
-        }
-      }
-
       for (final novel in otherNovels) {
         final site = _sites[novel.source];
         if (site == null) continue;
+        final attemptedAt = nextAttemptedAt();
         try {
           final fresh = await site.fetchNovelInfo(novel.workId);
           await _db.insertNovel(
-            _mergeMetadata(novel.toModel(), fresh).toDbCompanion(),
+            _mergeMetadata(
+              novel.toModel(),
+              fresh,
+            ).toDbCompanion().copyWith(
+              metadataRefreshAttemptedAt: Value(attemptedAt),
+            ),
           );
           refreshed++;
         } on Object catch (e) {
@@ -297,6 +304,71 @@ class NovelRepository {
             '[LibraryMetadataRefresh] '
             '${novel.source.name}/${novel.workId}の再取得に失敗: $e',
           );
+          await _recordMetadataRefreshAttempt(
+            novel.source,
+            novel.workId,
+            attemptedAt,
+          );
+        }
+      }
+
+      // なろうは一括 API のため、カクヨム・アルファポリスを含む
+      // サイト別の優先更新を完了してから実行する。
+      if (narouNcodes.isNotEmpty) {
+        final attemptedAtByNcode = {
+          for (final ncode in narouNcodes) ncode: nextAttemptedAt(),
+        };
+        try {
+          final novelMap = await apiService.fetchMultipleNovelsInfo(
+            narouNcodes,
+          );
+          for (final info in novelMap.values) {
+            if (info.ncode == null) continue;
+            final existing = libraryNovels
+                .where(
+                  (novel) =>
+                      novel.source == NovelSource.narou &&
+                      novel.workId == info.ncode,
+                )
+                .firstOrNull;
+            final merged = existing == null
+                ? info
+                : _mergeMetadata(existing.toModel(), info);
+            await _db.insertNovel(
+              merged.toDbCompanion().copyWith(
+                metadataRefreshAttemptedAt: Value(
+                  attemptedAtByNcode[info.ncode],
+                ),
+              ),
+            );
+            refreshed++;
+          }
+          for (final ncode in narouNcodes) {
+            if (!novelMap.containsKey(ncode)) {
+              await _recordMetadataRefreshAttempt(
+                NovelSource.narou,
+                ncode,
+                attemptedAtByNcode[ncode]!,
+              );
+            }
+          }
+          if (novelMap.length != narouNcodes.length) {
+            final missing = narouNcodes
+                .where((ncode) => !novelMap.containsKey(ncode))
+                .join(',');
+            debugPrint(
+              '[LibraryMetadataRefresh] APIから取得できなかった作品: $missing',
+            );
+          }
+        } on Object catch (e) {
+          for (final ncode in narouNcodes) {
+            await _recordMetadataRefreshAttempt(
+              NovelSource.narou,
+              ncode,
+              attemptedAtByNcode[ncode]!,
+            );
+          }
+          debugPrint('[LibraryMetadataRefresh] なろう一括再取得に失敗: $e');
         }
       }
 
@@ -310,6 +382,76 @@ class NovelRepository {
       debugPrint('[LibraryMetadataRefresh] 再取得に失敗しました: $e');
     } finally {
       _metadataRefreshInProgress = false;
+    }
+  }
+
+  List<Novel> _takeRotatedMetadataRefreshCandidates({
+    required NovelSource source,
+    required List<Novel> staleNovels,
+    required List<Novel> libraryNovels,
+  }) {
+    final candidates = staleNovels
+        .where((novel) => novel.source == source)
+        .toList();
+    if (candidates.isEmpty) return candidates;
+
+    final sourceLibraryNovels = libraryNovels
+        .where((novel) => novel.source == source)
+        .toList();
+    final previousAttempts =
+        libraryNovels
+            .where(
+              (novel) =>
+                  novel.source == source &&
+                  novel.metadataRefreshAttemptedAt != null,
+            )
+            .toList()
+          ..sort((left, right) {
+            final byAttemptedAt = left.metadataRefreshAttemptedAt!.compareTo(
+              right.metadataRefreshAttemptedAt!,
+            );
+            return byAttemptedAt != 0
+                ? byAttemptedAt
+                : left.workId.compareTo(right.workId);
+          });
+    if (previousAttempts.isNotEmpty) {
+      final lastWorkId = previousAttempts.last.workId;
+      final cursorIndex = sourceLibraryNovels.indexWhere(
+        (novel) => novel.workId == lastWorkId,
+      );
+      if (cursorIndex >= 0) {
+        final candidateWorkIds = candidates
+            .map((novel) => novel.workId)
+            .toSet();
+        final rotatedCandidates = [
+          ...sourceLibraryNovels
+              .skip(cursorIndex + 1)
+              .where((novel) => candidateWorkIds.contains(novel.workId)),
+          ...sourceLibraryNovels
+              .take(cursorIndex + 1)
+              .where((novel) => candidateWorkIds.contains(novel.workId)),
+        ];
+        return rotatedCandidates
+            .take(_maxSiteMetadataRefreshPerSource)
+            .toList();
+      }
+    }
+
+    return candidates.take(_maxSiteMetadataRefreshPerSource).toList();
+  }
+
+  Future<void> _recordMetadataRefreshAttempt(
+    NovelSource source,
+    String workId,
+    int attemptedAt,
+  ) async {
+    try {
+      await _db.recordMetadataRefreshAttempt(source, workId, attemptedAt);
+    } on Object catch (error) {
+      debugPrint(
+        '[LibraryMetadataRefresh] '
+        '${source.name}/$workIdの再取得日時を保存できませんでした: $error',
+      );
     }
   }
 
