@@ -27,7 +27,17 @@ part 'novel_repository.g.dart';
 ///
 /// なろうは一括APIだが他サイトは作品ページを1件ずつ読むため、
 /// ライブラリが大きいときにサイトへ一度に大量のリクエストを送らないよう制限する。
-const _maxSiteMetadataRefreshPerRun = 10;
+/// サイトごとのレート制限を通し、1サイトが全枠を占有しないようにする。
+const _maxSiteMetadataRefreshPerRun = 60;
+const _maxSiteMetadataRefreshPerSource = 30;
+
+const _siteMetadataRefreshPriority = <NovelSource>[
+  NovelSource.kakuyomu,
+  NovelSource.alphapolis,
+  NovelSource.hameln,
+  NovelSource.estar,
+  NovelSource.novelup,
+];
 
 @Riverpod(keepAlive: true)
 /// 小説のダウンロードと管理を行うリポジトリ。
@@ -213,10 +223,15 @@ class NovelRepository {
 
       bool isStale(Novel novel) {
         final cachedAt = novel.cachedAt;
+        final siteGenres = _sites[novel.source]?.genres ?? const [];
+        final genreMissing =
+            siteGenres.isNotEmpty &&
+            !siteGenres.any((genre) => genre.id == novel.genreId);
         final metadataMissing =
             novel.title == null ||
             novel.generalAllNo == null ||
-            novel.generalLastup == null;
+            novel.generalLastup == null ||
+            genreMissing;
         return metadataMissing || cachedAt == null || now - cachedAt > staleMs;
       }
 
@@ -229,8 +244,12 @@ class NovelRepository {
           .where((novel) => novel.source == NovelSource.narou)
           .map((novel) => novel.workId)
           .toList();
-      final otherNovels = staleNovels
-          .where((novel) => novel.source != NovelSource.narou)
+      final otherNovels = _siteMetadataRefreshPriority
+          .expand(
+            (source) => staleNovels
+                .where((novel) => novel.source == source)
+                .take(_maxSiteMetadataRefreshPerSource),
+          )
           .take(_maxSiteMetadataRefreshPerRun)
           .toList();
 

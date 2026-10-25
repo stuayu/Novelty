@@ -43,6 +43,26 @@ void main() {
         expect(find.text('小説家になろう'), findsOneWidget);
       });
 
+      testWidgets('ジャンルマスタがないサイトでは不明ジャンルを表示しない', (
+        tester,
+      ) async {
+        const item = NovelInfo(
+          source: NovelSource.hameln,
+          workId: '429419',
+          title: 'ハーメルン作品',
+          writer: '作者',
+        );
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: NovelListTile(item: item)),
+          ),
+        );
+
+        expect(find.textContaining('不明'), findsNothing);
+        expect(find.textContaining('作者'), findsOneWidget);
+      });
+
       // サイトを追加したときにバッジ表示が漏れないよう、全サイトを網羅する。
       for (final source in NovelSource.values) {
         testWidgets('${source.label}のサイトBadgeを表示する', (tester) async {

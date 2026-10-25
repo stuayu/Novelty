@@ -137,6 +137,39 @@ void main() {
     expect(find.text('フォロー作品・閲覧履歴を同期'), findsOneWidget);
   });
 
+  testWidgets('ハーメルンタイルからお気に入り同期を開始できる', (tester) async {
+    final adapter = _FakeAccountSyncAdapter(source: NovelSource.hameln);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          accountAuthStateProvider(NovelSource.hameln).overrideWith(
+            (ref) async => const AccountAuthState.loggedIn(
+              source: NovelSource.hameln,
+            ),
+          ),
+          accountSyncRegistryProvider.overrideWithValue({
+            NovelSource.hameln: adapter,
+          }),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: AccountTile(
+              configuration: accountTileConfigurationFor(
+                NovelSource.hameln,
+              )!,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('ログイン済み'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('お気に入りを同期'), findsOneWidget);
+  });
+
   testWidgets('エブリスタタイルは表示されるが同期操作を出さない', (tester) async {
     final adapter = _FakeAccountSyncAdapter(source: NovelSource.estar);
     await tester.pumpWidget(

@@ -48,10 +48,11 @@ class NovelListTile extends HookWidget {
     // （なろう=数値ID / カクヨム=FANTASY 等のID体系が異なるため）
     final genreName = useMemoized(
       () {
+        final genres = defaultNovelSiteRegistry[item.source]!.genres;
+        if (genres.isEmpty) return '';
         if (item.genreId == null || item.genreId == '-1') {
           return '不明';
         }
-        final genres = defaultNovelSiteRegistry[item.source]!.genres;
         return genres
             .firstWhere(
               (g) => g.id == item.genreId,
@@ -75,10 +76,10 @@ class NovelListTile extends HookWidget {
 
     // サイト固有情報(pt/★)の計算をメモ化
     // 評価指標はサイトごとに異なるため、サイト実装（NovelSite.metaText）に委譲する
-    final pointSuffix = useMemoized(
+    final pointText = useMemoized(
       () {
         final text = defaultNovelSiteRegistry[item.source]!.metaText(item);
-        return text != null ? ' • $text' : '';
+        return text ?? '';
       },
       [item.source, item.allPoint],
     );
@@ -229,7 +230,12 @@ class NovelListTile extends HookWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '${item.writer} • $genreName$pointSuffix',
+                    <String>[
+                      if (item.writer?.trim().isNotEmpty ?? false)
+                        item.writer!.trim(),
+                      if (genreName.isNotEmpty) genreName,
+                      if (pointText.isNotEmpty) pointText,
+                    ].join(' • '),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),

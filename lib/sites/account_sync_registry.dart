@@ -6,6 +6,7 @@ import 'package:novelty/repositories/form_auth_session_repository.dart';
 import 'package:novelty/services/alphapolis_auth_service.dart';
 import 'package:novelty/services/estar_auth_service.dart';
 import 'package:novelty/services/hameln_auth_service.dart';
+import 'package:novelty/services/hameln_web_cookie_service.dart';
 import 'package:novelty/services/narou_auth_service.dart';
 import 'package:novelty/services/narou_sync_service.dart';
 import 'package:novelty/services/novelup_auth_service.dart';
@@ -13,8 +14,10 @@ import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/alphapolis/alphapolis_account_sync_adapter.dart';
 import 'package:novelty/sites/estar/estar_account_sync_adapter.dart';
 import 'package:novelty/sites/hameln/hameln_account_sync_adapter.dart';
+import 'package:novelty/sites/hameln/hameln_site.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
 import 'package:novelty/sites/narou/narou_account_sync_adapter.dart';
+import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/sites/novelup/novelup_account_sync_adapter.dart';
 
@@ -45,12 +48,22 @@ final alphapolisAccountSyncAdapterProvider =
 
 /// ハーメルンのアカウント同期アダプター。
 final hamelnAccountSyncAdapterProvider = Provider<HamelnAccountSyncAdapter>(
-  (ref) => HamelnAccountSyncAdapter(
-    sessionRepository: ref.watch(
-      formAuthSessionRepositoryProvider(NovelSource.hameln),
-    ),
-    authService: ref.watch(hamelnAuthServiceProvider),
-  ),
+  (ref) {
+    final site =
+        ref.watch(
+              novelSiteRegistryProvider,
+            )[NovelSource.hameln]!
+            as HamelnSite;
+    return HamelnAccountSyncAdapter(
+      sessionRepository: ref.watch(
+        formAuthSessionRepositoryProvider(NovelSource.hameln),
+      ),
+      authService: ref.watch(hamelnAuthServiceProvider),
+      db: ref.watch(appDatabaseProvider),
+      site: site,
+      webCookieService: ref.watch(hamelnWebCookieServiceProvider),
+    );
+  },
 );
 
 /// ノベルアップ＋のアカウント同期アダプター。

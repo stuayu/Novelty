@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hameln_parser/hameln_parser.dart';
@@ -102,10 +105,16 @@ class HamelnSite implements NovelSite, RankingCacheControl {
   String? _cookieHeader;
   final Map<String, ({Future<String> future, DateTime storedAt})> _htmlCache =
       <String, ({Future<String> future, DateTime storedAt})>{};
+  ({String cookieFingerprint, Future<String> future, DateTime storedAt})?
+  _favoriteLibraryCache;
 
   static const int _maxCachedPages = 32;
   static const int _maxEpisodesPerWork = 500;
   static const Duration _cacheLifetime = Duration(minutes: 10);
+  static const Duration _favoriteLibraryCacheLifetime = Duration(minutes: 1);
+  static final Uri _favoriteLibraryUri = Uri.parse(
+    'https://syosetu.org/?mode=favo',
+  );
 
   static Dio _createRateLimitedDio(
     Dio? dio,
@@ -271,6 +280,39 @@ class HamelnSite implements NovelSite, RankingCacheControl {
           .where((text) => text.isNotEmpty)
           .join(' '),
     );
+  }
+
+  /// 保存済みセッションCookieを使い、お気に入り一覧だけを取得する。
+  ///
+  /// 通常ページ用キャッシュと分け、Cookie指紋ごとに短時間キャッシュする。
+  Future<String> fetchFavoriteLibraryPage(String cookieHeader) {
+    if (cookieHeader.trim().isEmpty) {
+      throw ArgumentError.value(cookieHeader, 'cookieHeader', '空にできません');
+    }
+    final fingerprint = sha256.convert(utf8.encode(cookieHeader)).toString();
+    final cached = _favoriteLibraryCache;
+    if (cached != null &&
+        cached.cookieFingerprint == fingerprint &&
+        DateTime.now().difference(cached.storedAt) <
+            _favoriteLibraryCacheLifetime) {
+      return cached.future;
+    }
+
+    final pending = _fetchHtml(
+      _favoriteLibraryUri.toString(),
+      cookieHeader: cookieHeader,
+    );
+    _favoriteLibraryCache = (
+      cookieFingerprint: fingerprint,
+      future: pending,
+      storedAt: DateTime.now(),
+    );
+    return pending.catchError((Object error, StackTrace stackTrace) {
+      if (_favoriteLibraryCache?.future == pending) {
+        _favoriteLibraryCache = null;
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    });
   }
 
   @override
@@ -522,9 +564,10 @@ class HamelnSite implements NovelSite, RankingCacheControl {
     });
   }
 
-  Future<String> _fetchHtml(String url) async {
+  Future<String> _fetchHtml(String url, {String? cookieHeader}) async {
     var current = Uri.parse(url);
     final visited = <Uri>{};
+    final requestCookieHeader = cookieHeader ?? _cookieHeader;
     for (var redirects = 0; redirects <= 5; redirects++) {
       _assertAllowed(current);
       if (!visited.add(current)) {
@@ -535,9 +578,9 @@ class HamelnSite implements NovelSite, RankingCacheControl {
         current.toString(),
         options: Options(
           responseType: ResponseType.plain,
-          headers: _cookieHeader == null
+          headers: requestCookieHeader == null
               ? null
-              : <String, String>{'Cookie': _cookieHeader!},
+              : <String, String>{'Cookie': requestCookieHeader},
           followRedirects: false,
           validateStatus: (_) => true,
         ),
@@ -545,7 +588,7 @@ class HamelnSite implements NovelSite, RankingCacheControl {
       if (response.statusCode == 403) return _fetchHtmlWithWebView(url);
       if (response.realUri != current) {
         _assertAllowed(response.realUri);
-        if (_cookieHeader != null &&
+        if (requestCookieHeader != null &&
             !_hasSameOrigin(current, response.realUri)) {
           return _fetchHtmlWithWebView(url);
         }
@@ -563,7 +606,7 @@ class HamelnSite implements NovelSite, RankingCacheControl {
         }
         // robots.txtで禁止されたパスはWebViewにも渡さない。
         _assertAllowed(target);
-        if (_cookieHeader != null &&
+        if (requestCookieHeader != null &&
             !_hasSameOrigin(response.realUri, target)) {
           return _fetchHtmlWithWebView(url);
         }

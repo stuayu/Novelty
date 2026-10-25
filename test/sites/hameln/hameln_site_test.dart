@@ -80,6 +80,39 @@ HamelnSite _createSite(
 
 void main() {
   group('HamelnSite', () {
+    test('同じアカウントのお気に入りページを短時間キャッシュする', () async {
+      const favoriteUrl = 'https://syosetu.org/?mode=favo';
+      final adapter = _FixtureAdapter(<String, String>{
+        favoriteUrl: '<html>お気に入り</html>',
+      });
+      final site = _createSite(adapter);
+
+      final first = await site.fetchFavoriteLibraryPage('session=account-a');
+      final second = await site.fetchFavoriteLibraryPage('session=account-a');
+
+      expect(first, '<html>お気に入り</html>');
+      expect(second, first);
+      expect(adapter.requests, hasLength(1));
+      expect(adapter.requests.single.headers['Cookie'], 'session=account-a');
+    });
+
+    test('お気に入りページのキャッシュを別アカウントと共有しない', () async {
+      const favoriteUrl = 'https://syosetu.org/?mode=favo';
+      final adapter = _FixtureAdapter(<String, String>{
+        favoriteUrl: '<html>お気に入り</html>',
+      });
+      final site = _createSite(adapter);
+
+      await site.fetchFavoriteLibraryPage('session=account-a');
+      await site.fetchFavoriteLibraryPage('session=account-b');
+
+      expect(adapter.requests, hasLength(2));
+      expect(
+        adapter.requests.map((request) => request.headers['Cookie']),
+        ['session=account-a', 'session=account-b'],
+      );
+    });
+
     test('本文パーサ・評価表示・確定済みマスタデータを提供する', () {
       final site = HamelnSite(
         dio: Dio(),

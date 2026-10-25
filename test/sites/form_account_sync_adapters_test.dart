@@ -7,10 +7,12 @@ import 'package:novelty/database/database.dart';
 import 'package:novelty/repositories/form_auth_session_repository.dart';
 import 'package:novelty/services/alphapolis_auth_service.dart';
 import 'package:novelty/services/hameln_auth_service.dart';
+import 'package:novelty/services/hameln_web_cookie_service.dart';
 import 'package:novelty/services/novelup_auth_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/alphapolis/alphapolis_account_sync_adapter.dart';
 import 'package:novelty/sites/hameln/hameln_account_sync_adapter.dart';
+import 'package:novelty/sites/hameln/hameln_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/sites/novelup/novelup_account_sync_adapter.dart';
 
@@ -230,37 +232,47 @@ void main() {
       <
         (
           NovelSource,
-          AccountSyncAdapter Function(_MemoryRepository repository, Dio dio),
+          AccountSyncAdapter Function(
+            _MemoryRepository repository,
+            Dio dio,
+            AppDatabase db,
+          ),
           bool supportsPullLibrary,
         )
       >[
         (
           NovelSource.alphapolis,
-          (repository, dio) => AlphapolisAccountSyncAdapter(
+          (repository, dio, db) => AlphapolisAccountSyncAdapter(
             sessionRepository: repository,
             authService: AlphapolisAuthService(
               sessionRepository: repository,
               dio: dio,
             ),
-            db: AppDatabase.memory(),
+            db: db,
             dio: dio,
           ),
           true,
         ),
         (
           NovelSource.hameln,
-          (repository, dio) => HamelnAccountSyncAdapter(
+          (repository, dio, db) => HamelnAccountSyncAdapter(
             sessionRepository: repository,
             authService: HamelnAuthService(
               sessionRepository: repository,
               dio: dio,
             ),
+            db: db,
+            site: HamelnSite(dio: dio),
+            webCookieService: HamelnWebCookieService(
+              sessionRepository: repository,
+              cookieSetter: (_) async {},
+            ),
           ),
-          false,
+          true,
         ),
         (
           NovelSource.novelup,
-          (repository, dio) => NovelupAccountSyncAdapter(
+          (repository, dio, _) => NovelupAccountSyncAdapter(
             sessionRepository: repository,
             authService: NovelupAuthService(
               sessionRepository: repository,
@@ -275,11 +287,14 @@ void main() {
     group('${source.name} AccountSyncAdapter', () {
       late _MemoryRepository repository;
       late AccountSyncAdapter adapter;
+      late AppDatabase db;
 
       setUp(() {
         repository = _MemoryRepository(source);
+        db = AppDatabase.memory();
+        addTearDown(db.close);
         final dio = Dio()..httpClientAdapter = _RedirectAdapter();
-        adapter = createAdapter(repository, dio);
+        adapter = createAdapter(repository, dio, db);
       });
 
       test('認証済み状態とアカウントIDを共通表現で返す', () async {

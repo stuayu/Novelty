@@ -26,7 +26,11 @@ import 'novel_repository_test.mocks.dart';
 @GenerateNiceMocks([MockSpec<AccountSyncAdapter>()])
 /// メタデータ再取得のテスト用に fetchNovelInfo だけを持つサイト実装。
 class _FakeMetadataSite extends NovelSite {
-  _FakeMetadataSite(this.source, this._responses);
+  _FakeMetadataSite(
+    this.source,
+    this._responses, {
+    this.genres = const <GenreMaster>[],
+  });
 
   @override
   final NovelSource source;
@@ -35,7 +39,7 @@ class _FakeMetadataSite extends NovelSite {
   final requestedWorkIds = <String>[];
 
   @override
-  List<GenreMaster> get genres => const <GenreMaster>[];
+  final List<GenreMaster> genres;
 
   @override
   List<RankingTypeMaster> get rankingTypes => const <RankingTypeMaster>[];
@@ -932,6 +936,7 @@ void main() {
         source: NovelSource.narou,
         workId: ncode,
         title: 'テスト小説',
+        genreId: '101',
         generalAllNo: 10,
         generalLastup: 20260712234501,
         cachedAt: cachedAt,
@@ -1008,8 +1013,205 @@ void main() {
       expect(saved.workId.value, 'work-1');
     });
 
+    test('ジャンルだけ欠損または未知のライブラリ作品を再取得する', () async {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final kakuyomuSite = _FakeMetadataSite(
+        NovelSource.kakuyomu,
+        {
+          for (final workId in ['missing-genre', 'unknown-genre'])
+            workId: () => NovelInfo(
+              source: NovelSource.kakuyomu,
+              workId: workId,
+              title: 'カクヨム作品',
+              writer: '作者',
+              genreId: 'FANTASY',
+              generalAllNo: 12,
+              generalLastup: '2026-08-27 12:00:00',
+            ),
+        },
+        genres: const [GenreMaster(id: 'FANTASY', name: 'ファンタジー')],
+      );
+      container = createContainer(
+        sites: {NovelSource.kakuyomu: kakuyomuSite},
+      );
+
+      when(mockDatabase.getLibraryNovels()).thenAnswer(
+        (_) async => [
+          for (final (workId, genreId) in [
+            ('missing-genre', null),
+            ('unknown-genre', 'UNRECOGNIZED'),
+          ])
+            db.Novel(
+              source: NovelSource.kakuyomu,
+              workId: workId,
+              title: 'カクヨム作品',
+              writer: '作者',
+              genreId: genreId,
+              generalAllNo: 12,
+              generalLastup: 20260827120000,
+              cachedAt: now,
+              isPrivate: false,
+            ),
+        ],
+      );
+
+      final repository = container.read(novelRepositoryProvider);
+      await repository.refreshStaleLibraryMetadata();
+
+      expect(kakuyomuSite.requestedWorkIds, ['missing-genre', 'unknown-genre']);
+      final saved = verify(
+        mockDatabase.insertNovel(captureAny),
+      ).captured.cast<db.NovelsCompanion>();
+      expect(saved, hasLength(2));
+      expect(saved.map((novel) => novel.genreId.value), [
+        'FANTASY',
+        'FANTASY',
+      ]);
+    });
+
+    test('カクヨムとアルファポリスのジャンル欠損を同じ周期で更新する', () async {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final kakuyomuIds = List.generate(10, (index) => 'kaku-$index');
+      final alphapolisIds = List.generate(42, (index) => 'alpha-$index');
+
+      _FakeMetadataSite makeSite(
+        NovelSource source,
+        List<String> workIds,
+        String genreId,
+      ) => _FakeMetadataSite(
+        source,
+        {
+          for (final workId in workIds)
+            workId: () => NovelInfo(
+              source: source,
+              workId: workId,
+              title: '作品',
+              genreId: genreId,
+              generalAllNo: 1,
+              generalLastup: '2026-10-25 12:00:00',
+            ),
+        },
+        genres: [GenreMaster(id: genreId, name: 'ジャンル')],
+      );
+
+      final kakuyomuSite = makeSite(
+        NovelSource.kakuyomu,
+        kakuyomuIds,
+        'FANTASY',
+      );
+      final alphapolisSite = makeSite(
+        NovelSource.alphapolis,
+        alphapolisIds,
+        '110400',
+      );
+      container = createContainer(
+        sites: {
+          NovelSource.kakuyomu: kakuyomuSite,
+          NovelSource.alphapolis: alphapolisSite,
+        },
+      );
+
+      when(mockDatabase.getLibraryNovels()).thenAnswer(
+        (_) async => [
+          for (final workId in alphapolisIds)
+            db.Novel(
+              source: NovelSource.alphapolis,
+              workId: workId,
+              title: 'アルファ作品',
+              generalAllNo: 1,
+              generalLastup: 20261025120000,
+              cachedAt: now,
+              isPrivate: false,
+            ),
+          for (final workId in kakuyomuIds)
+            db.Novel(
+              source: NovelSource.kakuyomu,
+              workId: workId,
+              title: 'カクヨム作品',
+              generalAllNo: 1,
+              generalLastup: 20261025120000,
+              cachedAt: now,
+              isPrivate: false,
+            ),
+        ],
+      );
+
+      await container
+          .read(novelRepositoryProvider)
+          .refreshStaleLibraryMetadata();
+
+      expect(kakuyomuSite.requestedWorkIds, kakuyomuIds);
+      expect(alphapolisSite.requestedWorkIds, alphapolisIds.take(30));
+    });
+
+    test('カクヨムが多くてもアルファポリスの更新枠を確保する', () async {
+      final kakuyomuIds = List.generate(65, (index) => 'kaku-$index');
+      final alphapolisIds = List.generate(42, (index) => 'alpha-$index');
+
+      _FakeMetadataSite makeSite(
+        NovelSource source,
+        List<String> workIds,
+        String genreId,
+      ) => _FakeMetadataSite(
+        source,
+        {
+          for (final workId in workIds)
+            workId: () => NovelInfo(
+              source: source,
+              workId: workId,
+              title: '作品',
+              genreId: genreId,
+            ),
+        },
+        genres: [GenreMaster(id: genreId, name: 'ジャンル')],
+      );
+
+      final kakuyomuSite = makeSite(
+        NovelSource.kakuyomu,
+        kakuyomuIds,
+        'FANTASY',
+      );
+      final alphapolisSite = makeSite(
+        NovelSource.alphapolis,
+        alphapolisIds,
+        '110400',
+      );
+      container = createContainer(
+        sites: {
+          NovelSource.kakuyomu: kakuyomuSite,
+          NovelSource.alphapolis: alphapolisSite,
+        },
+      );
+
+      when(mockDatabase.getLibraryNovels()).thenAnswer(
+        (_) async => [
+          for (final workId in kakuyomuIds)
+            db.Novel(
+              source: NovelSource.kakuyomu,
+              workId: workId,
+              title: 'カクヨム作品',
+              isPrivate: false,
+            ),
+          for (final workId in alphapolisIds)
+            db.Novel(
+              source: NovelSource.alphapolis,
+              workId: workId,
+              title: 'アルファポリス作品',
+              isPrivate: false,
+            ),
+        ],
+      );
+
+      await container
+          .read(novelRepositoryProvider)
+          .refreshStaleLibraryMetadata();
+
+      expect(kakuyomuSite.requestedWorkIds, kakuyomuIds.take(30));
+      expect(alphapolisSite.requestedWorkIds, alphapolisIds.take(30));
+    });
+
     test('なろう以外は1回の実行で取得する件数を制限する', () async {
-      final workIds = List.generate(15, (index) => 'work-$index');
+      final workIds = List.generate(65, (index) => 'work-$index');
       final site = _FakeMetadataSite(NovelSource.kakuyomu, {
         for (final workId in workIds)
           workId: () => NovelInfo(
@@ -1036,7 +1238,7 @@ void main() {
       final repository = container.read(novelRepositoryProvider);
       await repository.refreshStaleLibraryMetadata();
 
-      expect(site.requestedWorkIds, hasLength(10));
+      expect(site.requestedWorkIds, workIds.take(30));
     });
 
     test('1作品の再取得が失敗しても残りを続行する', () async {
