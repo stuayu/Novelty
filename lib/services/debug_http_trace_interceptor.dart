@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:novelty/services/debug_http_trace_policy.dart';
+import 'package:novelty/services/http_trace_body.dart';
 import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/novel_source.dart';
 
@@ -14,7 +15,6 @@ class DebugHttpTraceInterceptor extends Interceptor {
   static const _operationIdKey = 'noveltyHttpTraceOperationId';
   static const _startedAtKey = 'noveltyHttpTraceStartedAt';
   static const _siteKey = 'noveltyHttpTraceSite';
-
   final AppDiagnosticsLogger _diagnostics;
 
   @override
@@ -37,12 +37,14 @@ class DebugHttpTraceInterceptor extends Interceptor {
         .toUtc()
         .millisecondsSinceEpoch;
 
+    final requestData = _traceData(options.data);
     _diagnostics.recordTrace(operationId, 'http.request.trace', {
       'method': options.method,
       'site': source.dbId,
       'requestUrl': options.uri.toString(),
       'requestHeaders': _jsonSafe(options.headers),
-      'requestData': _traceData(options.data),
+      'requestData': requestData.value,
+      'requestDataTruncated': requestData.truncated,
       'contentType': options.contentType,
       'responseType': options.responseType.name,
     });
@@ -63,6 +65,7 @@ class DebugHttpTraceInterceptor extends Interceptor {
       return;
     }
     final operationId = _operationId(request);
+    final responseData = _traceData(response.data);
     _diagnostics.recordTrace(operationId, 'http.response.trace', {
       'method': request.method,
       'site': source.dbId,
@@ -70,7 +73,8 @@ class DebugHttpTraceInterceptor extends Interceptor {
       'responseUrl': response.realUri.toString(),
       'statusCode': response.statusCode,
       'responseHeaders': _jsonSafe(response.headers.map),
-      'responseData': _traceData(response.data),
+      'responseData': responseData.value,
+      'responseDataTruncated': responseData.truncated,
       'durationMs': _durationMs(request),
     });
     handler.next(response);
@@ -90,18 +94,22 @@ class DebugHttpTraceInterceptor extends Interceptor {
         DebugHttpTracePolicy.sourceForUrl(response.realUri.toString()) ==
             source;
     final operationId = _operationId(request);
+    final requestData = _traceData(request.data);
+    final responseData = trustedResponse ? _traceData(response.data) : null;
     _diagnostics.recordTrace(operationId, 'http.error.trace', {
       'method': request.method,
       'site': source.dbId,
       'requestUrl': request.uri.toString(),
       'requestHeaders': _jsonSafe(request.headers),
-      'requestData': _traceData(request.data),
+      'requestData': requestData.value,
+      'requestDataTruncated': requestData.truncated,
       'responseUrl': trustedResponse ? response.realUri.toString() : null,
       'statusCode': trustedResponse ? response.statusCode : null,
       'responseHeaders': !trustedResponse
           ? null
           : _jsonSafe(response.headers.map),
-      'responseData': !trustedResponse ? null : _traceData(response.data),
+      'responseData': responseData?.value,
+      'responseDataTruncated': responseData?.truncated ?? false,
       'errorType': err.type.name,
       'error': err.toString(),
       'stackTrace': err.stackTrace.toString(),
@@ -124,9 +132,9 @@ class DebugHttpTraceInterceptor extends Interceptor {
     return DateTime.now().toUtc().millisecondsSinceEpoch - startedAt;
   }
 
-  Object? _traceData(Object? value) {
+  CappedHttpTraceBody _traceData(Object? value) {
     if (value is FormData) {
-      return <String, Object?>{
+      return capHttpTraceBody(<String, Object?>{
         'fields': <Map<String, String>>[
           for (final field in value.fields)
             <String, String>{'name': field.key, 'value': field.value},
@@ -139,15 +147,15 @@ class DebugHttpTraceInterceptor extends Interceptor {
               'length': file.value.length,
             },
         ],
-      };
+      });
     }
     if (value is Uint8List) {
-      return <String, Object?>{
-        'binary': true,
-        'byteLength': value.length,
-      };
+      return CappedHttpTraceBody(
+        value: <String, Object?>{'binary': true, 'byteLength': value.length},
+        truncated: false,
+      );
     }
-    return _jsonSafe(value);
+    return capHttpTraceBody(value);
   }
 
   Object? _jsonSafe(Object? value) {

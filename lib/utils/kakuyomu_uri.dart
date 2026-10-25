@@ -8,6 +8,35 @@ bool isTrustedKakuyomuUri(Uri uri) {
   return isTrustedHttpsOrigin(uri, host: 'kakuyomu.jp');
 }
 
+/// ログイン確認エラーを表示してよい、ログイン後のサイト画面か判定する。
+bool shouldShowKakuyomuLoginCheckError(String pagePath) {
+  if (pagePath == 'unknown' || pagePath == 'external') return false;
+
+  const nonCompletionPaths = <String>[
+    '/auth/',
+    '/login',
+    '/signup',
+    '/register',
+    '/users/sign_up',
+    '/users/password',
+    '/password/',
+  ];
+  return !nonCompletionPaths.any(pagePath.startsWith);
+}
+
+/// ログイン送信後かつログイン完了先へ遷移した場合に確認を開始する。
+bool shouldCheckKakuyomuLoginAfterNavigation({
+  required bool loginAttempted,
+  required String pagePath,
+}) => loginAttempted && shouldShowKakuyomuLoginCheckError(pagePath);
+
+/// 認証に失敗してログインフォームへ戻った場合、送信フラグを消す。
+bool shouldResetKakuyomuLoginAttempt(String pagePath) =>
+    const <String>['/auth/login', '/login'].any(
+      (loginPath) =>
+          pagePath == loginPath || pagePath.startsWith('$loginPath/'),
+    );
+
 /// 保存済みカクヨムepisode URLから実際のepisode IDを抽出する。
 ///
 /// 話数からIDを推測せず、目次取得時に保存したURLだけを信頼する。

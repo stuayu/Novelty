@@ -125,6 +125,45 @@ void main() {
     expect(entry['responseData'], 'forbidden-response');
   });
 
+  test('HTTP Traceの大きな本文は上限で切り詰めて記録する', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'novelty-debug-http-trace-cap-test-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final diagnostics = AppDiagnosticsLogger(
+      enabled: true,
+      directoryResolver: () async => directory,
+      consoleSink: (_) {},
+    );
+    final body = 'x' * (512 * 1024 + 10);
+    final dio = createNoveltyDio(diagnostics: diagnostics, maxRetries: 0)
+      ..httpClientAdapter = _ResponseAdapter(statusCode: 200, body: body);
+    addTearDown(dio.close);
+
+    await dio.post<String>(
+      'https://kakuyomu.jp/login',
+      data: body,
+      options: Options(responseType: ResponseType.plain),
+    );
+    await diagnostics.flush();
+
+    final tracePath = await diagnostics.traceLogFilePath();
+    final entries = (await File(tracePath!).readAsLines())
+        .map((line) => jsonDecode(line) as Map<String, dynamic>)
+        .toList();
+    final request = entries.singleWhere(
+      (entry) => entry['event'] == 'http.request.trace',
+    );
+    final response = entries.singleWhere(
+      (entry) => entry['event'] == 'http.response.trace',
+    );
+
+    expect((request['requestData'] as String).length, 512 * 1024);
+    expect(request['requestDataTruncated'], isTrue);
+    expect((response['responseData'] as String).length, 512 * 1024);
+    expect(response['responseDataTruncated'], isTrue);
+  });
+
   test('Noveltyの対象サイト以外のHTTP Traceは出力しない', () async {
     final directory = await Directory.systemTemp.createTemp(
       'novelty-debug-http-external-trace-test-',

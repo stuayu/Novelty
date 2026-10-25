@@ -323,9 +323,9 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
         throw StateError('カクヨムフォロー一覧のリダイレクトを拒否しました');
       }
       if (response.statusCode >= 400 || response.statusCode <= 0) {
-        throw StateError(
-          'カクヨムフォロー一覧の取得に失敗しました '
-          '(HTTP ${response.statusCode})',
+        throw KakuyomuHttpException(
+          response.statusCode,
+          response.realUri.toString(),
         );
       }
 
@@ -339,9 +339,10 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
 
       final body = response.body;
       if (body == null || body.isEmpty) {
-        throw StateError(
-          'カクヨムフォロー一覧の取得に失敗しました '
-          '(HTTP ${response.statusCode}, response body empty)',
+        throw KakuyomuHttpException(
+          response.statusCode,
+          finalUri.toString(),
+          responseBodyEmpty: true,
         );
       }
 

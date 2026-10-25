@@ -9,6 +9,7 @@ import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/services/http_diagnostic_fields.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
@@ -26,15 +27,33 @@ class KakuyomuRateLimiter extends RequestRateLimiter {
 }
 
 /// カクヨムからのHTTP取得に失敗した場合の例外。
-class KakuyomuHttpException implements Exception {
+class KakuyomuHttpException implements SiteDiagnosticException {
   /// コンストラクタ。
-  const KakuyomuHttpException(this.statusCode, this.url);
+  const KakuyomuHttpException(
+    this.statusCode,
+    this.url, {
+    this.responseBodyEmpty = false,
+  });
 
   /// HTTPステータスコード。
   final int statusCode;
 
   /// リクエストURL。
   final String url;
+
+  /// 応答本文が空だったかどうか。
+  final bool responseBodyEmpty;
+
+  @override
+  Map<String, Object?> get safeDiagnosticFields => <String, Object?>{
+    ...httpStatusDiagnosticFields(
+      statusCode: statusCode,
+      method: 'GET',
+      url: url,
+    ),
+    if (responseBodyEmpty) 'responseBodyEmpty': true,
+    if (responseBodyEmpty) 'responseBytes': 0,
+  };
 
   @override
   String toString() => 'KakuyomuHttpException($statusCode): $url';

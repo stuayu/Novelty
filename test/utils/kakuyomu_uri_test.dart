@@ -2,6 +2,58 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:novelty/utils/kakuyomu_uri.dart';
 
 void main() {
+  group('shouldShowKakuyomuLoginCheckError', () {
+    test('ログイン完了先ではログイン確認エラーを表示する', () {
+      expect(shouldShowKakuyomuLoginCheckError('/'), isTrue);
+      expect(shouldShowKakuyomuLoginCheckError('/works/123'), isTrue);
+    });
+
+    test('認証・登録・パスワード再設定の画面ではエラーを表示しない', () {
+      expect(shouldShowKakuyomuLoginCheckError('/auth/login'), isFalse);
+      expect(shouldShowKakuyomuLoginCheckError('/signup'), isFalse);
+      expect(shouldShowKakuyomuLoginCheckError('/users/sign_up'), isFalse);
+      expect(shouldShowKakuyomuLoginCheckError('/password/reset'), isFalse);
+    });
+  });
+
+  group('shouldCheckKakuyomuLoginAfterNavigation', () {
+    test('ログイン送信前はトップページへ移動しても確認しない', () {
+      expect(
+        shouldCheckKakuyomuLoginAfterNavigation(
+          loginAttempted: false,
+          pagePath: '/',
+        ),
+        isFalse,
+      );
+    });
+
+    test('ログイン送信後にログイン完了先へ進んだ場合だけ確認する', () {
+      expect(
+        shouldCheckKakuyomuLoginAfterNavigation(
+          loginAttempted: true,
+          pagePath: '/works/123',
+        ),
+        isTrue,
+      );
+      expect(
+        shouldCheckKakuyomuLoginAfterNavigation(
+          loginAttempted: true,
+          pagePath: '/signup',
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('shouldResetKakuyomuLoginAttempt', () {
+    test('認証フォームへ戻ったときだけ送信フラグをリセットする', () {
+      expect(shouldResetKakuyomuLoginAttempt('/auth/login'), isTrue);
+      expect(shouldResetKakuyomuLoginAttempt('/login'), isTrue);
+      expect(shouldResetKakuyomuLoginAttempt('/auth/two_factor'), isFalse);
+      expect(shouldResetKakuyomuLoginAttempt('/'), isFalse);
+    });
+  });
+
   group('isTrustedKakuyomuUri', () {
     test('HTTPSのkakuyomu.jpだけを許可する', () {
       expect(

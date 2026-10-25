@@ -356,13 +356,6 @@ Map<String, Object?> _syncErrorDiagnosticFields(Object error) {
     fields.addAll(error.safeDiagnosticFields);
   } else if (error is DioException) {
     fields.addAll(dioExceptionDiagnosticFields(error));
-  } else if (error is StateError) {
-    final status = RegExp(
-      r'\bHTTP\s+(\d{3})\b',
-    ).firstMatch(error.message)?.group(1);
-    if (status != null) {
-      fields['httpStatusCode'] = int.tryParse(status);
-    }
   }
   return fields;
 }

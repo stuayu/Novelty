@@ -10,6 +10,7 @@ import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/services/api_service.dart' show NovelNotFoundException;
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/services/http_diagnostic_fields.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/novelup_uri.dart';
@@ -18,7 +19,7 @@ import 'package:novelty/utils/trusted_uri.dart';
 import 'package:novelup_parser/novelup_parser.dart';
 
 /// ノベルアップ＋へのHTTP取得に失敗した場合の例外。
-class NovelupHttpException implements Exception {
+class NovelupHttpException implements SiteDiagnosticException {
   /// コンストラクタ。
   const NovelupHttpException(this.statusCode, this.url);
 
@@ -27,6 +28,13 @@ class NovelupHttpException implements Exception {
 
   /// リクエストURL。
   final String url;
+
+  @override
+  Map<String, Object?> get safeDiagnosticFields => httpStatusDiagnosticFields(
+    statusCode: statusCode,
+    method: 'GET',
+    url: url,
+  );
 
   @override
   String toString() => 'NovelupHttpException($statusCode): $url';

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -15,6 +16,28 @@ import 'package:novelty/utils/kakuyomu_uri.dart';
 import 'package:novelty/utils/kakuyomu_webview_support.dart';
 
 const _kakuyomuLoginUrl = 'https://kakuyomu.jp/auth/login';
+const _kakuyomuLoginAttemptHandler = 'noveltyKakuyomuLoginAttempt';
+const _kakuyomuLoginAttemptScript = r'''
+(() => {
+  if (window.__noveltyKakuyomuLoginAttemptInstalled) return;
+  window.__noveltyKakuyomuLoginAttemptInstalled = true;
+  document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    try {
+      const action = new URL(form.action || window.location.href, window.location.href);
+      const loginPath = /\/(auth|login)(\/|$)/i;
+      if (action.protocol !== 'https:' || action.hostname !== 'kakuyomu.jp' ||
+          !loginPath.test(action.pathname) && !loginPath.test(window.location.pathname)) return;
+      const bridge = window.flutter_inappwebview;
+      if (bridge && typeof bridge.callHandler === 'function') {
+        const pending = bridge.callHandler('noveltyKakuyomuLoginAttempt');
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+      }
+    } catch (_) {}
+  }, true);
+})();
+''';
 
 /// カクヨム公式ログイン画面を表示し、ログイン済み Cookie を保存する画面。
 class KakuyomuLoginPage extends ConsumerStatefulWidget {
@@ -29,6 +52,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
   bool _isPreparing = true;
   bool _isCheckingLogin = false;
   bool _isCompleted = false;
+  bool _loginAttempted = false;
   String? _errorMessage;
   late final String _loginOperationId;
   late final DebugWebViewHttpTrace _webViewHttpTrace;
@@ -69,10 +93,21 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
   }) {
     final diagnostics = ref.read(appDiagnosticsLoggerProvider);
     final currentPath = _diagnosticPagePath(currentUrl);
+    final loginAttempted = _loginAttempted;
+    final resetLoginAttempt = shouldResetKakuyomuLoginAttempt(currentPath);
+    if (resetLoginAttempt) _loginAttempted = false;
     diagnostics.record(_loginOperationId, 'kakuyomu.login.navigation', {
       'trigger': trigger,
       'pagePath': currentPath,
+      'loginAttempted': loginAttempted,
+      'loginAttemptReset': resetLoginAttempt,
     });
+    if (!shouldCheckKakuyomuLoginAfterNavigation(
+      loginAttempted: loginAttempted,
+      pagePath: currentPath,
+    )) {
+      return Future<void>.value();
+    }
     return _loginCheckQueue.request(
       () => _checkLoginAfterNavigation(
         currentPath: currentPath,
@@ -117,7 +152,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
         },
       );
       if (cookies.isEmpty) {
-        if (mounted && _shouldShowLoginCheckError(currentPath)) {
+        if (mounted && shouldShowKakuyomuLoginCheckError(currentPath)) {
           setState(() {
             _errorMessage = 'カクヨムのログインCookieを取得できませんでした。';
           });
@@ -136,7 +171,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
         },
       );
       if (sessionStatus != KakuyomuSessionValidity.valid) {
-        if (mounted && _shouldShowLoginCheckError(currentPath)) {
+        if (mounted && shouldShowKakuyomuLoginCheckError(currentPath)) {
           setState(() {
             _errorMessage = sessionStatus == KakuyomuSessionValidity.unavailable
                 ? 'カクヨムのログイン状態を確認できませんでした。通信状態を確認してください。'
@@ -172,7 +207,7 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
         );
       if (mounted &&
           (keychainErrorMessage != null ||
-              _shouldShowLoginCheckError(currentPath))) {
+              shouldShowKakuyomuLoginCheckError(currentPath))) {
         setState(() {
           _errorMessage =
               keychainErrorMessage ?? 'ログイン状態を確認できませんでした。もう一度お試しください。';
@@ -192,12 +227,6 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
     if (uri == null || !isTrustedKakuyomuUri(uri)) return 'external';
     return uri.path;
   }
-
-  bool _shouldShowLoginCheckError(String pagePath) =>
-      pagePath != 'unknown' &&
-      pagePath != 'external' &&
-      !pagePath.startsWith('/auth/login') &&
-      !pagePath.startsWith('/login');
 
   @override
   Widget build(BuildContext context) {
@@ -233,12 +262,32 @@ class _KakuyomuLoginPageState extends ConsumerState<KakuyomuLoginPage> {
                       url: WebUri(_kakuyomuLoginUrl),
                     ),
                     initialSettings: InAppWebViewSettings(
-                      useOnNavigationResponse: true,
+                      useOnNavigationResponse:
+                          _webViewHttpTrace.navigationResponseTracingEnabled,
                     ),
-                    initialUserScripts: _webViewHttpTrace.initialUserScripts,
-                    onWebViewCreated: _webViewHttpTrace.registerHandler,
-                    onNavigationResponse: (_, response) async =>
-                        _webViewHttpTrace.recordNavigationResponse(response),
+                    initialUserScripts: UnmodifiableListView<UserScript>([
+                      UserScript(
+                        source: _kakuyomuLoginAttemptScript,
+                        injectionTime:
+                            UserScriptInjectionTime.AT_DOCUMENT_START,
+                      ),
+                      ..._webViewHttpTrace.initialUserScripts,
+                    ]),
+                    onWebViewCreated: (controller) {
+                      controller.addJavaScriptHandler(
+                        handlerName: _kakuyomuLoginAttemptHandler,
+                        callback: (_) {
+                          _loginAttempted = true;
+                          return null;
+                        },
+                      );
+                      _webViewHttpTrace.registerHandler(controller);
+                    },
+                    onNavigationResponse:
+                        _webViewHttpTrace.navigationResponseTracingEnabled
+                        ? (_, response) async => _webViewHttpTrace
+                              .recordNavigationResponse(response)
+                        : null,
                     onLoadStop: (controller, url) async {
                       await _webViewHttpTrace.recordRenderedDocument(
                         controller,

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:novelty/services/debug_http_trace_policy.dart';
+import 'package:novelty/services/http_trace_body.dart';
 import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/novel_source.dart';
 
@@ -19,7 +20,6 @@ class DebugWebViewHttpTrace {
 
   /// JavaScriptからTraceデータを受け取るハンドラ名。
   static const String handlerName = 'noveltyHttpTrace';
-  static const int _maxBodyCharacters = 512 * 1024;
 
   final AppDiagnosticsLogger _diagnostics;
 
@@ -40,6 +40,9 @@ class DebugWebViewHttpTrace {
   }
 
   bool get _enabled => kDebugMode && _diagnostics.captureSensitiveTrace;
+
+  /// メインフレーム応答の計測をWebView側で有効にする必要があるか。
+  bool get navigationResponseTracingEnabled => _enabled;
 
   /// WebViewからの通信Traceを受け取るJavaScriptハンドラを登録する。
   void registerHandler(InAppWebViewController controller) {
@@ -129,6 +132,9 @@ class DebugWebViewHttpTrace {
       _ => null,
     };
     if (eventName == null) return;
+    final documentBody = phase == 'document'
+        ? capHttpTraceBody(fields['responseData'])
+        : null;
 
     _diagnostics.recordTrace(_operationId, eventName, <String, Object?>{
       'site': source.dbId,
@@ -171,8 +177,8 @@ class DebugWebViewHttpTrace {
       },
       if (phase == 'document') ...<String, Object?>{
         'title': fields['title'],
-        'responseData': _capText(fields['responseData']).value,
-        'responseDataTruncated': _capText(fields['responseData']).truncated,
+        'responseData': documentBody?.value,
+        'responseDataTruncated': documentBody?.truncated ?? false,
         'isForMainFrame': fields['isForMainFrame'] == true,
       },
     });
@@ -180,16 +186,6 @@ class DebugWebViewHttpTrace {
 
   bool _isTrustedUrl(String rawUrl) {
     return DebugHttpTracePolicy.isTrustedUrl(rawUrl, source);
-  }
-
-  _CappedTraceValue _capText(Object? value) {
-    if (value is! String || value.length <= _maxBodyCharacters) {
-      return _CappedTraceValue(value: value, truncated: false);
-    }
-    return _CappedTraceValue(
-      value: value.substring(0, _maxBodyCharacters),
-      truncated: true,
-    );
   }
 
   Object? _jsonSafe(Object? value) {
@@ -212,7 +208,7 @@ class DebugWebViewHttpTrace {
 (() => {
   if (window.__noveltyHttpTraceInstalled) return;
   const trustedHosts = $hosts;
-  const maxBodyCharacters = $_maxBodyCharacters;
+  const maxBodyCharacters = $maxHttpTraceBodyCharacters;
   let requestSequence = 0;
   const isTrusted = (rawUrl) => {
     try {
@@ -232,6 +228,10 @@ class DebugWebViewHttpTrace {
       }
     } catch (_) {}
   };
+  const formDataEntries = (formData) => Array.from(formData.entries()).map(([name, value]) =>
+    [name, typeof value === 'string' ? value : {
+      filename: value.name, type: value.type, size: value.size
+    }]);
   const captureFormSubmission = () => {
     document.addEventListener('submit', (event) => {
       const form = event.target;
@@ -239,10 +239,7 @@ class DebugWebViewHttpTrace {
       const method = String(form.method || 'GET').toUpperCase();
       const action = new URL(form.action || window.location.href, window.location.href);
       if (!isTrusted(action.href)) return;
-      const entries = Array.from(new FormData(form).entries()).map(([name, value]) =>
-        [name, typeof value === 'string' ? value : {
-          filename: value.name, type: value.type, size: value.size
-        }]);
+      const entries = formDataEntries(new FormData(form));
       if (method === 'GET') {
         entries.forEach(([name, value]) => {
           if (typeof value === 'string') action.searchParams.append(name, value);
@@ -268,10 +265,7 @@ class DebugWebViewHttpTrace {
     try {
       if (body == null || typeof body === 'string') return body;
       if (body instanceof URLSearchParams) return body.toString();
-      if (body instanceof FormData) {
-        return Array.from(body.entries()).map(([name, value]) => [name,
-          typeof value === 'string' ? value : {filename: value.name, type: value.type, size: value.size}]);
-      }
+      if (body instanceof FormData) return formDataEntries(body);
       if (body instanceof Blob) return {binary: true, byteLength: body.size, contentType: body.type};
       if (body instanceof ArrayBuffer) return {binary: true, byteLength: body.byteLength};
       return String(body);
@@ -432,11 +426,4 @@ class DebugWebViewHttpTrace {
 })();
 ''';
   }
-}
-
-class _CappedTraceValue {
-  const _CappedTraceValue({required this.value, required this.truncated});
-
-  final Object? value;
-  final bool truncated;
 }

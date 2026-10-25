@@ -127,12 +127,16 @@ class _EstarLoginPageState extends ConsumerState<EstarLoginPage> {
                       url: WebUri(_estarLoginUrl),
                     ),
                     initialSettings: InAppWebViewSettings(
-                      useOnNavigationResponse: true,
+                      useOnNavigationResponse:
+                          _webViewHttpTrace.navigationResponseTracingEnabled,
                     ),
                     initialUserScripts: _webViewHttpTrace.initialUserScripts,
                     onWebViewCreated: _webViewHttpTrace.registerHandler,
-                    onNavigationResponse: (_, response) async =>
-                        _webViewHttpTrace.recordNavigationResponse(response),
+                    onNavigationResponse:
+                        _webViewHttpTrace.navigationResponseTracingEnabled
+                        ? (_, response) async => _webViewHttpTrace
+                              .recordNavigationResponse(response)
+                        : null,
                     onLoadStop: (controller, url) async {
                       await _webViewHttpTrace.recordRenderedDocument(
                         controller,

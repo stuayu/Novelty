@@ -46,12 +46,14 @@ Future<String> _fetch(String url) async {
       initialUrlRequest: URLRequest(url: WebUri(url)),
       initialSettings: InAppWebViewSettings(
         useShouldOverrideUrlLoading: true,
-        useOnNavigationResponse: true,
+        useOnNavigationResponse: webViewTrace.navigationResponseTracingEnabled,
       ),
       initialUserScripts: webViewTrace.initialUserScripts,
       onWebViewCreated: webViewTrace.registerHandler,
-      onNavigationResponse: (_, response) async =>
-          webViewTrace.recordNavigationResponse(response),
+      onNavigationResponse: webViewTrace.navigationResponseTracingEnabled
+          ? (_, response) async =>
+                webViewTrace.recordNavigationResponse(response)
+          : null,
       shouldOverrideUrlLoading: (_, action) async {
         final uri = action.request.url?.uriValue;
         final allowed = action.isForMainFrame

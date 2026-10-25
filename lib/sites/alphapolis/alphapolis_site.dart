@@ -10,6 +10,7 @@ import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/services/http_diagnostic_fields.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/alphapolis_uri.dart';
@@ -17,15 +18,29 @@ import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:novelty/utils/trusted_uri.dart';
 
 /// アルファポリスへのHTTP取得に失敗した場合の例外。
-class AlphapolisHttpException implements Exception {
+class AlphapolisHttpException implements SiteDiagnosticException {
   /// コンストラクタ。
-  const AlphapolisHttpException(this.statusCode, this.url);
+  const AlphapolisHttpException(
+    this.statusCode,
+    this.url, {
+    this.method = 'GET',
+  });
 
   /// HTTPステータスコード。
   final int statusCode;
 
   /// リクエストURL。
   final String url;
+
+  /// 失敗したHTTPメソッド。
+  final String method;
+
+  @override
+  Map<String, Object?> get safeDiagnosticFields => httpStatusDiagnosticFields(
+    statusCode: statusCode,
+    method: method,
+    url: url,
+  );
 
   @override
   String toString() => 'AlphapolisHttpException($statusCode): $url';
@@ -253,7 +268,11 @@ class AlphapolisSite implements NovelSite {
       ),
     );
     if (response.statusCode != 200) {
-      throw AlphapolisHttpException(response.statusCode ?? -1, bodyUrl);
+      throw AlphapolisHttpException(
+        response.statusCode ?? -1,
+        bodyUrl,
+        method: 'POST',
+      );
     }
     final body = response.data ?? '';
     // 空本文やエラーHTMLを成功扱いしない。

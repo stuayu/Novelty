@@ -7,6 +7,20 @@ import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/novel_source.dart';
 
 void main() {
+  test('ナビゲーション応答の計測が無効なTraceではfalseになる', () {
+    final diagnostics = AppDiagnosticsLogger(
+      enabled: true,
+      captureSensitiveTrace: false,
+      consoleSink: (_) {},
+    );
+    final trace = DebugWebViewHttpTrace(
+      diagnostics: diagnostics,
+      source: NovelSource.kakuyomu,
+    );
+
+    expect(trace.navigationResponseTracingEnabled, isFalse);
+  });
+
   test('WebViewのfetch送受信内容とHTTPステータスをTraceへ記録する', () async {
     final directory = await Directory.systemTemp.createTemp(
       'novelty-debug-webview-trace-test-',

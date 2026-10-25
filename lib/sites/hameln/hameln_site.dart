@@ -10,6 +10,7 @@ import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/services/api_service.dart' show NovelNotFoundException;
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/services/http_diagnostic_fields.dart';
 import 'package:novelty/sites/hameln/hameln_html_fetcher.dart';
 import 'package:novelty/sites/hameln/hameln_webview_html_fetcher.dart';
 import 'package:novelty/sites/novel_site.dart';
@@ -20,7 +21,7 @@ import 'package:novelty/utils/request_rate_limiter.dart';
 export 'hameln_html_fetcher.dart';
 
 /// ハーメルンへのHTTP取得に失敗した場合の例外。
-class HamelnHttpException implements Exception {
+class HamelnHttpException implements SiteDiagnosticException {
   /// コンストラクタ。
   const HamelnHttpException(this.statusCode, this.url);
 
@@ -29,6 +30,13 @@ class HamelnHttpException implements Exception {
 
   /// リクエストURL。
   final String url;
+
+  @override
+  Map<String, Object?> get safeDiagnosticFields => httpStatusDiagnosticFields(
+    statusCode: statusCode,
+    method: 'GET',
+    url: url,
+  );
 
   @override
   String toString() => 'HamelnHttpException($statusCode): $url';

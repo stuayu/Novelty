@@ -13,6 +13,7 @@ import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/providers/ranking_provider.dart';
 import 'package:novelty/services/api_service.dart';
 import 'package:novelty/services/narou_auth_diagnostics.dart';
+import 'package:novelty/sites/alphapolis/alphapolis_site.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -91,15 +92,6 @@ class _ControlledRankingSite extends _StubRankingSite {
   }
 }
 
-class _RankingDiagnosticException implements SiteDiagnosticException {
-  const _RankingDiagnosticException();
-
-  @override
-  Map<String, Object?> get safeDiagnosticFields => const {
-    'causeType': 'TimeoutException',
-  };
-}
-
 class _FailingAlphaPolisRankingSite extends _StubRankingSite {
   _FailingAlphaPolisRankingSite() : super(const <RankingPage>[]);
 
@@ -110,7 +102,10 @@ class _FailingAlphaPolisRankingSite extends _StubRankingSite {
   Future<RankingPage> fetchRanking(
     String rankingType, {
     int page = 1,
-  }) async => throw const _RankingDiagnosticException();
+  }) async => throw const AlphapolisHttpException(
+    503,
+    'https://www.alphapolis.co.jp/ranking?token=secret',
+  );
 }
 
 void main() {
@@ -307,7 +302,7 @@ void main() {
 
       expect(
         container.read(rankingProvider(NovelSource.alphapolis, '24hpt')).error,
-        isA<_RankingDiagnosticException>(),
+        isA<AlphapolisHttpException>(),
       );
       await diagnostics.flush();
       final logEntries = consoleLines
@@ -323,8 +318,13 @@ void main() {
       );
       expect(failure['source'], 'alphapolis');
       expect(failure['rankingType'], '24hpt');
-      expect(failure['errorType'], '_RankingDiagnosticException');
-      expect(failure['causeType'], 'TimeoutException');
+      expect(failure['errorType'], 'AlphapolisHttpException');
+      expect(failure['httpStatusCode'], 503);
+      expect(
+        failure['requestRoute'],
+        'www.alphapolis.co.jp/ranking',
+      );
+      expect(failure['requestRoute'], isNot(contains('secret')));
       expect(failure['stackTrace'], contains('fetchRanking'));
     });
 

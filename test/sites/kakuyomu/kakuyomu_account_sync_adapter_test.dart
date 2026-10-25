@@ -13,6 +13,7 @@ import 'package:novelty/services/kakuyomu_auth_service.dart';
 import 'package:novelty/services/kakuyomu_reading_progress_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_account_sync_adapter.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/request_rate_limiter.dart';
 
@@ -325,7 +326,16 @@ void main() {
         ),
       );
 
-      await expectLater(adapter.pullLibrary(), throwsA(isA<StateError>()));
+      await expectLater(
+        adapter.pullLibrary(),
+        throwsA(
+          isA<KakuyomuHttpException>().having(
+            (error) => error.statusCode,
+            'statusCode',
+            403,
+          ),
+        ),
+      );
       expect(await db.getLibraryNovels(), isEmpty);
     });
 
@@ -344,11 +354,13 @@ void main() {
       await expectLater(
         adapter.pullLibrary(),
         throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            contains('HTTP 200'),
-          ),
+          isA<KakuyomuHttpException>()
+              .having((error) => error.statusCode, 'statusCode', 200)
+              .having(
+                (error) => error.responseBodyEmpty,
+                'responseBodyEmpty',
+                isTrue,
+              ),
         ),
       );
       expect(await db.getLibraryNovels(), isEmpty);

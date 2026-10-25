@@ -10,6 +10,7 @@ import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/services/http_diagnostic_fields.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/estar_uri.dart';
@@ -17,15 +18,29 @@ import 'package:novelty/utils/request_rate_limiter.dart';
 import 'package:novelty/utils/trusted_uri.dart';
 
 /// エブリスタへのHTTP取得に失敗した場合の例外。
-class EstarHttpException implements Exception {
+class EstarHttpException implements SiteDiagnosticException {
   /// コンストラクタ。
-  const EstarHttpException(this.statusCode, this.url);
+  const EstarHttpException(
+    this.statusCode,
+    this.url, {
+    this.method = 'GET',
+  });
 
   /// HTTPステータスコード。
   final int statusCode;
 
   /// リクエストURL。
   final String url;
+
+  /// 失敗したHTTPメソッド。
+  final String method;
+
+  @override
+  Map<String, Object?> get safeDiagnosticFields => httpStatusDiagnosticFields(
+    statusCode: statusCode,
+    method: method,
+    url: url,
+  );
 
   @override
   String toString() => 'EstarHttpException($statusCode): $url';
@@ -426,7 +441,11 @@ class EstarSite implements NovelSite, RankingCacheControl {
       ),
     );
     if (response.statusCode != 200) {
-      throw EstarHttpException(response.statusCode ?? -1, graphqlUrl);
+      throw EstarHttpException(
+        response.statusCode ?? -1,
+        graphqlUrl,
+        method: 'POST',
+      );
     }
     return _parseGraphqlNodes(response.data ?? '');
   }

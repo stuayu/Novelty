@@ -55,6 +55,41 @@ class NarouBookmarkFetchException implements SiteDiagnosticException {
   String toString() => 'NarouBookmarkFetchException: $message';
 }
 
+Map<String, Object?> _bookmarkHttpDiagnosticFields({
+  required int? statusCode,
+  required String method,
+  required Uri uri,
+  required Headers? headers,
+  String? dioType,
+  int? page,
+  Object? responseBody,
+  bool responseBodyEmpty = false,
+}) {
+  final contentType = headers
+      ?.value(Headers.contentTypeHeader)
+      ?.split(';')
+      .first
+      .trim()
+      .toLowerCase();
+  final fields = <String, Object?>{
+    'httpStatusCode': statusCode,
+    'requestMethod': method,
+    'requestRoute': '${uri.host}${uri.path}',
+  };
+  if (dioType != null) fields['dioType'] = dioType;
+  if (page != null) fields['page'] = page;
+  if (contentType != null && contentType.isNotEmpty) {
+    fields['contentType'] = contentType;
+  }
+  if (responseBody != null || responseBodyEmpty) {
+    fields['responseBytes'] = responseBody == null || responseBodyEmpty
+        ? 0
+        : utf8.encode(responseBody.toString()).length;
+  }
+  if (responseBodyEmpty) fields['responseBodyEmpty'] = true;
+  return fields;
+}
+
 /// なろうの保存済みセッションが失効している場合の例外。
 class NarouSessionExpiredException implements Exception {
   /// コンストラクタ。
@@ -429,49 +464,33 @@ class NarouSyncService {
         continue;
       }
       if (statusCode != 200) {
-        final contentType = response.headers
-            .value(Headers.contentTypeHeader)
-            ?.split(';')
-            .first
-            .trim()
-            .toLowerCase();
         final responseBody = response.data;
         throw NarouBookmarkFetchException(
           'なろうブックマーク一覧の取得に失敗しました',
-          safeDiagnosticFields: <String, Object?>{
-            'httpStatusCode': statusCode,
-            'requestMethod': 'GET',
-            'requestRoute': '${response.realUri.host}${response.realUri.path}',
-            'page': page,
-            if (contentType != null && contentType.isNotEmpty)
-              'contentType': contentType,
-            'responseBytes': responseBody == null
-                ? 0
-                : utf8.encode(responseBody).length,
-          },
+          safeDiagnosticFields: _bookmarkHttpDiagnosticFields(
+            statusCode: statusCode,
+            method: 'GET',
+            uri: response.realUri,
+            page: page,
+            headers: response.headers,
+            responseBody: responseBody,
+            responseBodyEmpty: responseBody == null,
+          ),
         );
       }
 
       final body = response.data;
       if (body == null || body.isEmpty) {
-        final contentType = response.headers
-            .value(Headers.contentTypeHeader)
-            ?.split(';')
-            .first
-            .trim()
-            .toLowerCase();
         throw NarouBookmarkFetchException(
           'なろうブックマーク一覧の本文がありません',
-          safeDiagnosticFields: <String, Object?>{
-            'httpStatusCode': statusCode,
-            'requestMethod': 'GET',
-            'requestRoute': '${response.realUri.host}${response.realUri.path}',
-            'page': page,
-            if (contentType != null && contentType.isNotEmpty)
-              'contentType': contentType,
-            'responseBytes': 0,
-            'responseBodyEmpty': true,
-          },
+          safeDiagnosticFields: _bookmarkHttpDiagnosticFields(
+            statusCode: statusCode,
+            method: 'GET',
+            uri: response.realUri,
+            page: page,
+            headers: response.headers,
+            responseBodyEmpty: true,
+          ),
         );
       }
       final loginForm = parser
@@ -535,24 +554,16 @@ class NarouSyncService {
       );
       final requestUri = error.requestOptions.uri;
       final responseBody = error.response?.data;
-      final contentType = error.response?.headers
-          .value(Headers.contentTypeHeader)
-          ?.split(';')
-          .first
-          .trim()
-          .toLowerCase();
       throw NarouBookmarkFetchException(
         'なろうブックマーク一覧の通信に失敗しました',
-        safeDiagnosticFields: <String, Object?>{
-          'dioType': error.type.name,
-          'httpStatusCode': error.response?.statusCode,
-          'requestMethod': error.requestOptions.method,
-          'requestRoute': '${requestUri.host}${requestUri.path}',
-          if (contentType != null && contentType.isNotEmpty)
-            'contentType': contentType,
-          if (responseBody != null)
-            'responseBytes': utf8.encode(responseBody.toString()).length,
-        },
+        safeDiagnosticFields: _bookmarkHttpDiagnosticFields(
+          dioType: error.type.name,
+          statusCode: error.response?.statusCode,
+          method: error.requestOptions.method,
+          uri: requestUri,
+          headers: error.response?.headers,
+          responseBody: responseBody,
+        ),
       );
     }
   }

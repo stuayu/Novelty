@@ -10,6 +10,7 @@ import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/account_sync_registry.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_session_exception.dart';
+import 'package:novelty/sites/kakuyomu/kakuyomu_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/widgets/accounts/account_tile.dart';
 import 'package:novelty/widgets/accounts/kakuyomu_account_tile.dart';
@@ -284,7 +285,7 @@ void main() {
     expect(find.text('小説家になろうのログイン期限が切れました。再ログインしてください'), findsOneWidget);
   });
 
-  testWidgets('同期中のStateErrorを捕捉して失敗Traceへ残す', (tester) async {
+  testWidgets('同期中のHTTP例外を捕捉してステータスを失敗Traceへ残す', (tester) async {
     final consoleLines = <String>[];
     final diagnostics = NarouAuthDiagnosticsLogger(
       enabled: true,
@@ -295,7 +296,10 @@ void main() {
 
     final adapter = _FakeAccountSyncAdapter(
       source: NovelSource.kakuyomu,
-      syncError: StateError('カクヨムフォロー一覧の取得に失敗しました (HTTP 403)'),
+      syncError: const KakuyomuHttpException(
+        403,
+        'https://kakuyomu.jp/api/follow?token=secret',
+      ),
     );
     await tester.pumpWidget(
       ProviderScope(
@@ -329,10 +333,12 @@ void main() {
     final failure = logEntries.singleWhere(
       (entry) => entry['event'] == 'library-sync.failed.trace',
     );
+    expect(failure['httpStatusCode'], 403);
+    expect(failure['requestRoute'], 'kakuyomu.jp/api/follow');
+    expect(failure['requestRoute'], isNot(contains('secret')));
     expect(failure['source'], 'kakuyomu');
     expect(failure['level'], 'TRACE');
-    expect(failure['errorType'], 'StateError');
-    expect(failure['httpStatusCode'], 403);
+    expect(failure['errorType'], 'KakuyomuHttpException');
     expect(failure['stackTrace'], contains('pullLibrary'));
   });
 }
