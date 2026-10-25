@@ -1,9 +1,12 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novelty/providers/auth_provider.dart';
 import 'package:novelty/router/router.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/account_sync_registry.dart';
+import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 
 /// ログイン画面を開き、ログイン成功時は `true` を返す処理。
@@ -262,15 +265,44 @@ class AccountTile extends ConsumerWidget {
     final adapter = ref.read(accountSyncRegistryProvider)[source];
     if (adapter == null) return;
 
+    final diagnostics = ref.read(appDiagnosticsLoggerProvider);
+    final operationId = diagnostics.createOperationId();
+    final stopwatch = Stopwatch()..start();
+    diagnostics.record(operationId, 'library-sync.started', <String, Object?>{
+      'source': source.dbId,
+    });
+
     try {
       final count = await adapter.pullLibrary();
+      stopwatch.stop();
+      diagnostics.record(
+        operationId,
+        'library-sync.completed',
+        <String, Object?>{
+          'source': source.dbId,
+          'count': count,
+          'durationMs': stopwatch.elapsedMilliseconds,
+        },
+      );
       if (!context.mounted) return;
       messenger.showSnackBar(
         SnackBar(
           content: Text('$count ${configuration.syncSuccessNoun}を同期しました'),
         ),
       );
-    } on AccountSessionExpiredException catch (error) {
+    } on AccountSessionExpiredException catch (error, stackTrace) {
+      stopwatch.stop();
+      diagnostics.record(
+        operationId,
+        'library-sync.failed.trace',
+        <String, Object?>{
+          'level': 'TRACE',
+          'source': source.dbId,
+          'durationMs': stopwatch.elapsedMilliseconds,
+          ..._syncErrorDiagnosticFields(error),
+          'stackTrace': stackTrace.toString(),
+        },
+      );
       if (error.clearSessionOnCatch) {
         try {
           await adapter.logout();
@@ -283,7 +315,19 @@ class AccountTile extends ConsumerWidget {
       messenger.showSnackBar(
         SnackBar(content: Text(configuration.sessionExpiredMessage)),
       );
-    } on Exception {
+    } on Object catch (error, stackTrace) {
+      stopwatch.stop();
+      diagnostics.record(
+        operationId,
+        'library-sync.failed.trace',
+        <String, Object?>{
+          'level': 'TRACE',
+          'source': source.dbId,
+          'durationMs': stopwatch.elapsedMilliseconds,
+          ..._syncErrorDiagnosticFields(error),
+          'stackTrace': stackTrace.toString(),
+        },
+      );
       if (!context.mounted) return;
       messenger.showSnackBar(
         SnackBar(content: Text(configuration.syncFailureMessage)),
@@ -301,4 +345,28 @@ class AccountTile extends ConsumerWidget {
       SnackBar(content: Text(configuration.logoutMessage)),
     );
   }
+}
+
+Map<String, Object?> _syncErrorDiagnosticFields(Object error) {
+  final fields = <String, Object?>{
+    'errorType': error.runtimeType.toString(),
+  };
+  if (error is SiteDiagnosticException) {
+    fields.addAll(error.safeDiagnosticFields);
+  } else if (error is DioException) {
+    final uri = error.requestOptions.uri;
+    fields
+      ..['dioType'] = error.type.name
+      ..['httpStatusCode'] = error.response?.statusCode
+      ..['requestMethod'] = error.requestOptions.method
+      ..['requestRoute'] = '${uri.host}${uri.path}';
+  } else if (error is StateError) {
+    final status = RegExp(
+      r'\bHTTP\s+(\d{3})\b',
+    ).firstMatch(error.message)?.group(1);
+    if (status != null) {
+      fields['httpStatusCode'] = int.tryParse(status);
+    }
+  }
+  return fields;
 }

@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:novelty/models/account_auth_state.dart';
 import 'package:novelty/providers/auth_provider.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/account_sync_registry.dart';
 import 'package:novelty/sites/kakuyomu/kakuyomu_session_exception.dart';
@@ -18,7 +21,7 @@ class _FakeAccountSyncAdapter implements AccountSyncAdapter {
   @override
   final NovelSource source;
 
-  final Exception? syncError;
+  final Object? syncError;
   bool loggedIn = true;
   int logoutCount = 0;
 
@@ -38,7 +41,9 @@ class _FakeAccountSyncAdapter implements AccountSyncAdapter {
 
   @override
   Future<int> pullLibrary() async {
-    if (syncError case final error?) throw error;
+    final error = syncError;
+    if (error is Exception) throw error;
+    if (error is Error) throw error;
     return 1;
   }
 
@@ -277,5 +282,57 @@ void main() {
 
     expect(adapter.logoutCount, 0);
     expect(find.text('小説家になろうのログイン期限が切れました。再ログインしてください'), findsOneWidget);
+  });
+
+  testWidgets('同期中のStateErrorを捕捉して失敗Traceへ残す', (tester) async {
+    final consoleLines = <String>[];
+    final diagnostics = NarouAuthDiagnosticsLogger(
+      enabled: true,
+      directoryResolver: () async =>
+          throw StateError('test file output disabled'),
+      consoleSink: consoleLines.add,
+    );
+
+    final adapter = _FakeAccountSyncAdapter(
+      source: NovelSource.kakuyomu,
+      syncError: StateError('カクヨムフォロー一覧の取得に失敗しました (HTTP 403)'),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appDiagnosticsLoggerProvider.overrideWithValue(diagnostics),
+          accountSyncRegistryProvider.overrideWithValue({
+            NovelSource.kakuyomu: adapter,
+          }),
+        ],
+        child: const MaterialApp(home: Scaffold(body: KakuyomuAccountTile())),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ログイン済み'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('フォロー作品・閲覧履歴を同期'));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('カクヨム作品・閲覧履歴の同期に失敗しました'), findsOneWidget);
+    await diagnostics.flush();
+    final logEntries = consoleLines
+        .where((line) => line.startsWith('[NoveltyDiagnostics] {'))
+        .map(
+          (line) =>
+              jsonDecode(line.substring(line.indexOf('{')))
+                  as Map<String, dynamic>,
+        )
+        .toList();
+    final failure = logEntries.singleWhere(
+      (entry) => entry['event'] == 'library-sync.failed.trace',
+    );
+    expect(failure['source'], 'kakuyomu');
+    expect(failure['level'], 'TRACE');
+    expect(failure['errorType'], 'StateError');
+    expect(failure['httpStatusCode'], 403);
+    expect(failure['stackTrace'], contains('pullLibrary'));
   });
 }

@@ -402,6 +402,25 @@ void main() {
     });
 
     group('fetchRanking', () {
+      test('現行のc-contentランキングDOMを解析する', () async {
+        final adapter = _FixtureAdapter(<String, String>{
+          '/novel/index': _fixture('ranking_page_current.html'),
+        });
+
+        final ranking = await _createSite(adapter).fetchRanking('24hpt');
+
+        expect(ranking.novels, hasLength(1));
+        expect(ranking.hasNextPage, isTrue);
+        expect(ranking.novels.single.workId, '283520571-107095527');
+        expect(ranking.novels.single.title, '現行DOMの作品');
+        expect(ranking.novels.single.writer, '現行作者');
+        expect(ranking.novels.single.genreId, '110500');
+        expect(ranking.novels.single.end, 0);
+        expect(ranking.novels.single.totalCharacterCount, 98765);
+        expect(ranking.novels.single.allPoint, 12345);
+        expect(ranking.novels.single.generalLastup, '2026-10-24');
+      });
+
       test('作品一覧DOMからランキングと次ページ有無を返す', () async {
         final adapter = _FixtureAdapter(<String, String>{
           '/novel/index': _fixture('ranking_page.html'),

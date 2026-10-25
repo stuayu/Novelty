@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -9,9 +10,11 @@ import 'package:mockito/mockito.dart';
 import 'package:novelty/database/database.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/services/narou_sync_service.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/narou/narou_account_sync_adapter.dart';
+import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 
 import 'narou_sync_service_test.mocks.dart';
@@ -229,6 +232,168 @@ void main() {
     });
 
     group('syncBookmarksFromNarou', () {
+      test('メタデータ取得失敗は同期結果を保ち安全なTrace診断を残す', () async {
+        final repository = AuthRepository(storage: _MemorySecureStorage());
+        await repository.saveSession(
+          narouid: 'reader-id',
+          username: '読者',
+          ks2: 'ks2-token',
+          ses: 'ses-token',
+          userl: 'userl-token',
+          rememberSession: true,
+        );
+        const bookmarkHtml = '''
+<li class="p-up-bookmark-item">
+  <span class="p-up-bookmark-item__title">
+    <a href="https://ncode.syosetu.com/n0156ia/">Title</a>
+  </span>
+</li>
+''';
+        final fakeAdapter = _FakeHttpClientAdapter(
+          (_) => ResponseBody.fromString(bookmarkHtml, 200),
+        );
+        final request = RequestOptions(
+          path: 'https://api.syosetu.com/novelapi/api/',
+        );
+        when(mockApiService.fetchMultipleNovelsInfo(any)).thenThrow(
+          DioException(
+            requestOptions: request,
+            type: DioExceptionType.badResponse,
+            response: Response<String>(
+              requestOptions: request,
+              statusCode: 503,
+              data: 'private response body',
+            ),
+          ),
+        );
+        when(mockDatabase.ensureNovelExists(any, any)).thenAnswer((_) async {});
+        when(mockDatabase.addToLibrary(any, any)).thenAnswer((_) async => 1);
+        when(
+          mockDatabase.markNarouBookmarkSynced(any, any),
+        ).thenAnswer((_) async {});
+        final tempDirectory = await Directory.systemTemp.createTemp(
+          'novelty-narou-sync-test-',
+        );
+        addTearDown(() => tempDirectory.delete(recursive: true));
+        final diagnosticLines = <String>[];
+        final diagnostics = AppDiagnosticsLogger(
+          enabled: true,
+          directoryResolver: () async => tempDirectory,
+          consoleSink: diagnosticLines.add,
+        );
+        final service = NarouSyncService(
+          authRepository: repository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          diagnostics: diagnostics,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        final synced = await service.syncBookmarksFromNarou();
+        await diagnostics.flush();
+
+        expect(synced, ['n0156ia']);
+        expect(diagnosticLines, hasLength(1));
+        expect(
+          diagnosticLines.single,
+          contains('library-sync.metadata.failed.trace'),
+        );
+        expect(diagnosticLines.single, contains('"httpStatusCode":503'));
+        expect(
+          diagnosticLines.single,
+          contains('api.syosetu.com/novelapi/api/'),
+        );
+        expect(
+          diagnosticLines.single,
+          isNot(contains('private response body')),
+        );
+      });
+
+      test('ブックマークHTTP失敗は本文を含めず安全な診断情報を保持する', () async {
+        final repository = AuthRepository(storage: _MemorySecureStorage());
+        await repository.saveSession(
+          narouid: 'reader-id',
+          username: '読者',
+          ks2: 'ks2-token',
+          ses: 'ses-token',
+          userl: 'userl-token',
+          rememberSession: true,
+        );
+        const responseBody = 'service unavailable';
+        final fakeAdapter = _FakeHttpClientAdapter(
+          (_) => ResponseBody.fromString(
+            responseBody,
+            503,
+            headers: <String, List<String>>{
+              'content-type': ['text/html; charset=utf-8'],
+            },
+          ),
+        );
+        final service = NarouSyncService(
+          authRepository: repository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        Object? failure;
+        try {
+          await service.syncBookmarksFromNarou();
+          fail('HTTP 503なら同期が失敗する必要があります');
+        } on NarouBookmarkFetchException catch (error) {
+          failure = error;
+        }
+
+        expect(failure, isA<SiteDiagnosticException>());
+        final details =
+            (failure as SiteDiagnosticException).safeDiagnosticFields;
+        expect(details['httpStatusCode'], 503);
+        expect(details['requestMethod'], 'GET');
+        expect(
+          details['requestRoute'],
+          'syosetu.com/favnovelmain/list/',
+        );
+        expect(details['contentType'], 'text/html');
+        expect(details['responseBytes'], responseBody.length);
+        expect(details.keys, isNot(contains('responseBody')));
+      });
+
+      test('HTTP 200でも本文が空なら空一覧の同期成功として扱わない', () async {
+        final repository = AuthRepository(storage: _MemorySecureStorage());
+        await repository.saveSession(
+          narouid: 'reader-id',
+          username: '読者',
+          ks2: 'ks2-token',
+          ses: 'ses-token',
+          userl: 'userl-token',
+          rememberSession: true,
+        );
+        final fakeAdapter = _FakeHttpClientAdapter(
+          (_) => ResponseBody.fromString('', 200),
+        );
+        final service = NarouSyncService(
+          authRepository: repository,
+          db: mockDatabase,
+          apiService: mockApiService,
+          dio: Dio()..httpClientAdapter = fakeAdapter,
+        );
+
+        Object? failure;
+        try {
+          await service.syncBookmarksFromNarou();
+          fail('本文のないHTTP 200応答なら同期が失敗する必要があります');
+        } on NarouBookmarkFetchException catch (error) {
+          failure = error;
+        }
+
+        expect(failure, isA<SiteDiagnosticException>());
+        final details =
+            (failure as SiteDiagnosticException).safeDiagnosticFields;
+        expect(details['httpStatusCode'], 200);
+        expect(details['responseBytes'], 0);
+        expect(details['responseBodyEmpty'], isTrue);
+      });
+
       test('同期中に同じセッションのCookieが更新されたら次ページへ反映する', () async {
         final repository = AuthRepository(storage: _MemorySecureStorage());
         await repository.saveSession(

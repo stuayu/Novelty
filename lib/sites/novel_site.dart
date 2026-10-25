@@ -187,3 +187,9 @@ abstract interface class RankingCacheControl {
 
 /// サイト側のアクセス制限により取得できないことを表す例外。
 abstract interface class AccessRestrictedException implements Exception {}
+
+/// 診断ログに安全に記録できる追加情報を持つサイト例外。
+abstract interface class SiteDiagnosticException implements Exception {
+  /// 認証情報や本文を含めない診断項目。
+  Map<String, Object?> get safeDiagnosticFields;
+}

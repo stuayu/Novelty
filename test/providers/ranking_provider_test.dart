@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +12,7 @@ import 'package:novelty/models/novel_search_result.dart';
 import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/providers/ranking_provider.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -87,6 +89,28 @@ class _ControlledRankingSite extends _StubRankingSite {
     pendingPages.add(completer);
     return completer.future;
   }
+}
+
+class _RankingDiagnosticException implements SiteDiagnosticException {
+  const _RankingDiagnosticException();
+
+  @override
+  Map<String, Object?> get safeDiagnosticFields => const {
+    'causeType': 'TimeoutException',
+  };
+}
+
+class _FailingAlphaPolisRankingSite extends _StubRankingSite {
+  _FailingAlphaPolisRankingSite() : super(const <RankingPage>[]);
+
+  @override
+  NovelSource get source => NovelSource.alphapolis;
+
+  @override
+  Future<RankingPage> fetchRanking(
+    String rankingType, {
+    int page = 1,
+  }) async => throw const _RankingDiagnosticException();
 }
 
 void main() {
@@ -252,7 +276,58 @@ void main() {
     });
   });
 
-  group('RankingNotifier（カクヨムのサイト実装経路）', () {
+  group('RankingNotifier', () {
+    test('アルファポリスランキングの例外をTraceログへ残す', () async {
+      final consoleLines = <String>[];
+      final diagnostics = NarouAuthDiagnosticsLogger(
+        enabled: true,
+        directoryResolver: () async =>
+            throw StateError('test file output disabled'),
+        consoleSink: consoleLines.add,
+      );
+
+      final site = _FailingAlphaPolisRankingSite();
+      final container = ProviderContainer(
+        overrides: [
+          appDiagnosticsLoggerProvider.overrideWithValue(diagnostics),
+          novelSiteRegistryProvider.overrideWithValue(
+            <NovelSource, NovelSite>{NovelSource.alphapolis: site},
+          ),
+          isOfflineModeProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+      final subscription = container.listen(
+        rankingProvider(NovelSource.alphapolis, '24hpt'),
+        (_, _) {},
+      );
+      addTearDown(subscription.close);
+
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      expect(
+        container.read(rankingProvider(NovelSource.alphapolis, '24hpt')).error,
+        isA<_RankingDiagnosticException>(),
+      );
+      await diagnostics.flush();
+      final logEntries = consoleLines
+          .where((line) => line.startsWith('[NoveltyDiagnostics] {'))
+          .map(
+            (line) =>
+                jsonDecode(line.substring(line.indexOf('{')))
+                    as Map<String, dynamic>,
+          )
+          .toList();
+      final failure = logEntries.singleWhere(
+        (entry) => entry['event'] == 'ranking.fetch.failed.trace',
+      );
+      expect(failure['source'], 'alphapolis');
+      expect(failure['rankingType'], '24hpt');
+      expect(failure['errorType'], '_RankingDiagnosticException');
+      expect(failure['causeType'], 'TimeoutException');
+      expect(failure['stackTrace'], contains('fetchRanking'));
+    });
+
     test('フィルター変更前の遅延レスポンスを新しいランキングへ混ぜない', () async {
       final site = _ControlledRankingSite();
       final container = ProviderContainer(

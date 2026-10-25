@@ -322,7 +322,12 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
         }
         throw StateError('カクヨムフォロー一覧のリダイレクトを拒否しました');
       }
-      if (response.statusCode >= 400 || response.statusCode <= 0) break;
+      if (response.statusCode >= 400 || response.statusCode <= 0) {
+        throw StateError(
+          'カクヨムフォロー一覧の取得に失敗しました '
+          '(HTTP ${response.statusCode})',
+        );
+      }
 
       final finalUri = response.realUri;
       if (!isTrustedKakuyomuUri(finalUri)) {
@@ -333,7 +338,12 @@ class KakuyomuAccountSyncAdapter implements AccountSyncAdapter {
       }
 
       final body = response.body;
-      if (body == null || body.isEmpty) break;
+      if (body == null || body.isEmpty) {
+        throw StateError(
+          'カクヨムフォロー一覧の取得に失敗しました '
+          '(HTTP ${response.statusCode}, response body empty)',
+        );
+      }
 
       final parsed = _parser.parse(body, baseUri: finalUri);
       if (parsed.isGuestPage) {

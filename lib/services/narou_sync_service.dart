@@ -10,7 +10,9 @@ import 'package:novelty/providers/site_rate_limiter_provider.dart';
 import 'package:novelty/repositories/auth_repository.dart';
 import 'package:novelty/services/api_service.dart';
 import 'package:novelty/services/http_client.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/services/narou_auth_service.dart';
+import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:novelty/utils/narou_uri_utils.dart';
 import 'package:novelty/utils/ncode_utils.dart';
@@ -35,12 +37,18 @@ enum NarouBookmarkSyncOutcome {
 }
 
 /// なろうのブックマーク一覧を取得できなかった場合の例外。
-class NarouBookmarkFetchException implements Exception {
+class NarouBookmarkFetchException implements SiteDiagnosticException {
   /// コンストラクタ。
-  const NarouBookmarkFetchException(this.message);
+  const NarouBookmarkFetchException(
+    this.message, {
+    this.safeDiagnosticFields = const <String, Object?>{},
+  });
 
   /// 失敗理由。
   final String message;
+
+  @override
+  final Map<String, Object?> safeDiagnosticFields;
 
   @override
   String toString() => 'NarouBookmarkFetchException: $message';
@@ -157,6 +165,7 @@ NarouSyncService narouSyncService(Ref ref) {
     authRepository: ref.watch(authRepositoryProvider),
     db: ref.watch(appDatabaseProvider),
     apiService: ref.watch(apiServiceProvider),
+    diagnostics: ref.watch(appDiagnosticsLoggerProvider),
     rateLimiter: ref.watch(siteRateLimiterProvider(NovelSource.narou)),
   );
 }
@@ -175,9 +184,11 @@ class NarouSyncService {
     required this.authRepository,
     required this.db,
     required this.apiService,
+    AppDiagnosticsLogger? diagnostics,
     Dio? dio,
     RequestRateLimiter? rateLimiter,
-  }) : _dio =
+  }) : _diagnostics = diagnostics,
+       _dio =
            dio ??
            createNoveltyDio(
              rateLimiter: rateLimiter,
@@ -204,6 +215,9 @@ class NarouSyncService {
 
   /// なろうへのHTTPリクエストに使用するDioインスタンス。
   final Dio _dio;
+
+  /// 同期の診断ログ出力先。
+  final AppDiagnosticsLogger? _diagnostics;
 
   static const _bookmarkListBase = 'https://syosetu.com/favnovelmain/list/';
   static const _updateajaxUrl = 'https://syosetu.com/favnovelmain/updateajax/';
@@ -291,9 +305,38 @@ class NarouSyncService {
           await db.insertNovel(info.toDbCompanion());
         }
       }
-    } on Exception {
-      // メタデータ取得失敗はサイレントに無視する（ライブラリ登録には影響させない）
+    } on Exception catch (error, stackTrace) {
+      final diagnostics = _diagnostics;
+      if (diagnostics != null) {
+        final operationId = diagnostics.createOperationId();
+        diagnostics.record(
+          operationId,
+          'library-sync.metadata.failed.trace',
+          <String, Object?>{
+            'level': 'TRACE',
+            'source': NovelSource.narou.dbId,
+            'count': ncodes.length,
+            ..._safeSyncDiagnosticFields(error),
+            'stackTrace': stackTrace.toString(),
+          },
+        );
+      }
     }
+  }
+
+  Map<String, Object?> _safeSyncDiagnosticFields(Object error) {
+    final fields = <String, Object?>{
+      'errorType': error.runtimeType.toString(),
+    };
+    if (error is DioException) {
+      final uri = error.requestOptions.uri;
+      fields
+        ..['dioType'] = error.type.name
+        ..['httpStatusCode'] = error.response?.statusCode
+        ..['requestMethod'] = error.requestOptions.method
+        ..['requestRoute'] = '${uri.host}${uri.path}';
+    }
+    return fields;
   }
 
   /// ブックマーク一覧ページを全ページ走査してエントリーを取得する。
@@ -391,15 +434,49 @@ class NarouSyncService {
         continue;
       }
       if (statusCode != 200) {
-        throw const NarouBookmarkFetchException(
+        final contentType = response.headers
+            .value(Headers.contentTypeHeader)
+            ?.split(';')
+            .first
+            .trim()
+            .toLowerCase();
+        final responseBody = response.data;
+        throw NarouBookmarkFetchException(
           'なろうブックマーク一覧の取得に失敗しました',
+          safeDiagnosticFields: <String, Object?>{
+            'httpStatusCode': statusCode,
+            'requestMethod': 'GET',
+            'requestRoute': '${response.realUri.host}${response.realUri.path}',
+            'page': page,
+            if (contentType != null && contentType.isNotEmpty)
+              'contentType': contentType,
+            'responseBytes': responseBody == null
+                ? 0
+                : utf8.encode(responseBody).length,
+          },
         );
       }
 
       final body = response.data;
-      if (body == null) {
-        throw const NarouBookmarkFetchException(
+      if (body == null || body.isEmpty) {
+        final contentType = response.headers
+            .value(Headers.contentTypeHeader)
+            ?.split(';')
+            .first
+            .trim()
+            .toLowerCase();
+        throw NarouBookmarkFetchException(
           'なろうブックマーク一覧の本文がありません',
+          safeDiagnosticFields: <String, Object?>{
+            'httpStatusCode': statusCode,
+            'requestMethod': 'GET',
+            'requestRoute': '${response.realUri.host}${response.realUri.path}',
+            'page': page,
+            if (contentType != null && contentType.isNotEmpty)
+              'contentType': contentType,
+            'responseBytes': 0,
+            'responseBodyEmpty': true,
+          },
         );
       }
       final loginForm = parser
@@ -461,8 +538,26 @@ class NarouSyncService {
         '[NarouSync] ブックマーク一覧の通信失敗 '
         'type=${error.type} status=${error.response?.statusCode}',
       );
-      throw const NarouBookmarkFetchException(
+      final requestUri = error.requestOptions.uri;
+      final responseBody = error.response?.data;
+      final contentType = error.response?.headers
+          .value(Headers.contentTypeHeader)
+          ?.split(';')
+          .first
+          .trim()
+          .toLowerCase();
+      throw NarouBookmarkFetchException(
         'なろうブックマーク一覧の通信に失敗しました',
+        safeDiagnosticFields: <String, Object?>{
+          'dioType': error.type.name,
+          'httpStatusCode': error.response?.statusCode,
+          'requestMethod': error.requestOptions.method,
+          'requestRoute': '${requestUri.host}${requestUri.path}',
+          if (contentType != null && contentType.isNotEmpty)
+            'contentType': contentType,
+          if (responseBody != null)
+            'responseBytes': utf8.encode(responseBody.toString()).length,
+        },
       );
     }
   }

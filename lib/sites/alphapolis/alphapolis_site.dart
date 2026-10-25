@@ -317,7 +317,9 @@ class AlphapolisSite implements NovelSite {
       },
     );
     final document = html_parser.parse(await _getHtml(uri.toString()));
-    final items = document.querySelectorAll('.p-content.is-novel');
+    final items = document.querySelectorAll(
+      '.p-content.is-novel, section.c-content',
+    );
     if (items.isEmpty) {
       throw const FormatException('ランキングの作品DOMが見つかりません');
     }
@@ -446,7 +448,7 @@ class AlphapolisSite implements NovelSite {
 
   NovelInfo _listingToNovelInfo(Element item) {
     final link = item.querySelector(
-      '.p-content__title a, .content-title .title a',
+      '.c-content__title a, .p-content__title a, .content-title .title a',
     );
     final href = link?.attributes['href'];
     if (href == null) {
@@ -470,7 +472,12 @@ class AlphapolisSite implements NovelSite {
         .map((element) => element.text.trim())
         .join(' ');
     final updated = _extractDate(
-      item.querySelector('.updated, .p-content__other .updated')?.text,
+      item
+              .querySelector(
+                '.c-content__attribute-wrap--date .c-content__attribute',
+              )
+              ?.text ??
+          item.querySelector('.updated, .p-content__other .updated')?.text,
     );
 
     return NovelInfo(
@@ -478,11 +485,16 @@ class AlphapolisSite implements NovelSite {
       workId: buildAlphapolisWorkId(segments[1], segments[2]),
       title: link?.text.trim(),
       writer: item
-          .querySelector('.p-content__author-bookinfo a, .author a')
+          .querySelector(
+            '.c-content__author-publink a, '
+            '.p-content__author-bookinfo a, .author a',
+          )
           ?.text
           .trim(),
       story: item
-          .querySelector('.p-content__abstract, .abstract .summary')
+          .querySelector(
+            '.c-content__abstract, .p-content__abstract, .abstract .summary',
+          )
           ?.text
           .trim(),
       genreId: genreId,
@@ -492,7 +504,10 @@ class AlphapolisSite implements NovelSite {
           ? 1
           : null,
       totalCharacterCount: _parseNumber(
-        item.querySelector('.wordcount, .p-content__other .wordcount')?.text,
+        _listingAttributeValue(item, '文字数') ??
+            item
+                .querySelector('.wordcount, .p-content__other .wordcount')
+                ?.text,
       ),
       allPoint: _parseNumber(
         item.querySelector('.c-point--24h span, .meta .point span')?.text,
@@ -504,6 +519,14 @@ class AlphapolisSite implements NovelSite {
           .join(' '),
       generalLastup: _normalizeDateTime(updated),
     );
+  }
+
+  String? _listingAttributeValue(Element item, String label) {
+    for (final attribute in item.querySelectorAll('.c-content__attribute')) {
+      final text = attribute.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (text.startsWith(label)) return text.substring(label.length).trim();
+    }
+    return null;
   }
 
   String? _extractDate(String? text) {

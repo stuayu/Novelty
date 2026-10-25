@@ -194,7 +194,7 @@ void main() {
             return KakuyomuFollowedWorksHttpResponse(
               statusCode: 200,
               realUri: url,
-              body: '',
+              body: '<html></html>',
             );
           },
         );
@@ -309,6 +309,47 @@ void main() {
       await expectLater(
         adapter.pullLibrary(),
         throwsA(isA<KakuyomuSessionExpiredException>()),
+      );
+      expect(await db.getLibraryNovels(), isEmpty);
+    });
+
+    test('HTTPエラーのフォロー一覧を空の同期成功として扱わない', () async {
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        db: db,
+        rateLimiter: _noWaitLimiter(),
+        pageFetcher: (url, cookie) async => KakuyomuFollowedWorksHttpResponse(
+          statusCode: 403,
+          realUri: url,
+          body: 'Forbidden',
+        ),
+      );
+
+      await expectLater(adapter.pullLibrary(), throwsA(isA<StateError>()));
+      expect(await db.getLibraryNovels(), isEmpty);
+    });
+
+    test('HTTP 200でも本文が空なら空一覧の同期成功として扱わない', () async {
+      final adapter = KakuyomuAccountSyncAdapter(
+        sessionRepository: _FakeSessionRepository('session=test'),
+        db: db,
+        rateLimiter: _noWaitLimiter(),
+        pageFetcher: (url, cookie) async => KakuyomuFollowedWorksHttpResponse(
+          statusCode: 200,
+          realUri: url,
+          body: '',
+        ),
+      );
+
+      await expectLater(
+        adapter.pullLibrary(),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('HTTP 200'),
+          ),
+        ),
       );
       expect(await db.getLibraryNovels(), isEmpty);
     });

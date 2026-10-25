@@ -6,6 +6,7 @@ import 'package:novelty/models/novel_info.dart';
 import 'package:novelty/models/novel_search_query.dart';
 import 'package:novelty/models/ranking_page.dart';
 import 'package:novelty/services/api_service.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/novel_site.dart';
 import 'package:novelty/sites/novel_site_registry.dart';
 import 'package:novelty/sites/novel_source.dart';
@@ -164,7 +165,25 @@ class RankingNotifier extends _$RankingNotifier {
       return;
     }
 
+    final diagnostics = ref.read(appDiagnosticsLoggerProvider);
+    final operationId = diagnostics.createOperationId();
+    final stopwatch = Stopwatch()..start();
+    diagnostics.record(operationId, 'ranking.fetch.started', {
+      'source': source.dbId,
+      'rankingType': rankingType,
+      'page': currentState.page,
+    });
+
     if (ref.read(isOfflineModeProvider)) {
+      stopwatch.stop();
+      diagnostics.record(operationId, 'ranking.fetch.failed.trace', {
+        'level': 'TRACE',
+        'source': source.dbId,
+        'rankingType': rankingType,
+        'page': currentState.page,
+        'durationMs': stopwatch.elapsedMilliseconds,
+        'errorType': 'OfflineException',
+      });
       state = currentState.copyWith(
         error: const Value<Object?>(OfflineException()),
       );
@@ -196,11 +215,39 @@ class RankingNotifier extends _$RankingNotifier {
       }
       if (ref.mounted && requestGeneration == _requestGeneration) {
         _retainCache();
+        stopwatch.stop();
+        diagnostics.record(operationId, 'ranking.fetch.completed', {
+          'source': source.dbId,
+          'rankingType': rankingType,
+          'page': currentState.page,
+          'count': state.novels.length - currentState.novels.length,
+          'durationMs': stopwatch.elapsedMilliseconds,
+        });
+      } else {
+        stopwatch.stop();
+        diagnostics.record(operationId, 'ranking.fetch.cancelled', {
+          'source': source.dbId,
+          'rankingType': rankingType,
+          'page': currentState.page,
+          'durationMs': stopwatch.elapsedMilliseconds,
+        });
       }
     } on Object catch (e, stackTrace) {
+      stopwatch.stop();
+      diagnostics.record(operationId, 'ranking.fetch.failed.trace', {
+        'level': 'TRACE',
+        'source': source.dbId,
+        'rankingType': rankingType,
+        'page': currentState.page,
+        'durationMs': stopwatch.elapsedMilliseconds,
+        'errorType': e.runtimeType.toString(),
+        if (e is SiteDiagnosticException) ...e.safeDiagnosticFields,
+        'stackTrace': stackTrace.toString(),
+      });
       _logRanking(
-        'fetchNextPage: ERROR source=$source rankingType=$rankingType '
-        'mounted=${ref.mounted} error=$e\n$stackTrace',
+        'fetchNextPage: ERROR source=${source.dbId} '
+        'rankingType=$rankingType mounted=${ref.mounted} '
+        'errorType=${e.runtimeType}\n$stackTrace',
       );
       // タブ切替等でプロバイダが破棄された場合は状態を更新しない
       if (!ref.mounted || requestGeneration != _requestGeneration) {

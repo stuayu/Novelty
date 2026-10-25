@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -16,13 +17,13 @@ const _captureSensitiveTraceFromEnvironment = bool.fromEnvironment(
   'NAROU_AUTH_TRACE_SENSITIVE',
 );
 
-/// なろう認証の構造化診断ログを出力する。
+/// アプリ全体の構造化診断ログを出力する。
 ///
 /// 通常の診断ログでは認証情報や応答本文を伏せる。生の通信データは
 /// デバッグビルドでTraceを明示的に有効にした場合だけ別ファイルへ出力する。
-class NarouAuthDiagnosticsLogger {
+class AppDiagnosticsLogger {
   /// 診断ログを初期化する。
-  NarouAuthDiagnosticsLogger({
+  AppDiagnosticsLogger({
     bool? enabled,
     bool captureSensitiveTrace = _captureSensitiveTraceFromEnvironment,
     AuthDiagnosticsDirectoryResolver? directoryResolver,
@@ -36,7 +37,7 @@ class NarouAuthDiagnosticsLogger {
        _directoryResolver = directoryResolver ?? getApplicationSupportDirectory,
        _consoleSink = consoleSink ?? _debugConsoleSink;
 
-  /// 診断ログファイル名。
+  /// 既存の診断ログファイル名。利用者のログ受け渡しパスとの互換性を保つ。
   static const fileName = 'narou_auth_diagnostics.jsonl';
 
   /// Traceレベルの完全な通信ログ名。
@@ -83,7 +84,7 @@ class NarouAuthDiagnosticsLogger {
       ...fields,
     };
     final line = jsonEncode(entry);
-    _consoleSink('[NarouAuthDiagnostics] $line');
+    _consoleSink('[NoveltyDiagnostics] $line');
     _enqueue(line, fileName: fileName, maxBytes: maxBytes);
   }
 
@@ -103,7 +104,7 @@ class NarouAuthDiagnosticsLogger {
       'event': event,
     };
     final line = jsonEncode(entry);
-    _consoleSink('[NarouAuthDiagnostics][TRACE] $line');
+    _consoleSink('[NoveltyDiagnostics][TRACE] $line');
     _enqueue(line, fileName: traceFileName, maxBytes: maxTraceBytes);
   }
 
@@ -140,7 +141,7 @@ class NarouAuthDiagnosticsLogger {
         .then((_) => _append(line, fileName: fileName, maxBytes: maxBytes))
         .catchError((Object error) {
           _consoleSink(
-            '[NarouAuthDiagnostics] fileWriteFailed '
+            '[NoveltyDiagnostics] fileWriteFailed '
             'type=${error.runtimeType}',
           );
         });
@@ -168,5 +169,20 @@ class NarouAuthDiagnosticsLogger {
   }
 }
 
-/// アプリ内で共有するなろう認証診断ロガー。
-final narouAuthDiagnosticsLogger = NarouAuthDiagnosticsLogger();
+/// なろう認証サービスとの互換型名。
+typedef NarouAuthDiagnosticsLogger = AppDiagnosticsLogger;
+
+/// アプリ内で共有する診断ロガー。
+final appDiagnosticsLogger = AppDiagnosticsLogger();
+
+/// 認証・同期・取得処理で共有する診断ログ。
+final appDiagnosticsLoggerProvider = Provider<AppDiagnosticsLogger>(
+  (ref) => appDiagnosticsLogger,
+);
+
+/// 既存のなろう認証コードと診断ログ参照先との互換エイリアス。
+final AppDiagnosticsLogger narouAuthDiagnosticsLogger = appDiagnosticsLogger;
+
+/// 既存のなろう認証コードとの互換プロバイダー。
+final Provider<AppDiagnosticsLogger> narouAuthDiagnosticsLoggerProvider =
+    appDiagnosticsLoggerProvider;
