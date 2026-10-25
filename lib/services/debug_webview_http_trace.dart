@@ -116,6 +116,8 @@ class DebugWebViewHttpTrace {
     };
     final url = fields['url']?.toString();
     if (url == null || !_isTrustedUrl(url)) return;
+    final responseUrl = fields['responseUrl']?.toString();
+    if (responseUrl != null && !_isTrustedUrl(responseUrl)) return;
 
     final phase = fields['phase'];
     final eventName = switch (phase) {

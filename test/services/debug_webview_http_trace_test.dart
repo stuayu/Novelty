@@ -91,6 +91,35 @@ void main() {
     expect(File(tracePath!).existsSync(), isFalse);
   });
 
+  test('許可サイトから第三者ホストへ転送された応答本文はTraceに出さない', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'novelty-debug-webview-redirect-filter-test-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final diagnostics = AppDiagnosticsLogger(
+      enabled: true,
+      directoryResolver: () async => directory,
+      consoleSink: (_) {},
+    );
+    final recordEvent = DebugWebViewHttpTrace(
+      diagnostics: diagnostics,
+      source: NovelSource.kakuyomu,
+    ).recordJavaScriptEvent;
+    recordEvent(<String, Object?>{
+      'phase': 'response',
+      'requestId': 'fetch-redirect',
+      'method': 'GET',
+      'url': 'https://kakuyomu.jp/auth/redirect',
+      'responseUrl': 'https://accounts.example.test/login',
+      'statusCode': 200,
+      'responseData': 'third-party-response',
+    });
+    await diagnostics.flush();
+
+    final tracePath = await diagnostics.traceLogFilePath();
+    expect(File(tracePath!).existsSync(), isFalse);
+  });
+
   test('WebView通信エラーTraceに要求とHTTP応答の情報を記録する', () async {
     final directory = await Directory.systemTemp.createTemp(
       'novelty-debug-webview-error-trace-test-',
