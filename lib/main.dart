@@ -15,6 +15,7 @@ import 'package:novelty/screens/migration_recovery_screen.dart';
 import 'package:novelty/services/backup_service.dart';
 import 'package:novelty/utils/font_family.dart';
 import 'package:novelty/utils/settings_provider.dart';
+import 'package:novelty/widgets/adaptive_display_layout_scope.dart';
 import 'package:novelty/widgets/network_fallback_snackbar.dart';
 
 export 'package:novelty/database/database_initialization.dart';
@@ -320,9 +321,11 @@ class _AppWithSettings extends ConsumerWidget {
               fontFamily: appUiFontFamily,
             ),
             routerConfig: router,
-            builder: (context, child) => ImportSwapResultHandler(
-              child: DatabaseMaintenanceOverlay(
-                child: NetworkFallbackSnackbar(child: child!),
+            builder: (context, child) => AdaptiveDisplayLayoutScope(
+              child: ImportSwapResultHandler(
+                child: DatabaseMaintenanceOverlay(
+                  child: NetworkFallbackSnackbar(child: child!),
+                ),
               ),
             ),
           );

@@ -160,6 +160,42 @@ void main() {
     expect(find.byType(NovelContentView), findsOneWidget);
   });
 
+  testWidgets('広い画面でも横書き本文の幅を読みやすい長さに保つこと', (tester) async {
+    addTearDown(tester.view.reset);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1200, 900);
+
+    await pumpWidget(
+      tester,
+      contentValue: AsyncData(testContent),
+      settingsValue: AsyncData(defaultTestSettings.copyWith(isVertical: false)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byKey(const Key('novel-reading-column'))).width,
+      760,
+    );
+  });
+
+  testWidgets('通常のiPhoneでは横書き本文を画面幅に合わせること', (tester) async {
+    addTearDown(tester.view.reset);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+
+    await pumpWidget(
+      tester,
+      contentValue: AsyncData(testContent),
+      settingsValue: AsyncData(defaultTestSettings.copyWith(isVertical: false)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byKey(const Key('novel-reading-column'))).width,
+      358,
+    );
+  });
+
   testWidgets('ウィジェット破棄時にUIモードがリセットされること', (tester) async {
     await pumpWidget(
       tester,

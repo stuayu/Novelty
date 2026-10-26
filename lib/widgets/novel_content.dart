@@ -8,6 +8,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:narou_parser/narou_parser.dart';
 import 'package:novelty/repositories/novel_repository.dart';
 import 'package:novelty/sites/novel_source.dart';
+import 'package:novelty/utils/adaptive_display_layout.dart';
 import 'package:novelty/utils/font_family.dart';
 import 'package:novelty/utils/settings_provider.dart';
 import 'package:novelty/utils/tategaki_converter.dart';
@@ -218,14 +219,27 @@ class NovelContentBody extends HookWidget {
                 'novel_horizontal_${workId}_$episode',
               ),
               padding: horizontalModePadding,
-              child: RepaintBoundary(
-                child: DefaultTextStyle(
-                  style: textStyle,
-                  child: NovelContentView(
-                    elements: contentData,
-                    isRubyEnabled: settingsData.isRubyEnabled,
-                  ),
-                ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final columnWidth = AdaptiveDisplayLayout.readingColumnWidth(
+                    constraints.maxWidth,
+                  );
+                  return Center(
+                    child: SizedBox(
+                      key: const ValueKey('novel-reading-column'),
+                      width: columnWidth,
+                      child: RepaintBoundary(
+                        child: DefaultTextStyle(
+                          style: textStyle,
+                          child: NovelContentView(
+                            elements: contentData,
+                            isRubyEnabled: settingsData.isRubyEnabled,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             );
           },
