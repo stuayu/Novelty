@@ -244,7 +244,7 @@ jobs:
             build/app/outputs/flutter-apk/app-x86_64-release.apk
 
   ios-build-check:
-    runs-on: macos-latest
+    runs-on: xcode-27
     needs: release
 
     steps:
@@ -252,6 +252,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.release.outputs.tag_name }}
+
+      - name: Select Xcode 27.1
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_27.1.0.app/Contents/Developer
+          xcodebuild -version
+          test "$(xcodebuild -version | head -n 1 | awk '{print $2}')" = "27.1"
+          xcrun --sdk iphoneos --show-sdk-version
 
       - name: Setup mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
