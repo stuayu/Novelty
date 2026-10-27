@@ -31,12 +31,6 @@ final hamelnAuthServiceProvider = Provider<HamelnAuthService>((ref) {
   );
 });
 
-/// ログイン済みのときだけ発行されるCookie名。
-///
-/// 実機のログイン済みブラウザで確認した値。`uaid` や `cf_clearance` は
-/// 未ログインでも付くため、ログインの判定には使わない。
-const _loginCookieNames = <String>{'autologin', 'sson'};
-
 /// ハーメルンのフォームPOSTログインとセッション管理。
 class HamelnAuthService {
   /// コンストラクタ。
@@ -72,7 +66,7 @@ class HamelnAuthService {
   /// ログインセッション用のCookieが含まれるかで判定する。
   Future<bool> isSessionValid() async {
     final cookies = await _sessionRepository.getCookies();
-    return cookies.keys.any(_loginCookieNames.contains);
+    return cookies.keys.any(hamelnLoginCookieNames.contains);
   }
 
   /// 指定されたスナップショットCookieがログイン用Cookieを含むか確認する。
@@ -80,7 +74,7 @@ class HamelnAuthService {
       cookieHeader.split(';').any((cookie) {
         final separator = cookie.indexOf('=');
         if (separator <= 0) return false;
-        return _loginCookieNames.contains(
+        return hamelnLoginCookieNames.contains(
           cookie.substring(0, separator).trim(),
         );
       });

@@ -29,6 +29,19 @@ class _MemoryRepository extends FormAuthSessionRepository {
   Future<void> clearAll() async => cookies = {};
 }
 
+class _SaveCountingRepository extends _MemoryRepository {
+  int saveCount = 0;
+
+  @override
+  Future<void> saveSession({
+    required String accountId,
+    required Map<String, String> cookies,
+  }) async {
+    saveCount++;
+    await super.saveSession(accountId: accountId, cookies: cookies);
+  }
+}
+
 void main() {
   test('WebViewのハーメルン配下Cookieを名前で限定せず保存する', () async {
     final repository = _MemoryRepository();
@@ -64,6 +77,7 @@ void main() {
     final restored = <Cookie>[];
     final service = HamelnWebCookieService(
       sessionRepository: repository,
+      cookieReader: (url) async => [],
       cookieSetter: (cookie) async {
         restored.add(cookie);
       },
@@ -102,5 +116,96 @@ void main() {
     await service.clearWebViewCookies();
 
     expect(deleted, ['cf_clearance', 'opaque_session']);
+  });
+
+  test('WebViewにログインCookieがあれば保存済みの古い値で上書きしない', () async {
+    final repository = _MemoryRepository()
+      ..cookies = {'autologin': 'old', 'sson': 'old'};
+    final restored = <Cookie>[];
+    final service = HamelnWebCookieService(
+      sessionRepository: repository,
+      cookieReader: (url) async => [
+        Cookie(name: 'autologin', value: 'fresh', domain: '.syosetu.org'),
+      ],
+      cookieSetter: (cookie) async {
+        restored.add(cookie);
+      },
+    );
+
+    await service.restoreToWebView();
+
+    expect(restored, isEmpty);
+  });
+
+  test('WebViewが未ログインならCloudflare用Cookie以外を復元する', () async {
+    final repository = _MemoryRepository()
+      ..cookies = {
+        'autologin': 'saved',
+        'cf_clearance': 'stale',
+        '__cf_bm': 'stale',
+        '_cfuvid': 'stale',
+      };
+    final restored = <Cookie>[];
+    final service = HamelnWebCookieService(
+      sessionRepository: repository,
+      cookieReader: (url) async => [
+        Cookie(name: 'uaid', value: 'guest', domain: '.syosetu.org'),
+      ],
+      cookieSetter: (cookie) async {
+        restored.add(cookie);
+      },
+    );
+
+    await service.restoreToWebView();
+
+    expect(restored.map((cookie) => cookie.name), ['autologin']);
+  });
+
+  group('refreshSessionFromWebView', () {
+    test('WebViewで更新されたログインCookieを保存し直す', () async {
+      final repository = _MemoryRepository()
+        ..cookies = {'autologin': 'old', 'sson': 'old'};
+      final service = HamelnWebCookieService(
+        sessionRepository: repository,
+        cookieReader: (url) async => [
+          Cookie(name: 'autologin', value: 'new', domain: '.syosetu.org'),
+          Cookie(name: 'sson', value: 'new', domain: 'syosetu.org'),
+          Cookie(name: 'other', value: 'x', domain: 'example.com'),
+        ],
+      );
+
+      expect(await service.refreshSessionFromWebView(), isTrue);
+
+      expect(repository.cookies, {'autologin': 'new', 'sson': 'new'});
+    });
+
+    test('WebViewが未ログイン状態なら保存済みCookieを残す', () async {
+      final repository = _MemoryRepository()..cookies = {'autologin': 'saved'};
+      final service = HamelnWebCookieService(
+        sessionRepository: repository,
+        cookieReader: (url) async => [
+          Cookie(name: 'uaid', value: 'guest', domain: '.syosetu.org'),
+        ],
+      );
+
+      expect(await service.refreshSessionFromWebView(), isFalse);
+
+      expect(repository.cookies, {'autologin': 'saved'});
+    });
+
+    test('値が変わっていなければ保存しない', () async {
+      final repository = _SaveCountingRepository()
+        ..cookies = {'autologin': 'same'};
+      final service = HamelnWebCookieService(
+        sessionRepository: repository,
+        cookieReader: (url) async => [
+          Cookie(name: 'autologin', value: 'same', domain: '.syosetu.org'),
+        ],
+      );
+
+      expect(await service.refreshSessionFromWebView(), isFalse);
+
+      expect(repository.saveCount, 0);
+    });
   });
 }

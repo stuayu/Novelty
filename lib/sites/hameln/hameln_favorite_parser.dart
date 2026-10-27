@@ -11,6 +11,17 @@ class HamelnFavoriteParser {
 
   static final _zeroFavoritesPattern = RegExp(r'一覧\s*[：:]\s*0件');
 
+  /// ログイン切れでお気に入りの代わりにログイン画面が返ったか判定する。
+  bool isLoginPage(String html) {
+    final document = html_parser.parse(html);
+    // 一覧があるページはログイン済みとみなす。
+    if (document.querySelector('#favo_list, .favo_list') != null) return false;
+    return document.querySelector(
+          'form input[name="mode"][value="login_entry_end"]',
+        ) !=
+        null;
+  }
+
   /// お気に入りページのHTMLから作品一覧を取得する。
   List<RemoteLibraryEntry> parse(String html) {
     final document = html_parser.parse(html);

@@ -35,6 +35,17 @@ class _MemorySessionRepository extends FormAuthSessionRepository {
   Future<String?> getAccountId() async => 'reader-id';
 
   @override
+  Future<void> saveSession({
+    required String accountId,
+    required Map<String, String> cookies,
+  }) async {
+    cookieHeader = cookies.entries
+        .map((entry) => '${entry.key}=${entry.value}')
+        .join('; ');
+    generation++;
+  }
+
+  @override
   Future<FormAuthSessionSnapshot?> getSessionSnapshot() async {
     final current = cookieHeader;
     if (current == null) return null;
@@ -128,6 +139,7 @@ void main() {
       _FavoritesHttpAdapter httpAdapter,
       _MemorySessionRepository repository, {
       List<Cookie>? restoredCookies,
+      List<Cookie> webViewCookies = const [],
     }) {
       final dio = Dio()..httpClientAdapter = httpAdapter;
       final site = HamelnSite(
@@ -136,6 +148,7 @@ void main() {
       );
       final webCookieService = HamelnWebCookieService(
         sessionRepository: repository,
+        cookieReader: (url) async => webViewCookies,
         cookieSetter: (cookie) async {
           restoredCookies?.add(cookie);
         },
@@ -255,6 +268,44 @@ void main() {
       );
 
       expect(repository.cookieHeader, 'autologin=valid; sson=valid');
+    });
+
+    test('お気に入りの代わりにログイン画面が返ればセッション切れとして扱う', () async {
+      final repository = _MemorySessionRepository();
+      final adapter = buildAdapter(
+        _FavoritesHttpAdapter(fixture('login.html')),
+        repository,
+      );
+
+      await expectLater(
+        adapter.pullLibrary(),
+        throwsA(
+          isA<AccountSessionExpiredException>().having(
+            (error) => error.clearSessionOnCatch,
+            'clearSessionOnCatch',
+            isFalse,
+          ),
+        ),
+      );
+
+      expect(repository.cleared, isFalse);
+    });
+
+    test('取り込み後にWebViewで更新されたログインCookieを保存し直す', () async {
+      final repository = _MemorySessionRepository();
+      final adapter = buildAdapter(
+        _FavoritesHttpAdapter(fixture('favorites.html')),
+        repository,
+        webViewCookies: [
+          Cookie(name: 'autologin', value: 'rotated', domain: '.syosetu.org'),
+          Cookie(name: 'sson', value: 'rotated', domain: '.syosetu.org'),
+        ],
+      );
+
+      expect(await adapter.pullLibrary(), 1);
+
+      expect(repository.cookieHeader, 'autologin=rotated; sson=rotated');
+      expect(await db.isInLibrary(NovelSource.hameln, '429419'), isTrue);
     });
   });
 }

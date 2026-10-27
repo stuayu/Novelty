@@ -82,7 +82,10 @@ class HamelnAccountSyncAdapter extends FormAccountSyncAdapter {
           );
         },
       );
-      if (imported) return importedCount;
+      if (imported) {
+        await _refreshSavedCookies();
+        return importedCount;
+      }
 
       final latest = await sessionRepository.getSessionSnapshot();
       if (latest == null) {
@@ -114,12 +117,32 @@ class HamelnAccountSyncAdapter extends FormAccountSyncAdapter {
       }
       rethrow;
     }
+    if (_parser.isLoginPage(html)) {
+      // サイト側でログインが切れている。保存済みCookieでは復旧できないため
+      // 再ログインを促す。
+      throw const AccountSessionExpiredException(
+        clearSessionOnCatch: false,
+      );
+    }
     try {
       return _parser.parse(html);
     } on FormatException catch (error) {
       throw FormatException(
         'ハーメルンのお気に入り一覧を解析できません: ${error.message}',
       );
+    }
+  }
+
+  /// サイトが更新したログインCookieを次回の同期で使えるよう保存し直す。
+  ///
+  /// 保存に失敗しても取り込み結果は有効なため、同期は失敗させない。
+  Future<void> _refreshSavedCookies() async {
+    try {
+      if (await _webCookieService.refreshSessionFromWebView()) {
+        debugPrint('[HamelnSync] 更新されたログインCookieを保存しました');
+      }
+    } on Object catch (error) {
+      debugPrint('[HamelnSync] ログインCookieを保存し直せません: $error');
     }
   }
 
