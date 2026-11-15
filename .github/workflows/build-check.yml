@@ -164,3 +164,88 @@ jobs:
           name: ios-${{ matrix.mode }}-ipa
           path: build/ios/iphoneos/Runner.ipa
           retention-days: 14
+
+  macos-build:
+    runs-on: xcode-27
+    strategy:
+      matrix:
+        mode: [debug, release]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Select Xcode 27.1
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_27.1.0.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Setup mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          cache: true
+          install_args: flutter
+
+      - name: Get Flutter packages
+        run: mise exec -- flutter pub get
+
+      - name: Run code generation
+        run: mise exec -- dart run build_runner build
+
+      - name: Build macOS (${{ matrix.mode }}, unsigned)
+        # Keychain共有グループの署名にはプロファイルが必要なため、CIでは署名せずにビルドする
+        run: |
+          mise exec -- flutter build macos --${{ matrix.mode }} --config-only
+          configuration="$(echo '${{ matrix.mode }}' | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
+          xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner \
+            -configuration "$configuration" \
+            -derivedDataPath build/macos-ci \
+            CODE_SIGNING_ALLOWED=NO build
+          ditto -c -k --keepParent \
+            "build/macos-ci/Build/Products/$configuration/novelty.app" \
+            build/novelty-macos-${{ matrix.mode }}.zip
+
+      - name: Upload macOS ${{ matrix.mode }} build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-${{ matrix.mode }}-app
+          path: build/novelty-macos-${{ matrix.mode }}.zip
+          retention-days: 14
+
+  windows-build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        mode: [debug, release]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          cache: true
+          install_args: flutter
+
+      - name: Get Flutter packages
+        run: mise exec -- flutter pub get
+
+      - name: Run code generation
+        run: mise exec -- dart run build_runner build
+
+      - name: Build Windows (${{ matrix.mode }})
+        run: mise exec -- flutter build windows --${{ matrix.mode }}
+
+      - name: Package Windows ${{ matrix.mode }} build
+        shell: pwsh
+        run: |
+          $dir = if ('${{ matrix.mode }}' -eq 'release') { 'Release' } else { 'Debug' }
+          Compress-Archive -Path "build/windows/x64/runner/$dir/*" -DestinationPath "build/novelty-windows-${{ matrix.mode }}.zip"
+
+      - name: Upload Windows ${{ matrix.mode }} build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-${{ matrix.mode }}-app
+          path: build/novelty-windows-${{ matrix.mode }}.zip
+          retention-days: 14

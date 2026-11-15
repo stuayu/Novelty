@@ -270,3 +270,86 @@ jobs:
 
       - name: Build iOS (unsigned, verification only)
         run: mise exec -- flutter build ios --release --no-codesign
+
+  macos-release:
+    runs-on: xcode-27
+    needs: release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release.outputs.tag_name }}
+
+      - name: Select Xcode 27.1
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_27.1.0.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Setup mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          cache: true
+          install_args: flutter
+
+      - name: Get Flutter packages
+        run: mise exec -- flutter pub get
+
+      - name: Run code generation
+        run: mise exec -- dart run build_runner build
+
+      - name: Build macOS (release, ad-hoc signed)
+        # Developer ID証明書がないため、署名せずにビルドしてからad-hoc署名する
+        run: |
+          mise exec -- flutter build macos --release --config-only
+          xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner \
+            -configuration Release \
+            -derivedDataPath build/macos-ci \
+            CODE_SIGNING_ALLOWED=NO build
+          app=build/macos-ci/Build/Products/Release/novelty.app
+          codesign --force --deep --sign - "$app"
+          ditto -c -k --keepParent "$app" build/novelty-macos-unsigned.zip
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload ${{ needs.release.outputs.tag_name }} \
+            build/novelty-macos-unsigned.zip --clobber
+
+  windows-release:
+    runs-on: windows-latest
+    needs: release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release.outputs.tag_name }}
+
+      - name: Setup mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          cache: true
+          install_args: flutter
+
+      - name: Get Flutter packages
+        run: mise exec -- flutter pub get
+
+      - name: Run code generation
+        run: mise exec -- dart run build_runner build
+
+      - name: Build Windows (release)
+        run: mise exec -- flutter build windows --release
+
+      - name: Package and upload to GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "build/novelty-windows-x64.zip"
+          gh release upload ${{ needs.release.outputs.tag_name }} build/novelty-windows-x64.zip --clobber
