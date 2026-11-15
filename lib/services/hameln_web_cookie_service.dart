@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:novelty/repositories/form_auth_session_repository.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/novel_source.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -60,9 +61,14 @@ class HamelnWebCookieService {
   /// Cloudflare用CookieはUser-AgentやIPに紐づき短時間で失効するため戻さない。
   Future<void> restoreToWebView() async {
     final webViewCookies = await _readHamelnCookiesOrEmpty();
+    final cookies = await _sessionRepository.getCookies();
+    _debugCookieNames('restore', <String, Object?>{
+      'webViewNames': webViewCookies.keys.toList(),
+      'savedNames': cookies.keys.toList(),
+      'skipped': _containsLoginCookie(webViewCookies.keys),
+    });
     if (_containsLoginCookie(webViewCookies.keys)) return;
 
-    final cookies = await _sessionRepository.getCookies();
     for (final entry in cookies.entries) {
       if (_isCloudflareCookie(entry.key)) continue;
       await _setCookie(
@@ -97,6 +103,10 @@ class HamelnWebCookieService {
   /// WebViewのハーメルン配下にある全Cookieを保存する。
   Future<Map<String, String>> captureFromWebView() async {
     final values = await _readHamelnCookies();
+    _debugCookieNames('capture', <String, Object?>{
+      'names': values.keys.toList(),
+      'hasLoginCookie': _containsLoginCookie(values.keys),
+    });
 
     await _sessionRepository.saveSession(
       accountId: await _sessionRepository.getAccountId() ?? '',
@@ -116,7 +126,23 @@ class HamelnWebCookieService {
 
   Future<Map<String, String>> _readHamelnCookies() async {
     final values = <String, String>{};
-    for (final cookie in await _readCookies()) {
+    final all = await _readCookies();
+    // 調査用: 値を除いたCookie属性を記録する。
+    _debugCookieNames('read', <String, Object?>{
+      'cookies': [
+        for (final cookie in all)
+          <String, Object?>{
+            'name': cookie.name,
+            'domain': cookie.domain,
+            'path': cookie.path,
+            'expiresDate': cookie.expiresDate,
+            'isSessionOnly': cookie.isSessionOnly,
+            'isHttpOnly': cookie.isHttpOnly,
+            'belongs': _belongsToHameln(cookie.domain),
+          },
+      ],
+    });
+    for (final cookie in all) {
       if (!_belongsToHameln(cookie.domain)) continue;
       values[cookie.name] = cookie.value.toString();
     }
@@ -131,6 +157,15 @@ class HamelnWebCookieService {
       debugPrint('[HamelnCookie] WebView Cookieを読めません: $error');
       return const {};
     }
+  }
+
+  // 調査用: Cookie名と属性だけを診断ログへ記録する。
+  void _debugCookieNames(String stage, Map<String, Object?> fields) {
+    appDiagnosticsLogger.record(
+      appDiagnosticsLogger.createOperationId(),
+      'hameln.cookie.$stage',
+      fields,
+    );
   }
 
   bool _containsLoginCookie(Iterable<String> names) =>

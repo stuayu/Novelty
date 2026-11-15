@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:novelty/models/account_auth_state.dart';
 import 'package:novelty/repositories/form_auth_session_repository.dart';
 import 'package:novelty/services/form_post_auth_service.dart';
+import 'package:novelty/services/narou_auth_diagnostics.dart';
 import 'package:novelty/sites/account_sync_adapter.dart';
 import 'package:novelty/sites/novel_source.dart';
 
@@ -54,6 +55,19 @@ class FormAccountSyncAdapter implements AccountSyncAdapter {
           : await _validateSession!(snapshot.cookieHeader)
           ? FormAuthSessionValidity.valid
           : FormAuthSessionValidity.invalid;
+      // 調査用: 判定結果と保存Cookie名を記録する。
+      appDiagnosticsLogger.record(
+        appDiagnosticsLogger.createOperationId(),
+        'form-auth.state.validated',
+        <String, Object?>{
+          'source': source.dbId,
+          'validity': validity.name,
+          'cookieNames': [
+            for (final cookie in snapshot.cookieHeader.split(';'))
+              cookie.split('=').first.trim(),
+          ],
+        },
+      );
       final current = await _sessionRepository.getSessionSnapshot();
       if (current == null ||
           current.generation != snapshot.generation ||
