@@ -786,18 +786,6 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
           as _i5.Stream<_i3.EpisodeData?>);
 
   @override
-  _i5.Stream<_i3.EpisodeData?> watchEpisodeEntity(
-    _i12.NovelSource? source,
-    String? workId,
-    int? episodeId,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#watchEpisodeEntity, [source, workId, episodeId]),
-            returnValue: _i5.Stream<_i3.EpisodeData?>.empty(),
-          )
-          as _i5.Stream<_i3.EpisodeData?>);
-
-  @override
   _i5.Future<List<_i7.Episode>> getEpisodes(
     _i12.NovelSource? source,
     String? workId,
@@ -1643,19 +1631,6 @@ class MockNovelRepository extends _i1.Mock implements _i17.NovelRepository {
           as _i5.Future<List<_i14.NovelContentElement>>);
 
   @override
-  _i5.Future<void> downloadEpisode(
-    _i12.NovelSource? source,
-    String? workId,
-    int? episode,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#downloadEpisode, [source, workId, episode]),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
-          )
-          as _i5.Future<void>);
-
-  @override
   _i5.Future<void> downloadNovel(
     _i12.NovelSource? source,
     String? workId,
@@ -1696,18 +1671,6 @@ class MockNovelRepository extends _i1.Mock implements _i17.NovelRepository {
             returnValueForMissingStub: _i5.Future<void>.value(),
           )
           as _i5.Future<void>);
-
-  @override
-  _i5.Stream<bool> isEpisodeDownloaded(
-    _i12.NovelSource? source,
-    String? workId,
-    int? episode,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#isEpisodeDownloaded, [source, workId, episode]),
-            returnValue: _i5.Stream<bool>.empty(),
-          )
-          as _i5.Stream<bool>);
 
   @override
   _i5.Future<_i10.DownloadResult> downloadNovelWithResult(

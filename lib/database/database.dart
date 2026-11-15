@@ -1984,16 +1984,6 @@ class AppDatabase extends _$AppDatabase {
     ).watchSingleOrNull();
   }
 
-  /// 特定エピソードのデータ（目次 + 本文）を監視
-  @Deprecated('watchEpisodeDataを使用してください')
-  Stream<EpisodeData?> watchEpisodeEntity(
-    NovelSource source,
-    String workId,
-    int episodeId,
-  ) {
-    return watchEpisodeData(source, workId, episodeId);
-  }
-
   /// 目次と本文を結合したエピソードデータを取得するSELECT
   Selectable<EpisodeData> _episodeDataSelect(
     NovelSource source,

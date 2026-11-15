@@ -2,63 +2,35 @@
 import Layout from '../layouts/Layout.astro';
 import Navbar from '../components/Navbar.astro';
 import Footer from '../components/Footer.astro';
+import { getCollection, getEntry } from 'astro:content';
 
-const qas = [
-  {
-    question: "「小説家になろう」のアカウントでログインできますか？（ブックマーク連携はできますか？）",
-    answer: "現在、Novelty はプライバシー保護とセキュリティの観点から、公式サイトへのログイン機能やブックマークの直接同期機能は提供していません。\nその代わり、強力な検索機能やローカルでのライブラリ管理、バックアップ機能を提供しています。"
-  },
-  {
-    question: "iOS(iPhone/iPad)版はありますか？",
-    answer: "技術的には対応しており、ソースコードからビルドすることで基本的な動作は可能なはずですが、動作確認が取れていません。\nApp Store での公開も現在未定です。\n将来的には対応を検討しています。"
-  },
-  {
-    question: "「カクヨム」や「ハーメルン」など、他の小説サイトには対応していますか？",
-    answer: "現時点では「小説家になろう」専用のクライアントとして、最高の体験を提供することに集中しています。\n他のサイトへの対応は将来的な検討事項です。"
-  },
-  {
-    question: "アプリ内に広告は表示されますか？",
-    answer: "一切表示されません。(作者本人が表示されてほしくありません。)\n読書への没入感を最優先し、余計なネットワーク通信をすべて排除しているため、今後も広告を導入する予定はありません。"
-  },
-  {
-    question: "オフラインで読むことはできますか？",
-    answer: "はい、可能です。\n小説をダウンロードすることで、インターネット接続がない環境でも快適に読むことができます。"
-  },
-  {
-    question: "縦書き表示には対応していますか？",
-    answer: "はい、対応しています。\n設定から「縦書き」モードに切り替えることで、文庫本のような縦書きスタイルで閲覧できます。\nフォントや文字サイズの変更も可能です。"
-  },
-  {
-    question: "データのバックアップは可能ですか？",
-    answer: "はい、設定の「データとストレージ」から、ライブラリや閲覧履歴を含むすべてのデータをファイルとして書き出し（エクスポート）、復元（インポート）することができます。"
-  },
-  {
-    question: "推奨環境や対応プラットフォームを教えてください。",
-    answer: "現在はAndroidを主対象として開発および動作確認を行っています。\nWindows、macOS、Linuxでもビルド・動作可能ですが、レイアウトの最適化はAndroidが優先されています。"
-  },
-  {
-    question: "アプリのインストール・アップデート方法は？",
-    answer: "インストールやその後のアップデート管理には、オープンソースのアプリストア「<a href='https://obtainium.imranr.dev/' target='_blank' rel='noopener noreferrer'>Obtainium</a>」の利用を推奨しています。\nGitHub Releases から直接、最新版の検知とインストールを自動化できます。"
-  }
-];
+// ページ文面・FAQはJSONコンテンツが真実。ここに直書きしない。
+const helpMeta = await getEntry('pages', 'help');
+if (!helpMeta) throw new Error('help page content is missing');
+const faqs = (await getCollection('faq')).sort((a, b) => a.data.order - b.data.order);
+
+// 構造化データ用に回答HTMLからタグを落として平文にする。
+const plainText = (html: string) =>
+  html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 
 const schema = {
   "@context": "https://schema.org",
   "@type": "FAQPage",
-  "mainEntity": qas.map(qa => ({
+  "mainEntity": faqs.map(faq => ({
     "@type": "Question",
-    "name": qa.question,
+    "name": faq.data.question,
     "acceptedAnswer": {
       "@type": "Answer",
-      "text": qa.answer
+      "text": plainText(faq.data.answer)
     }
   }))
 };
 ---
 
 <Layout 
-  title="よくある質問 - Novelty"
-  description="Noveltyに関するよくある質問（FAQ）と回答をまとめています。推奨環境、インストール方法、機能についてなど。"
+  title={helpMeta.data.title}
+  description={helpMeta.data.description}
+  image={helpMeta.data.image}
 >
   <script type="application/ld+json" slot="head" set:html={JSON.stringify(schema)} />
   <Navbar />
@@ -66,15 +38,15 @@ const schema = {
     <h1 class="page-title">よくある質問</h1>
     
     <div class="qa-list">
-      {qas.map((qa) => (
+      {faqs.map((faq) => (
         <div class="qa-item">
           <h3 class="question">
             <span class="q-mark">Q.</span>
-            <span class="q-text">{qa.question}</span>
+            <span class="q-text">{faq.data.question}</span>
           </h3>
           <div class="answer">
             <span class="a-mark">A.</span>
-            <div class="a-text" set:html={qa.answer} />
+            <div class="a-text" set:html={faq.data.answer} />
           </div>
         </div>
       ))}
@@ -93,24 +65,25 @@ const schema = {
   }
 
   .page-title {
-    font-size: 1.875rem; /* 3xl */
+    font-size: 1.875rem;
     font-weight: 700;
     text-align: center;
-    margin-bottom: 3rem; /* mb-12 */
-    color: var(--color-base-content);
+    margin-bottom: 3rem;
+    color: var(--text-primary);
   }
 
   /* QA List */
   .qa-list {
     display: flex;
     flex-direction: column;
-    gap: 2rem; /* space-y-8 */
+    gap: 1.5rem;
   }
 
   .qa-item {
-    background-color: var(--color-base-200);
-    padding: 1.5rem; /* p-6 */
-    border-radius: 1rem; /* rounded-2xl */
+    background-color: var(--surface-raised);
+    border: 1px solid var(--border-subtle);
+    padding: 1.5rem;
+    border-radius: var(--radius-lg);
   }
 
   /* Question */
@@ -125,7 +98,7 @@ const schema = {
   }
 
   .q-mark {
-    color: var(--color-primary);
+    color: var(--brand-primary);
     font-size: 1.5rem; /* 2xl */
     font-weight: 900;
     line-height: 1;
@@ -140,13 +113,13 @@ const schema = {
     display: flex;
     align-items: flex-start;
     gap: 0.75rem;
-    color: color-mix(in srgb, var(--color-base-content) 80%, transparent);
-    line-height: 1.625; /* relaxed */
+    color: var(--text-secondary);
+    line-height: 1.8;
     white-space: pre-line;
   }
 
   .a-mark {
-    color: var(--color-secondary);
+    color: var(--brand-primary-hover);
     font-size: 1.5rem; /* 2xl */
     font-weight: 900;
     line-height: 1;
@@ -158,7 +131,7 @@ const schema = {
 
   /* Link styles within Answer */
   .a-text :global(a) {
-    color: var(--color-primary) !important;
+    color: var(--brand-primary) !important;
     text-decoration: underline !important;
     font-weight: 600;
   }

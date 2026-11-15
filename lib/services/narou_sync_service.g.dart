@@ -57,4 +57,4 @@ final class NarouSyncServiceProvider
   }
 }
 
-String _$narouSyncServiceHash() => r'5b560f84449fcc114fc7da2f31ed367606036599';
+String _$narouSyncServiceHash() => r'e364b947a4f5f5a56e98df212abcf0ddd3391f61';

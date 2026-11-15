@@ -23,6 +23,7 @@ class NovelContent extends HookConsumerWidget {
     required this.workId,
     required this.episode,
     this.revised,
+    this.isAppBarVisible = false,
     super.key,
   });
 
@@ -38,6 +39,13 @@ class NovelContent extends HookConsumerWidget {
   /// 改稿日時
   final String? revised;
 
+  /// AppBarが表示されているかどうか。
+  ///
+  /// `true` の場合、上部のセーフエリアはAppBarが確保するため
+  /// 本文側では上部のパディングを不要にする。
+  /// `false` の場合、本文側で上部のセーフエリアを確保する。
+  final bool isAppBarVisible;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
@@ -51,7 +59,7 @@ class NovelContent extends HookConsumerWidget {
     );
 
     return SafeArea(
-      top: false, // AppBarがあるので上は不要
+      top: !isAppBarVisible, // AppBarが表示されている場合は上は不要
       child: NovelContentBody(
         source: source,
         workId: workId,
@@ -128,6 +136,21 @@ class NovelContentBody extends HookWidget {
       };
     }, [settings]);
 
+    // 縦書き要素への変換をメモ化する。
+    // 同一のコンテンツ・ルビ設定なら同じリストインスタンスを返すことで、
+    // TategakiText / TategakiTextPaged 側のレイアウトキャッシュが有効になる。
+    final contentData = content.value;
+    final settingsData = settings.value;
+    final tategakiElements = useMemoized(
+      () => contentData == null
+          ? null
+          : TategakiConverter.convert(
+              contentData,
+              isRubyEnabled: settingsData?.isRubyEnabled ?? true,
+            ),
+      [contentData, settingsData?.isRubyEnabled],
+    );
+
     return settings.when(
       data: (settingsData) {
         return content.when(
@@ -164,11 +187,7 @@ class NovelContentBody extends HookWidget {
             );
 
             if (settingsData.isVertical) {
-              // NovelContentElementをTategakiElementに変換
-              final tategakiElements = TategakiConverter.convert(
-                contentData,
-                isRubyEnabled: settingsData.isRubyEnabled,
-              );
+              final elements = tategakiElements!;
 
               if (settingsData.isPageFlip) {
                 return LayoutBuilder(
@@ -179,7 +198,7 @@ class NovelContentBody extends HookWidget {
                         key: PageStorageKey<String>(
                           'novel_paged_${workId}_$episode',
                         ),
-                        tategakiElements,
+                        elements,
                         width: constraints.maxWidth,
                         height: constraints.maxHeight,
                         padding: verticalModePadding,
@@ -189,23 +208,23 @@ class NovelContentBody extends HookWidget {
                 );
               }
 
+              // スクロールモード: TategakiText が列単位の遅延レンダリングを行う
+              // （ListView.builder による無限リスト）。スクロール位置は
+              // PageStorageKey を介して TategakiText 内部の ListView に渡る。
               return Directionality(
                 textDirection: TextDirection.rtl,
-                child: SingleChildScrollView(
-                  key: PageStorageKey<String>(
-                    'novel_vertical_${workId}_$episode',
-                  ),
-                  scrollDirection: Axis.horizontal,
+                child: Padding(
                   padding: verticalModePadding,
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      return RepaintBoundary(
-                        child: DefaultTextStyle(
-                          style: textStyle,
-                          child: TategakiText(
-                            tategakiElements,
-                            height: constraints.maxHeight,
+                      return DefaultTextStyle(
+                        style: textStyle,
+                        child: TategakiText(
+                          elements,
+                          key: PageStorageKey<String>(
+                            'novel_vertical_${workId}_$episode',
                           ),
+                          height: constraints.maxHeight,
                         ),
                       );
                     },

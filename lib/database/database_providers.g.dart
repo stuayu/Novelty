@@ -109,52 +109,6 @@ final class LibraryNovelsProvider
 
 String _$libraryNovelsHash() => r'4952f444e5af721d95012127b1f1e8eb78458606';
 
-/// 閲覧履歴のリストを監視するプロバイダー。
-
-@ProviderFor(history)
-final historyProvider = HistoryProvider._();
-
-/// 閲覧履歴のリストを監視するプロバイダー。
-
-final class HistoryProvider
-    extends
-        $FunctionalProvider<
-          AsyncValue<List<HistoryData>>,
-          List<HistoryData>,
-          Stream<List<HistoryData>>
-        >
-    with
-        $FutureModifier<List<HistoryData>>,
-        $StreamProvider<List<HistoryData>> {
-  /// 閲覧履歴のリストを監視するプロバイダー。
-  HistoryProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'historyProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
-
-  @override
-  String debugGetCreateSourceHash() => _$historyHash();
-
-  @$internal
-  @override
-  $StreamProviderElement<List<HistoryData>> $createElement(
-    $ProviderPointer pointer,
-  ) => $StreamProviderElement(pointer);
-
-  @override
-  Stream<List<HistoryData>> create(Ref ref) {
-    return history(ref);
-  }
-}
-
-String _$historyHash() => r'd793d980061255cbc26364bb0e20d92252403a72';
-
 /// 現在時刻を提供するプロバイダー。主に履歴のグループ化に使用される。
 
 @ProviderFor(currentTime)

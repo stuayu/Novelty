@@ -747,18 +747,6 @@ class MockAppDatabase extends _i1.Mock implements _i3.AppDatabase {
           as _i5.Stream<_i3.EpisodeData?>);
 
   @override
-  _i5.Stream<_i3.EpisodeData?> watchEpisodeEntity(
-    _i7.NovelSource? source,
-    String? workId,
-    int? episodeId,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#watchEpisodeEntity, [source, workId, episodeId]),
-            returnValue: _i5.Stream<_i3.EpisodeData?>.empty(),
-          )
-          as _i5.Stream<_i3.EpisodeData?>);
-
-  @override
   _i5.Future<List<_i10.Episode>> getEpisodes(
     _i7.NovelSource? source,
     String? workId,
